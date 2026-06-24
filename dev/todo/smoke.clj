@@ -1,8 +1,10 @@
 (ns todo.smoke
-  (:require [todo.db :as db]
+  (:require [clojure.data.json :as json]
+            [todo.db :as db]
             [todo.repl :as repl]))
 
 (def smoke-db "smoke.sqlite")
+(def cli-smoke-db "smoke-cli.sqlite")
 
 (def seed-tasks
   [{:id "design" :title "Sketch task graph model" :attributes {:priority "high" :due-date "2026-07-01" :status "done"}}
@@ -26,12 +28,43 @@
 (defn ids [rows]
   (mapv :id rows))
 
+(defn delete-sqlite-family! [db-file]
+  (doseq [suffix ["" "-journal" "-wal" "-shm"]]
+    (.delete (java.io.File. (str db-file suffix)))))
+
+(defn run-cli! [db-file & args]
+  (let [command (into ["clojure" "-M:todo" "--db" db-file] args)
+        process (-> (ProcessBuilder. command)
+                    (.redirectErrorStream true)
+                    (.start))
+        output (slurp (.getInputStream process))
+        exit-code (.waitFor process)]
+    (assert (= 0 exit-code)
+            (str "CLI command succeeds: " (pr-str command) "\n" output))
+    output))
+
 (defn assert= [expected actual message]
   (assert (= expected actual)
           (str message "\nexpected: " (pr-str expected) "\nactual: " (pr-str actual))))
 
 (defn -main [& [db-file]]
-  (let [ds (db/datasource (or db-file smoke-db))]
+  (let [ds (db/datasource (or db-file smoke-db))
+        cli-db (if db-file (str db-file ".cli") cli-smoke-db)]
+    (delete-sqlite-family! cli-db)
+    (run-cli! cli-db "init")
+    (run-cli! cli-db "add" "design" "Sketch task graph model" "--attr" "priority=high" "--attr" "due-date=2026-07-01" "--attr" "status=done")
+    (run-cli! cli-db "add" "schema" "Create SQLite schema" "--attr" "priority=high" "--attr" "due-date=2026-07-02" "--attr" "status=todo")
+    (run-cli! cli-db "add" "docs" "Write usage notes" "--attr" "priority=low" "--attr" "due-date=2026-07-08" "--attr" "status=todo" "--attr" "owner=agent")
+    (run-cli! cli-db "link" "schema" "design" "depends-on" "--attr" "reason=schema follows model")
+    (run-cli! cli-db "link" "docs" "schema" "depends-on" "--attr" "reason=document real commands")
+    (assert= ["schema"] (ids (read-string (run-cli! cli-db "--format" "edn" "ready"))) "CLI process ready sees tasks with done dependencies")
+    (assert= ["docs"] (ids (json/read-str (run-cli! cli-db "--format" "json" "by-attr" "owner" "agent") :key-fn keyword)) "CLI process by-attr queries JSON1 task attributes")
+    (assert= ["design"] (ids (read-string (run-cli! cli-db "--format" "edn" "deps" "schema"))) "CLI process deps queries graph relationships")
+    (assert= ["design" "schema"] (ids (read-string (run-cli! cli-db "--format" "edn" "transitive-deps" "docs"))) "CLI process transitive-deps traverses graph relationships")
+    (run-cli! cli-db "done" "schema")
+    (assert= ["docs"] (ids (read-string (run-cli! cli-db "--format" "edn" "ready"))) "CLI process done updates status used by ready")
+    (section "agent CLI process ready" (read-string (run-cli! cli-db "--format" "edn" "ready")))
+    (section "agent CLI process by-attr owner=agent" (json/read-str (run-cli! cli-db "--format" "json" "by-attr" "owner" "agent") :key-fn keyword))
     (db/reset-db! ds)
     (doseq [task seed-tasks]
       (db/add-task! ds task))

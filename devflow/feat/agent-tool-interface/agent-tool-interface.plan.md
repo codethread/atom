@@ -102,3 +102,10 @@ Append notes here. Do not rewrite earlier notes.
 - REPL helper results normalize JSON-bearing columns to Clojure data so interactive callers do not need to know the storage encoding.
 - Smoke validation covers the exact public helper vocabulary, the concise open/init/task/dependency/status/ready flow, and the pre-open failure path.
 - Follow-up YAGNI pass simplified `todo.repl` to exact JSON columns and removed broad wrapper smoke assertions that duplicated the DB smoke coverage.
+
+### PLAN-001.DN6 Task 4 implementation — 2026-06-24
+
+- README now treats the CLI as the primary agent interface, with the REPL helpers as the interactive interface and the TUI as secondary.
+- Smoke validation now starts with an agent-facing subprocess CLI flow that creates tasks, links `depends-on` edges, marks status, and queries both JSON1 attributes and graph relationships before running the broader DB and REPL demonstrations.
+- Representative README CLI commands passed against a disposable `/tmp` SQLite database; generated smoke databases and `.repl` sidecars remain covered by the gitignore patterns.
+- YAGNI follow-up removed duplicate in-process CLI smoke coverage after the subprocess CLI path covered the published agent boundary directly.

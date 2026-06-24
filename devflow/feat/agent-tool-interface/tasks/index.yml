@@ -17,5 +17,5 @@ tasks:
   - id: 4
     description: Document and smoke agent workflows
     task_file: tasks/004-document-and-smoke-agent-workflows.md
-    status: pending
+    status: complete
     blocked_by: [2, 3]

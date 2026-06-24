@@ -1,4 +1,4 @@
 .cpcache/
 *.sqlite
 *.sqlite-*
-*.sqlite.repl
+*.sqlite.repl*
