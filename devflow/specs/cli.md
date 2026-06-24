@@ -3,92 +3,43 @@
 **Document ID:** `SPEC-002`
 **Status:** Implemented
 **Last Updated:** 2026-06-24
-**Related RFCs:** [RFC-001 Batch task refs](../rfcs/2026-06-24-batch-task-refs.md)
-**Code:** `src/todo`
-**Configuration identification:** `SPEC-002` is the second root spec in this repository. Every nested point ID is prefixed with `SPEC-002`.
+**Related RFCs:** [RFC-002 Task Query DSL](../rfcs/2026-06-24-task-query-dsl.md)
+**Code:** `src/todo/cli.clj`
 
 ## SPEC-002.P1 Purpose
 
-The CLI surface is the primary scripted interface for coding agents. It exposes task-model operations as deterministic shell commands with explicit database selection, repeatable attribute input, and machine-readable output modes.
+The CLI is the primary scripted interface for coding agents. It exposes a deliberately small task surface: initialize storage, create tasks, update tasks, inspect tasks, list tasks, and ask for ready work.
 
-## SPEC-002.P2 Goals
+## SPEC-002.P2 Interface
 
-- **SPEC-002.G1:** Let agents initialize, populate, update, and query a todo graph from shell commands.
-- **SPEC-002.G2:** Provide stable command names and argument shapes that are easy for agents to memorize and compose.
-- **SPEC-002.G3:** Support machine-readable EDN and JSON query output in addition to human-readable local output.
-- **SPEC-002.G4:** Fail loudly when command input is malformed instead of silently choosing defaults that hide mistakes.
+Entrypoint:
 
-## SPEC-002.P3 Non-goals
+```text
+clojure -M:todo [--db <path>] [--format human|edn|json] <command> [args]
+```
 
-- **SPEC-002.NG1:** The CLI is not a long-running daemon or network service.
-- **SPEC-002.NG2:** The CLI does not implement shell completion or an interactive prompt.
-- **SPEC-002.NG3:** The CLI does not expose every internal database helper; it exposes the stable operations agents need.
-- **SPEC-002.NG4:** The CLI does not parse typed JSON attribute values from `--attr`; shell-provided attributes are strings.
+Commands:
 
-## SPEC-002.P4 Domain concepts
+```text
+init
+add <title> [--status todo|done|failed|cancelled] [--attr key=value ...]
+update <id> [--title title] [--status todo|done|failed|cancelled] [--attr key=value ...] [--edge edge-type:to-id ...]
+show <id>
+list
+ready
+```
 
-- **SPEC-002.DC1:** CLI commands operate on the task model defined in [task-model.md](./task-model.md).
-- **SPEC-002.DC2:** A query command is a command whose result should be printed in the requested output format.
-- **SPEC-002.DC3:** A mutation command changes the database. Most mutation commands print output only when machine-readable formatting is explicitly requested; `add` prints the generated id in human mode so scripts and users can capture it.
-- **SPEC-002.DC4:** CLI attributes are supplied as repeated `--attr key=value` pairs after the command's positional arguments.
+## SPEC-002.P3 Contracts
 
-## SPEC-002.P5 Interfaces and contracts
+- **SPEC-002.C1:** `--db` selects the SQLite database path and defaults to `todo.sqlite`.
+- **SPEC-002.C2:** `--format` accepts `human`, `edn`, or `json` and defaults to `human`.
+- **SPEC-002.C3:** `add` creates a task with generated id, first-class status, timestamps, and string-valued CLI attributes.
+- **SPEC-002.C4:** `update` patches title, status, attributes, and task edges for one existing task.
+- **SPEC-002.C5:** `--edge edge-type:to-id` creates or updates an outgoing edge from the updated task to the target task.
+- **SPEC-002.C6:** `show`, `list`, and `ready` return task rows with normalized `attributes` in EDN/JSON output.
+- **SPEC-002.C7:** `ready` returns non-final tasks whose direct `depends-on` dependencies are all final.
+- **SPEC-002.C8:** Malformed options, invalid statuses, invalid edge targets, unknown commands, and database/domain errors fail non-zero.
 
-- **SPEC-002.IC1:** The CLI entrypoint is `clojure -M:todo [--db <path>] [--format human|edn|json] <command> [args]`.
-- **SPEC-002.IC2:** `--db <path>` selects the SQLite database path; when omitted, the CLI uses `todo.sqlite`.
-- **SPEC-002.IC3:** `--format <mode>` accepts `human`, `edn`, or `json`; invalid formats fail before command execution.
-- **SPEC-002.IC4:** Global options must appear before the command name.
-- **SPEC-002.IC5:** `--attr key=value` is repeatable for `add` and `link`; malformed attributes or misplaced attributes fail the command.
-- **SPEC-002.IC5A:** `--link edge-type:to-id` is repeatable for `add`; the last colon separates edge type from target id, generated target ids are colon-free, and malformed link values or nonexistent target ids fail the command. Use the full `link` command when linking to any legacy id that contains a colon.
-- **SPEC-002.IC6:** `init` takes no arguments and creates the schema in the selected database.
-- **SPEC-002.IC7:** `add <title> [--attr key=value ...] [--link edge-type:to-id ...]` creates a task with a generated id and string-valued CLI attributes. Human output prints the generated id; EDN/JSON output returns the created row.
-- **SPEC-002.IC7A:** Each creation-time `--link` creates an edge from the newly created task to the existing target task, with the supplied edge type and empty edge attributes. For example, `add "Review" --link depends-on:ue72w` is equivalent to creating `Review`, capturing its generated id, then calling `link <new-id> ue72w depends-on`.
-- **SPEC-002.IC7B:** `batch` reads exactly one EDN vector of task maps from standard input and creates all tasks and declared edges atomically. Each task map requires non-blank string `:title` and may include `:attributes`, symbolic `:ref`, and `:edges`. Unknown task or edge keys fail loudly.
-- **SPEC-002.IC7C:** Batch `:edges` is a vector of maps requiring non-blank string `:type` and `:to`. Symbol `:to` values resolve to batch-local refs; string `:to` values resolve to existing durable task ids; all other target types fail. Missing symbolic refs and nonexistent string task ids fail.
-- **SPEC-002.IC7D:** Batch task and edge `:attributes` must be nil or EDN maps that encode to JSON objects. Missing or nil attributes normalize to `{}`. Non-JSON-compatible EDN values fail before writes.
-- **SPEC-002.IC7E:** Successful machine-readable `batch` output returns `:created` task rows and `:refs` mapping string ref names to generated id strings. Human output prints generated ids in input order.
-- **SPEC-002.IC8:** `link <from-id> <to-id> <edge-type> [--attr key=value ...]` creates or updates an edge with string-valued CLI attributes. `<edge-type>` must be one of `depends-on`, `related-to`, `parent-of`, or `supersedes`; edges that would make the graph cyclic fail.
-- **SPEC-002.IC9:** `show <id>` returns one task row when the task exists; for a missing task it succeeds with `nil` in EDN/human output and `null` in JSON output.
-- **SPEC-002.IC10:** `list` returns all tasks ordered by id.
-- **SPEC-002.IC11:** `deps <id>` returns direct `depends-on` dependencies for the task.
-- **SPEC-002.IC12:** `transitive-deps <id>` returns recursive `depends-on` dependencies for the task.
-- **SPEC-002.IC13:** `blocking <id>` returns tasks directly blocked by the task.
-- **SPEC-002.IC14:** `ready` returns incomplete tasks whose direct `depends-on` dependencies are all done.
-- **SPEC-002.IC15:** `by-attr <key> <value>` returns tasks whose top-level JSON attribute matches the provided string value; the CLI does not currently parse numeric or boolean query values.
-- **SPEC-002.IC16:** `done <id>` sets the conventional task `status` attribute to `done`.
-- **SPEC-002.IC17:** Query output normalizes JSON-bearing columns such as `attributes` and `edge_attributes` into data structures before printing EDN or JSON.
-- **SPEC-002.IC18:** Human output prints Clojure-readable rows for non-empty collection query results, `(no rows)` for empty collection query results, and `nil` for missing single-row results such as `show <missing-id>`.
-- **SPEC-002.IC19:** EDN output prints one EDN value representing the result.
-- **SPEC-002.IC20:** JSON output prints one JSON value representing the result.
-- **SPEC-002.IC21:** Unknown commands, missing required arguments, invalid formats, malformed attributes, and database/domain exceptions exit non-zero with usage text on stderr.
+## SPEC-002.P4 Deferred
 
-## SPEC-002.P6 Design decisions
-
-### SPEC-002.D1 Idiomatic library-backed command parser
-
-- **Decision:** Use `clojure.tools.cli` for option parsing and help text, with `clojure.spec` validating command argument shapes and parsed attributes.
-- **Rationale:** The command vocabulary is stable enough that a standard Clojure parser is less error-prone than maintaining bespoke flag parsing, while keeping the CLI lightweight for agents and maintainers.
-- **Rejected:** A heavyweight CLI framework remains rejected; a hand-rolled parser is rejected now that standard tooling covers the needed global options, repeatable attributes, and validation.
-
-### SPEC-002.D2 String attributes at the shell boundary
-
-- **Decision:** Treat `--attr key=value` values as strings.
-- **Rationale:** Shell syntax stays simple and predictable; richer typed attributes can still be produced through the REPL or lower-level Clojure API.
-- **Rejected:** Parsing shell values as EDN or JSON is rejected for the MVP because it increases quoting complexity for agents.
-
-### SPEC-002.D3 Database-owned ids at creation
-
-- **Decision:** `add` no longer accepts caller-supplied ids. It returns the generated id and supports generic creation-time `--link` edges. `batch` supports multi-task DAG creation with batch-local refs when ids cannot be known before creation.
-- **Rationale:** Agent workflows can capture stable ids without risking caller-chosen id conflicts, while `--link` keeps common sequential graph creation compact and `batch` covers small pre-id DAGs without durable aliases.
-- **Rejected:** Backwards-compatible `add <id> <title>`, dependency-specific creation flags, and persisted aliases are rejected for the alpha contract.
-
-### SPEC-002.D4 Machine-readable query output
-
-- **Decision:** Support EDN and JSON output modes for query commands.
-- **Rationale:** Coding agents can consume structured output directly instead of scraping human text.
-- **Rejected:** Human-only CLI output is rejected because it is brittle for automation.
-
-## SPEC-002.P7 Open questions
-
-- **SPEC-002.Q1:** Whether future CLI versions should add typed attribute input or typed attribute queries such as `--attr-json` remains open.
-- **SPEC-002.Q2:** Whether future CLI versions should expose a generic edge/graph query command remains open.
+`by-attr`, bespoke dependency inspection commands, `link`, `done`, and `batch` are not part of the stripped public CLI. Future filtering for `list` and `ready` is tracked by RFC-002.

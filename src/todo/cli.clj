@@ -1,27 +1,32 @@
 (ns todo.cli
   (:gen-class)
   (:require [clojure.data.json :as json]
-            [clojure.edn :as edn]
             [clojure.spec.alpha :as s]
             [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
+            [next.jdbc :as jdbc]
             [todo.db :as db]
             [todo.specs :as specs]))
 
-(def query-commands #{"show" "list" "deps" "transitive-deps" "blocking" "ready" "by-attr"})
-(def commands (conj query-commands "init" "add" "batch" "link" "done"))
+(def query-commands #{"show" "list" "ready"})
+(def commands (conj query-commands "init" "add" "update"))
 
 (def global-options
   [[nil "--db PATH" "SQLite database path"
     :id :db
     :default db/default-db-file]
-   [nil "--format FORMAT" "Output mode for query commands: human, edn, json"
+   [nil "--format FORMAT" "Output mode: human, edn, json"
     :id :format
     :default "human"
     :validate [#(s/valid? ::specs/format %) "must be one of: human, edn, json"]]])
 
 (def command-options
-  [[nil "--attr ATTR" "Repeatable string task or edge attribute: key=value"
+  [[nil "--title TITLE" "Replacement task title"
+    :id :title]
+   [nil "--status STATUS" "Task status: todo, done, failed, cancelled"
+    :id :status
+    :validate [#(contains? specs/allowed-statuses %) "must be one of: todo, done, failed, cancelled"]]
+   [nil "--attr ATTR" "Repeatable string task attribute patch: key=value"
     :id :attr
     :multi true
     :default {}
@@ -31,8 +36,8 @@
                     (throw (ex-info (str "Malformed attribute: " s) {:attr s})))
                   [(keyword k) v]))
     :update-fn (fn [attrs [k v]] (assoc attrs k v))]
-   [nil "--link LINK" "Repeatable creation-time edge: edge-type:to-id"
-    :id :link
+   [nil "--edge EDGE" "Repeatable task edge: edge-type:to-id"
+    :id :edge
     :multi true
     :default []
     :parse-fn (fn [s]
@@ -40,30 +45,21 @@
                       type (when (not= -1 separator) (subs s 0 separator))
                       to (when (not= -1 separator) (subs s (inc separator)))]
                   (when (or (str/blank? type) (str/blank? to))
-                    (throw (ex-info (str "Malformed link: " s) {:link s})))
+                    (throw (ex-info (str "Malformed edge: " s) {:edge s})))
                   {:type type :to to}))
     :update-fn conj]])
 
 (defn usage [summary]
-  (str "Todo agent CLI\n"
-       "\n"
+  (str "Todo CLI\n\n"
        "Usage:\n"
-       "  clojure -M:todo [--db <path>] [--format human|edn|json] <command> [args]\n"
-       "\n"
+       "  clojure -M:todo [--db <path>] [--format human|edn|json] <command> [args]\n\n"
        "Commands:\n"
        "  init\n"
-       "  add <title> [--attr key=value ...] [--link edge-type:to-id ...]\n"
-       "  batch < EDN\n"
-       "  link <from-id> <to-id> <edge-type> [--attr key=value ...]\n"
+       "  add <title> [--status status] [--attr key=value ...]\n"
+       "  update <id> [--title title] [--status status] [--attr key=value ...] [--edge edge-type:to-id ...]\n"
        "  show <id>\n"
        "  list\n"
-       "  deps <id>\n"
-       "  transitive-deps <id>\n"
-       "  blocking <id>\n"
-       "  ready\n"
-       "  by-attr <key> <value>\n"
-       "  done <id>\n"
-       "\n"
+       "  ready\n\n"
        "Options:\n"
        summary
        "\n"))
@@ -76,8 +72,7 @@
   (System/exit 1))
 
 (defn explain [spec value]
-  (-> (s/explain-str spec value)
-      (str/replace #"\n$" "")))
+  (-> (s/explain-str spec value) (str/replace #"\n$" "")))
 
 (defn require-conform [spec args command summary]
   (let [conformed (s/conform spec args)]
@@ -87,24 +82,18 @@
 
 (defn parse-global-options [args]
   (let [{:keys [options arguments errors summary]} (parse-opts args global-options :in-order true)]
-    (when (seq errors)
-      (fail! (str/join "\n" errors) summary))
+    (when (seq errors) (fail! (str/join "\n" errors) summary))
     (when-not (s/valid? ::specs/opts options)
       (fail! (str "Invalid options:\n" (explain ::specs/opts options)) summary))
     [options (first arguments) (vec (rest arguments)) summary]))
 
 (defn parse-command-options [args summary]
   (let [{:keys [options arguments errors]} (parse-opts args command-options)]
-    (when (seq errors)
-      (fail! (str/join "\n" errors) summary))
-    (when (seq arguments)
-      (fail! (str "Unknown or misplaced argument: " (first arguments)) summary))
+    (when (seq errors) (fail! (str/join "\n" errors) summary))
+    (when (seq arguments) (fail! (str "Unknown or misplaced argument: " (first arguments)) summary))
     (when-not (s/valid? ::specs/cli-attributes (:attr options))
       (fail! (str "Invalid attributes:\n" (explain ::specs/cli-attributes (:attr options))) summary))
-    {:attrs (:attr options) :links (:link options)}))
-
-(defn parse-attrs [args summary]
-  (:attrs (parse-command-options args summary)))
+    options))
 
 (def json-columns #{:attributes :edge_attributes})
 
@@ -131,60 +120,44 @@
     (case format
       "human" (if (and (sequential? result) (empty? result))
                 (println "(no rows)")
-                (doseq [row (if (sequential? result) result [result])]
-                  (prn row)))
+                (doseq [row (if (sequential? result) result [result])] (prn row)))
       "edn" (prn result)
       "json" (println (json/write-str result)))))
 
-(defn read-single-edn-from-stdin! []
-  (let [eof (Object.)
-        reader (java.io.PushbackReader. *in*)
-        value (edn/read {:eof eof} reader)]
-    (when (identical? eof value)
-      (throw (ex-info "Batch command requires one EDN value on stdin" {})))
-    (let [trailing (edn/read {:eof eof} reader)]
-      (when-not (identical? eof trailing)
-        (throw (ex-info "Batch command accepts exactly one EDN value on stdin" {:trailing trailing}))))
-    value))
+(defn apply-edges! [ds id edges]
+  (doseq [{:keys [to type]} edges]
+    (when-not (db/get-task ds to)
+      (throw (ex-info "Edge target task not found" {:to to :type type})))
+    (db/add-edge! ds {:from id :to to :type type :attributes {}})))
 
 (defn run-command! [ds command args summary]
   (case command
-    "init" (do
-             (require-conform ::specs/empty-command args command summary)
-             (db/init! ds)
-             {:database "initialized"})
+    "init" (do (require-conform ::specs/empty-command args command summary)
+                (db/init! ds)
+                {:database "initialized"})
     "add" (let [{:keys [title opts]} (require-conform ::specs/add-command args command summary)
-                 {:keys [attrs links]} (parse-command-options opts summary)
-                 edges (mapv #(assoc % :attributes {}) links)]
-             (db/add-task-with-edges! ds {:title title :attributes attrs} edges))
-    "batch" (do
-              (require-conform ::specs/empty-command args command summary)
-              (db/add-task-batch! ds (read-single-edn-from-stdin!)))
-    "link" (let [{:keys [from to type attrs]} (require-conform ::specs/link-command args command summary)]
-             (db/add-edge! ds {:from from :to to :type type :attributes (parse-attrs attrs summary)}))
+                 options (parse-command-options opts summary)
+                 created (db/add-task! ds {:title title :status (:status options) :attributes (:attr options)})]
+             created)
+    "update" (let [{:keys [id opts]} (require-conform ::specs/update-command args command summary)
+                    options (parse-command-options opts summary)]
+                (jdbc/with-transaction [tx ds]
+                  (apply-edges! tx id (:edge options))
+                  (db/update-task! tx id {:title (:title options)
+                                          :status (:status options)
+                                          :attributes (when (seq (:attr options)) (:attr options))})))
     "show" (do (require-conform ::specs/one-id-command args command summary) (db/get-task ds (first args)))
     "list" (do (require-conform ::specs/empty-command args command summary) (db/all-tasks ds))
-    "deps" (do (require-conform ::specs/one-id-command args command summary) (db/task-dependencies ds (first args)))
-    "transitive-deps" (do (require-conform ::specs/one-id-command args command summary) (db/transitive-dependencies ds (first args)))
-    "blocking" (do (require-conform ::specs/one-id-command args command summary) (db/blocking-tasks ds (first args)))
-    "ready" (do (require-conform ::specs/empty-command args command summary) (db/ready-tasks ds))
-    "by-attr" (let [{:keys [key value]} (require-conform ::specs/by-attr-command args command summary)]
-                (db/tasks-by-attribute ds (keyword key) value))
-    "done" (do (require-conform ::specs/one-id-command args command summary) (db/update-task-status! ds (first args) "done"))))
+    "ready" (do (require-conform ::specs/empty-command args command summary) (db/ready-tasks ds))))
 
 (defn -main [& args]
   (let [[opts command command-args summary] (parse-global-options args)]
-    (when (nil? command)
-      (fail! "Missing command" summary))
-    (when-not (commands command)
-      (fail! (str "Unknown command: " command) summary))
+    (when (nil? command) (fail! "Missing command" summary))
+    (when-not (commands command) (fail! (str "Unknown command: " command) summary))
     (try
       (let [result (run-command! (db/datasource (:db opts)) command command-args summary)]
         (cond
           (and (= command "add") (= "human" (:format opts))) (println (:id result))
-          (and (= command "batch") (= "human" (:format opts))) (doseq [task (:created result)] (println (:id task)))
           (or (query-commands command) (not= "human" (:format opts))) (print-result (:format opts) result)))
-      (catch clojure.lang.ExceptionInfo e
-        (fail! (.getMessage e) summary))
-      (catch Exception e
-        (fail! (.getMessage e) summary)))))
+      (catch clojure.lang.ExceptionInfo e (fail! (.getMessage e) summary))
+      (catch Exception e (fail! (.getMessage e) summary)))))

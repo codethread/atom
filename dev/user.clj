@@ -24,17 +24,17 @@
   "Reset the demo database and add a small dependency graph."
   []
   (reset-demo!)
-  (let [design (task! "Sketch model" {:status "done" :priority "high" :demo-id "design"})
-        docs (task! "Write docs" {:status "todo" :owner "agent" :demo-id "docs"})
-        impl (task! "Build feature" {:status "todo" :owner "agent" :demo-id "impl"})]
-    (depends! (:id docs) (:id design))
-    (depends! (:id impl) (:id docs))
+  (let [design (task! "Sketch model" "done" {:priority "high" :demo-id "design"})
+        docs (task! "Write docs" {:owner "agent" :demo-id "docs"})
+        impl (task! "Build feature" {:owner "agent" :demo-id "impl"})]
+    (update! (:id docs) {:edges [{:type "depends-on" :to (:id design)}]})
+    (update! (:id impl) {:edges [{:type "depends-on" :to (:id docs)}]})
     (tasks)))
 
 (comment
   (demo!)
   (seed-demo!)
   (ready)
-  (def docs-id (:id (first (by-attr :demo-id "docs"))))
-  (done! docs-id)
+  (def docs-id (:id (first (filter #(= "docs" (get-in % [:attributes :demo-id])) (tasks)))))
+  (update! docs-id {:status "done"})
   (ready))

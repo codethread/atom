@@ -29,8 +29,10 @@
                        (update :attributes db/<-json))]
           (is (re-matches #"[a-z0-9]+" (:id task)))
           (is (= {:title "Sketch model"
-                  :attributes {:priority "high"}}
-                 (dissoc task :id)))))
+                  :status "todo"
+                  :attributes {:priority "high"}
+                  :final_at nil}
+                 (select-keys task [:title :status :attributes :final_at])))))
       (testing "generated task ids are unique across task creation"
         (let [first-task (db/add-task! ds {:title "First" :attributes {}})
               second-task (db/add-task! ds {:title "Second" :attributes {}})]
@@ -47,9 +49,9 @@
 (deftest dependency-readiness-semantics
   (with-db
     (fn [ds]
-      (let [design (:id (db/add-task! ds {:title "Design" :attributes {:status "done"}}))
-            schema (:id (db/add-task! ds {:title "Schema" :attributes {:status "todo"}}))
-            docs (:id (db/add-task! ds {:title "Docs" :attributes {:status "todo"}}))]
+      (let [design (:id (db/add-task! ds {:title "Design" :status "done"}))
+            schema (:id (db/add-task! ds {:title "Schema"}))
+            docs (:id (db/add-task! ds {:title "Docs"}))]
         (db/add-edge! ds {:from schema
                           :to design
                           :type "depends-on"
@@ -103,7 +105,7 @@
                     ds
                     [{:ref 'design
                       :title "Design"
-                      :attributes {:status "done"}}
+                      :status "done"}
                      {:ref 'docs
                       :title "Docs"
                       :edges [{:type "depends-on" :to 'design}

@@ -3,87 +3,46 @@
 **Document ID:** `SPEC-001`
 **Status:** Implemented
 **Last Updated:** 2026-06-24
-**Related RFCs:** [RFC-001 Batch task refs](../rfcs/2026-06-24-batch-task-refs.md)
-**Code:** `src/todo`
-**Configuration identification:** `SPEC-001` is the first root spec in this repository. Every nested point ID is prefixed with `SPEC-001`.
+**Code:** `src/todo/db.clj`
 
 ## SPEC-001.P1 Purpose
 
-The task model defines the durable local data contract for the todo graph: task records, open-ended JSON attributes, typed task-to-task edges, and dependency/readiness semantics shared by the CLI, REPL API, TUI, and smoke workflows.
+The task model defines the durable local data contract for the todo graph: task records, first-class lifecycle state, open-ended JSON attributes, typed task-to-task edges, and readiness semantics.
 
-## SPEC-001.P2 Goals
+## SPEC-001.P2 Task records
 
-- **SPEC-001.G1:** Store tasks and graph relationships in a local SQLite database that can be used by coding agents and humans without a service process.
-- **SPEC-001.G2:** Allow userland task and edge metadata at runtime without requiring a schema migration for every new field.
-- **SPEC-001.G3:** Provide dependency semantics that let callers distinguish ready work from work blocked by incomplete direct dependencies.
-- **SPEC-001.G4:** Keep the model small enough for agents to understand before reading implementation code.
+A task has:
 
-## SPEC-001.P3 Non-goals
+- `id` — generated unique text id.
+- `title` — non-blank task title.
+- `status` — one of `todo`, `done`, `failed`, or `cancelled`.
+- `attributes` — userland JSON object stored as SQLite `TEXT`.
+- `created_at` — set on insert.
+- `updated_at` — changed on task update.
+- `final_at` — set when status reaches a final state; null for `todo`.
 
-- **SPEC-001.NG1:** The model does not validate userland attribute schemas beyond requiring valid JSON.
-- **SPEC-001.NG2:** The model does not enforce a fixed status enum beyond the conventional meaning of `done`.
-- **SPEC-001.NG3:** The model does not allow user-defined edge types; edge types are limited to the documented schema.
-- **SPEC-001.NG4:** The model does not currently expose special-purpose APIs for hierarchy or supersession beyond typed edges.
-- **SPEC-001.NG5:** The model does not provide multi-user sync, remote access, or authorization.
+Final statuses are `done`, `failed`, and `cancelled`.
 
-## SPEC-001.P4 Domain concepts
+## SPEC-001.P3 Attributes
 
-- **SPEC-001.DC1:** A task is identified by a unique database/application-owned text `id`, has a required `title`, and has an `attributes` JSON object for runtime/userland metadata.
-- **SPEC-001.DC2:** Task attributes are stored as SQLite `TEXT`, must be valid JSON according to JSON1, and are an open-ended object. Write paths reject non-object JSON roots; omitted or nil attributes are normalized to `{}`.
-- **SPEC-001.DC3:** Conventional task attributes include `status`, `priority`, `due-date`, and `owner`; callers may add other keys.
-- **SPEC-001.DC4:** A task is complete when its `status` attribute is the string `done`; any missing or non-`done` status is considered incomplete for readiness checks.
-- **SPEC-001.DC5:** A task edge connects `from_task_id` to `to_task_id`, has an `edge_type` string from the allowed edge-type schema, and has attributes shaped as an open-ended JSON object; omitted or nil edge attributes are normalized to `{}`.
-- **SPEC-001.DC6:** Allowed edge types are `depends-on`, `related-to`, `parent-of`, and `supersedes`.
-- **SPEC-001.DC7:** A `depends-on` edge from task `A` to task `B` means `A` is blocked by `B` until `B` is done; conversely, `B` is blocking `A`.
-- **SPEC-001.DC8:** A `related-to` edge is a loose directed relationship with no readiness semantics.
-- **SPEC-001.DC9:** A `parent-of` edge from task `A` to task `B` means `A` groups `B` as child work, such as an epic containing a task; it has no readiness semantics.
-- **SPEC-001.DC10:** A `supersedes` edge from task `A` to task `B` means `A` replaces `B` for planning/history reconstruction; it has no readiness semantics.
-- **SPEC-001.DC11:** The task edge graph is a directed acyclic graph across all edge types. Any edge that points to itself or introduces a directed cycle is rejected.
-- **SPEC-001.DC12:** A ready task is incomplete and has no direct `depends-on` dependency whose task is incomplete.
-- **SPEC-001.DC13:** A batch-local ref is an interface-level creation aid for referring to not-yet-created tasks within one batch operation. It is not a durable task identifier.
+Attributes are userland task fields such as priority, owner, estimates, due dates, and external references. They are not task lifecycle metadata. Attribute values must encode to a JSON object; omitted or nil attributes normalize to `{}`.
 
-## SPEC-001.P5 Interfaces and contracts
+## SPEC-001.P4 Edges
 
-- **SPEC-001.IC1:** The `tasks` table has columns `id TEXT PRIMARY KEY`, `title TEXT NOT NULL`, and `attributes TEXT NOT NULL DEFAULT '{}'` with `CHECK (json_valid(attributes))`.
-- **SPEC-001.IC2:** The `task_edges` table has `from_task_id`, `to_task_id`, `edge_type`, and `attributes`, with a primary key of `(from_task_id, to_task_id, edge_type)`, edge-type validity, and JSON validity on `attributes`.
-- **SPEC-001.IC3:** The schema declares foreign-key relationships from edge endpoints to tasks with `ON DELETE CASCADE`; reliable enforcement depends on SQLite foreign-key enforcement being enabled for the connection executing the write.
-- **SPEC-001.IC4:** Creating a task generates a short, stable, colon-free, shell-safe text id and inserts a new row. Generated-id collisions are retried internally and collision exhaustion fails loudly.
-- **SPEC-001.IC4A:** Batch-local refs must not be stored in the `tasks` table, `task_edges` table, task attributes, or edge attributes as system identity. After any batch creation operation, all persisted edges use generated durable task ids in `from_task_id` and `to_task_id`.
-- **SPEC-001.IC5:** Creating an existing edge updates its attributes rather than creating a duplicate row. Creating any edge with an unsupported edge type, a self-reference, or a transitive path from target back to source fails loudly.
-- **SPEC-001.IC6:** Attribute lookup operates on top-level task attributes and compares the JSON value exposed by SQLite JSON1 with the caller-provided value; JSON `null` matching is outside the current contract, and interface-specific specs may further narrow accepted value types.
-- **SPEC-001.IC7:** Direct dependencies list the `to_task_id` tasks reachable through `depends-on` edges from the queried task.
-- **SPEC-001.IC8:** Blocking tasks list the `from_task_id` tasks that directly depend on the queried task through `depends-on` edges.
-- **SPEC-001.IC9:** Transitive dependencies recursively follow `depends-on` edges from the queried task and return dependency tasks, excluding the queried task from the result.
-- **SPEC-001.IC10:** Readiness is based on direct `depends-on` dependencies only; transitive dependency traversal is available for inspection, not required for the ready predicate because an incomplete indirect blocker implies an incomplete direct dependency elsewhere in the chain.
+Task edges connect `from_task_id` to `to_task_id`, have an `edge_type`, and have JSON object attributes. Allowed edge types are `depends-on`, `related-to`, `parent-of`, and `supersedes`.
 
-## SPEC-001.P6 Design decisions
+A `depends-on` edge from task `A` to task `B` means `A` is blocked by `B` until `B` reaches a final status.
 
-### SPEC-001.D1 JSON TEXT attributes
+The edge graph is acyclic. Self-edges and writes that introduce a directed cycle fail.
 
-- **Decision:** Store task and edge attributes as JSON text in SQLite `TEXT` columns and query them with JSON1.
-- **Rationale:** Agents can add runtime metadata such as `priority`, `owner`, `due-date`, or estimates without changing the relational schema.
-- **Rejected:** JSONB assumptions and fixed attribute columns are rejected for this MVP because SQLite JSON1 text is sufficient and more flexible.
+## SPEC-001.P5 Readiness
 
-### SPEC-001.D2 Status lives in attributes
+A ready task is a non-final task with no direct `depends-on` dependency whose task is still non-final.
 
-- **Decision:** Store task completion state in the conventional `status` task attribute.
-- **Rationale:** Status is useful immediately, but keeping it in attributes avoids schema churn before the task model stabilizes.
-- **Rejected:** A dedicated status column is deferred until a future migration justifies stricter status behavior.
+## SPEC-001.P6 Persistence
 
-### SPEC-001.D3 Application-owned task ids
+The `tasks` table stores lifecycle fields as columns and attributes as JSON `TEXT`. The `task_edges` table stores typed relationships and edge attributes as JSON `TEXT`. JSONB assumptions are not part of this contract.
 
-- **Decision:** Task creation generates short colon-free ids instead of accepting caller-owned ids. Interfaces may use ephemeral batch-local refs only to resolve relationships during one creation operation.
-- **Rationale:** Agents and humans should not coordinate durable identifiers before creation, and accidental id reuse must not overwrite unrelated work. Colon-free ids also keep CLI edge shorthand parseable. Ephemeral refs solve pre-creation graph wiring without becoming identity.
-- **Rejected:** Caller-supplied creation ids, create-by-id upsert semantics, and persisted aliases are rejected for the alpha contract because they create silent conflict risks.
+## SPEC-001.P7 Deferred
 
-### SPEC-001.D4 Dependency direction follows the blocked task
-
-- **Decision:** A `depends-on` edge points from the blocked task to the task it needs.
-- **Rationale:** Queries for a task's dependencies and transitive dependencies can follow outgoing `depends-on` edges naturally.
-- **Rejected:** Reversing the edge direction would make dependency traversal less direct and force callers to mentally invert the relationship.
-
-## SPEC-001.P7 Open questions
-
-- **SPEC-001.Q1:** Whether future versions should add schema validation for userland attributes remains open.
-- **SPEC-001.Q2:** Whether future versions should distinguish hierarchy-specific invariants from the general DAG invariant remains open.
-- **SPEC-001.Q3:** Whether datasource creation should guarantee SQLite foreign-key enforcement for every connection remains open.
+The future query DSL for filtering `list` and `ready` is tracked by [RFC-002](../rfcs/2026-06-24-task-query-dsl.md). Attribute-level metadata and per-attribute timestamps are not part of the current model.

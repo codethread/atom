@@ -1,5 +1,6 @@
 (ns todo.repl
-  (:require [todo.db :as db]))
+  (:require [next.jdbc :as jdbc]
+            [todo.db :as db]))
 
 (defonce ^:private active-datasource (atom nil))
 
@@ -34,43 +35,23 @@
   ([title]
    (task! title {}))
   ([title attributes]
-   (unpack (db/add-task! (ds) {:title title :attributes attributes}))))
+   (unpack (db/add-task! (ds) {:title title :attributes attributes})))
+  ([title status attributes]
+   (unpack (db/add-task! (ds) {:title title :status status :attributes attributes}))))
 
-(defn edge!
-  ([from to type]
-   (edge! from to type {}))
-  ([from to type attributes]
-   (unpack (db/add-edge! (ds) {:from from :to to :type type :attributes attributes}))))
-
-(defn depends!
-  ([from to]
-   (depends! from to {}))
-  ([from to attributes]
-   (edge! from to "depends-on" attributes)))
-
-(defn done! [id]
-  (unpack (db/update-task-status! (ds) id "done")))
-
-(defn tasks []
-  (unpack (db/all-tasks (ds))))
+(defn update!
+  ([id patch]
+   (let [{:keys [title status attributes edges]} patch]
+     (jdbc/with-transaction [tx (ds)]
+       (doseq [{:keys [to type attributes]} edges]
+         (db/add-edge! tx {:from id :to to :type type :attributes attributes}))
+       (unpack (db/update-task! tx id {:title title :status status :attributes attributes}))))))
 
 (defn task [id]
   (unpack (db/get-task (ds) id)))
 
-(defn deps [id]
-  (unpack (db/task-dependencies (ds) id)))
-
-(defn transitive-deps [id]
-  (unpack (db/transitive-dependencies (ds) id)))
-
-(defn blocking [id]
-  (unpack (db/blocking-tasks (ds) id)))
+(defn tasks []
+  (unpack (db/all-tasks (ds))))
 
 (defn ready []
   (unpack (db/ready-tasks (ds))))
-
-(defn by-attr [attr-key attr-value]
-  (unpack (db/tasks-by-attribute (ds) attr-key attr-value)))
-
-(defn graph [id]
-  (unpack (db/related-tasks (ds) id)))
