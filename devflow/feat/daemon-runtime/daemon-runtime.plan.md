@@ -135,3 +135,13 @@ Outcome: Dev helpers, smoke scripts, README, and AGENTS guidance demonstrate the
 
 - Updated the smoke demo to exercise CLI and REPL task flows through disposable daemon runtimes and to remove generated SQLite plus runtime metadata artifacts after validation.
 - Updated README and AGENTS daemon-backed CLI/REPL examples; AGENTS now calls out the required tmux manual verification for this daemon-runtime feature.
+
+### PLAN-001.DN9 TASK-006 verification — 2026-06-24
+
+- Held `clojure -M:todo --db /tmp/todo-task006-tmux.sqlite daemon start` in tmux session `agent-todo-daemon-smoke`; captured startup output `daemon started` and confirmed the session remained present while separate clients operated.
+- Verified `daemon status --format edn` reported `{:health "ok"}`, canonical database path `/private/tmp/todo-task006-tmux.sqlite`, pid `66110`, loopback endpoint `127.0.0.1:56737`, and nonce identity.
+- From separate CLI processes, ran `init`, `add`, `update --edge`, `show`, `list`, and `ready`; SQLite inspection showed actual task rows `TASK006 design` and `TASK006 docs` with JSON attributes.
+- From a separate `clojure -M:repl -e` dev invocation, loaded `dev/user.clj`, ran `todo.repl/open!` against the tmux daemon database, seeded `TASK006 repl seed`/`TASK006 repl dependent`, and observed them through `tasks`/`ready`.
+- Stopped the daemon with `daemon stop`; tmux session exited and no `agent-` tmux session or `/tmp/todo-task006-tmux.sqlite*`/runtime metadata artifact remained.
+- Post-verification validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test` and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
+- `git status --short` was checked after cleanup/validation and returned clean, with no generated SQLite or runtime metadata artifacts.

@@ -27,7 +27,7 @@ tasks:
   - id: 6
     description: verify daemon via tmux
     task_file: tasks/006-verify-daemon-via-tmux.md
-    status: pending
+    status: complete
     blocked_by: [5]
   - id: 7
     description: add trusted startup config
