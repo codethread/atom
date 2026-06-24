@@ -6,7 +6,7 @@
 **RFC:** None
 **Root specs:** None yet
 **Feature specs:** None
-**Status:** Reviewed
+**Status:** Shipped
 **Last Updated:** 2026-06-24
 **Configuration identification:** `PLAN-001` is the first plan in this repository. Every nested point ID is prefixed with `PLAN-001`.
 
@@ -109,3 +109,8 @@ Append notes here. Do not rewrite earlier notes.
 - Smoke validation now starts with an agent-facing subprocess CLI flow that creates tasks, links `depends-on` edges, marks status, and queries both JSON1 attributes and graph relationships before running the broader DB and REPL demonstrations.
 - Representative README CLI commands passed against a disposable `/tmp` SQLite database; generated smoke databases and `.repl` sidecars remain covered by the gitignore patterns.
 - YAGNI follow-up removed duplicate in-process CLI smoke coverage after the subprocess CLI path covered the published agent boundary directly.
+
+### PLAN-001.DN7 Final shipped scope — 2026-06-24
+
+- Shipped the full planned MVP scope: shared DB operations, `todo.cli` command surface, `todo.repl` helper namespace, README agent quickstart, and smoke coverage for CLI/REPL/JSON1/graph workflows.
+- No planned task scope was cut. No feature-local specs required promotion because the stable contracts are documented in README for this MVP rather than staged as root specs.
