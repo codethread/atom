@@ -58,11 +58,11 @@ The CLI surface is the primary scripted interface for coding agents. It exposes 
 
 ## SPEC-002.P6 Design decisions
 
-### SPEC-002.D1 Small hand-rolled command parser
+### SPEC-002.D1 Idiomatic library-backed command parser
 
-- **Decision:** Keep CLI parsing in-project with a small parser.
-- **Rationale:** The supported command vocabulary is small, and avoiding a CLI framework keeps the tool simple for agents and maintainers.
-- **Rejected:** A heavyweight CLI framework is rejected until command complexity requires it.
+- **Decision:** Use `clojure.tools.cli` for option parsing and help text, with `clojure.spec` validating command argument shapes and parsed attributes.
+- **Rationale:** The command vocabulary is stable enough that a standard Clojure parser is less error-prone than maintaining bespoke flag parsing, while keeping the CLI lightweight for agents and maintainers.
+- **Rejected:** A heavyweight CLI framework remains rejected; a hand-rolled parser is rejected now that standard tooling covers the needed global options, repeatable attributes, and validation.
 
 ### SPEC-002.D2 String attributes at the shell boundary
 

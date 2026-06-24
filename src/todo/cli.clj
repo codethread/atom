@@ -1,10 +1,37 @@
 (ns todo.cli
   (:gen-class)
   (:require [clojure.data.json :as json]
+            [clojure.spec.alpha :as s]
             [clojure.string :as str]
-            [todo.db :as db]))
+            [clojure.tools.cli :refer [parse-opts]]
+            [todo.db :as db]
+            [todo.specs :as specs]))
 
-(def usage
+(def query-commands #{"show" "list" "deps" "transitive-deps" "blocking" "ready" "by-attr"})
+(def commands (conj query-commands "init" "add" "link" "done"))
+
+(def global-options
+  [[nil "--db PATH" "SQLite database path"
+    :id :db
+    :default db/default-db-file]
+   [nil "--format FORMAT" "Output mode for query commands: human, edn, json"
+    :id :format
+    :default "human"
+    :validate [#(s/valid? ::specs/format %) "must be one of: human, edn, json"]]])
+
+(def attr-options
+  [[nil "--attr ATTR" "Repeatable string task or edge attribute: key=value"
+    :id :attr
+    :multi true
+    :default {}
+    :parse-fn (fn [s]
+                (let [[k v] (str/split s #"=" 2)]
+                  (when (or (str/blank? k) (nil? v))
+                    (throw (ex-info (str "Malformed attribute: " s) {:attr s})))
+                  [(keyword k) v]))
+    :update-fn (fn [attrs [k v]] (assoc attrs k v))]])
+
+(defn usage [summary]
   (str "Todo agent CLI\n"
        "\n"
        "Usage:\n"
@@ -24,61 +51,49 @@
        "  done <id>\n"
        "\n"
        "Options:\n"
-       "  --db <path>             SQLite database path (default: todo.sqlite)\n"
-       "  --format <mode>        Output mode for query commands: human, edn, json\n"
-       "  --attr key=value       Repeatable string task or edge attribute.\n"))
+       summary
+       "\n"))
 
-(def query-commands #{"show" "list" "deps" "transitive-deps" "blocking" "ready" "by-attr"})
-(def output-formats #{"human" "edn" "json"})
-(def commands (conj query-commands "init" "add" "link" "done"))
-
-(defn fail! [message]
+(defn fail! [message summary]
   (binding [*out* *err*]
     (println "Error:" message)
     (println)
-    (println usage))
+    (println (usage summary)))
   (System/exit 1))
 
-(defn parse-attr [s]
-  (let [[k v] (str/split s #"=" 2)]
-    (when (or (str/blank? k) (nil? v))
-      (fail! (str "Malformed attribute: " s)))
-    [(keyword k) v]))
+(defn explain [spec value]
+  (-> (s/explain-str spec value)
+      (str/replace #"\n$" "")))
 
-(defn collect-attrs [args]
-  (loop [remaining args
-         attrs {}]
-    (if (empty? remaining)
-      attrs
-      (let [[flag value & more] remaining]
-        (when-not (= "--attr" flag)
-          (fail! (str "Unknown or misplaced argument: " flag)))
-        (when (nil? value)
-          (fail! "Missing value after --attr"))
-        (let [[k v] (parse-attr value)]
-          (recur more (assoc attrs k v)))))))
+(defn require-conform [spec args command summary]
+  (let [conformed (s/conform spec args)]
+    (when (= ::s/invalid conformed)
+      (fail! (str "Invalid arguments for " command ":\n" (explain spec args)) summary))
+    conformed))
 
 (defn parse-global-options [args]
-  (loop [remaining args
-         opts {:db db/default-db-file :format "human"}]
-    (let [[arg value & more] remaining]
-      (case arg
-        nil [opts nil []]
-        "--db" (do
-                 (when (nil? value) (fail! "Missing value after --db"))
-                 (recur more (assoc opts :db value)))
-        "--format" (do
-                     (when (nil? value) (fail! "Missing value after --format"))
-                     (when-not (output-formats value)
-                       (fail! (str "Invalid output format: " value)))
-                     (recur more (assoc opts :format value)))
-        [opts arg (rest remaining)]))))
+  (let [{:keys [options arguments errors summary]} (parse-opts args global-options :in-order true)]
+    (when (seq errors)
+      (fail! (str/join "\n" errors) summary))
+    (when-not (s/valid? ::specs/opts options)
+      (fail! (str "Invalid options:\n" (explain ::specs/opts options)) summary))
+    [options (first arguments) (vec (rest arguments)) summary]))
+
+(defn parse-attrs [args summary]
+  (let [{:keys [options arguments errors]} (parse-opts args attr-options)]
+    (when (seq errors)
+      (fail! (str/join "\n" errors) summary))
+    (when (seq arguments)
+      (fail! (str "Unknown or misplaced argument: " (first arguments)) summary))
+    (when-not (s/valid? ::specs/cli-attributes (:attr options))
+      (fail! (str "Invalid attributes:\n" (explain ::specs/cli-attributes (:attr options))) summary))
+    (:attr options)))
+
+(def json-columns #{:attributes :edge_attributes})
 
 (defn normalize-row [row]
   (reduce-kv (fn [m k v]
-               (assoc m k (if (and (string? v)
-                                    (or (= k :attributes)
-                                        (str/ends-with? (name k) "attributes")))
+               (assoc m k (if (and (json-columns k) (string? v))
                              (db/<-json v)
                              v)))
              {}
@@ -100,44 +115,37 @@
       "edn" (prn result)
       "json" (println (json/write-str result)))))
 
-(defn require-args [command args n]
-  (when (not= (count args) n)
-    (fail! (str command " requires exactly " n " argument" (when-not (= 1 n) "s")))))
-
-(defn run-command! [ds command args]
+(defn run-command! [ds command args summary]
   (case command
     "init" (do
-             (require-args command args 0)
+             (require-conform ::specs/empty-command args command summary)
              (db/init! ds)
              {:database "initialized"})
-    "add" (let [[id title & attrs] args]
-            (when (< (count args) 2)
-              (fail! "add requires at least 2 arguments"))
-            (db/add-task! ds {:id id :title title :attributes (collect-attrs attrs)}))
-    "link" (let [[from to type & attrs] args]
-             (when (< (count args) 3)
-               (fail! "link requires at least 3 arguments"))
-             (db/add-edge! ds {:from from :to to :type type :attributes (collect-attrs attrs)}))
-    "show" (do (require-args command args 1) (db/get-task ds (first args)))
-    "list" (do (require-args command args 0) (db/all-tasks ds))
-    "deps" (do (require-args command args 1) (db/task-dependencies ds (first args)))
-    "transitive-deps" (do (require-args command args 1) (db/transitive-dependencies ds (first args)))
-    "blocking" (do (require-args command args 1) (db/blocking-tasks ds (first args)))
-    "ready" (do (require-args command args 0) (db/ready-tasks ds))
-    "by-attr" (do (require-args command args 2) (db/tasks-by-attribute ds (keyword (first args)) (second args)))
-    "done" (do (require-args command args 1) (db/update-task-status! ds (first args) "done"))))
+    "add" (let [{:keys [id title attrs]} (require-conform ::specs/add-command args command summary)]
+            (db/add-task! ds {:id id :title title :attributes (parse-attrs attrs summary)}))
+    "link" (let [{:keys [from to type attrs]} (require-conform ::specs/link-command args command summary)]
+             (db/add-edge! ds {:from from :to to :type type :attributes (parse-attrs attrs summary)}))
+    "show" (do (require-conform ::specs/one-id-command args command summary) (db/get-task ds (first args)))
+    "list" (do (require-conform ::specs/empty-command args command summary) (db/all-tasks ds))
+    "deps" (do (require-conform ::specs/one-id-command args command summary) (db/task-dependencies ds (first args)))
+    "transitive-deps" (do (require-conform ::specs/one-id-command args command summary) (db/transitive-dependencies ds (first args)))
+    "blocking" (do (require-conform ::specs/one-id-command args command summary) (db/blocking-tasks ds (first args)))
+    "ready" (do (require-conform ::specs/empty-command args command summary) (db/ready-tasks ds))
+    "by-attr" (let [{:keys [key value]} (require-conform ::specs/by-attr-command args command summary)]
+                (db/tasks-by-attribute ds (keyword key) value))
+    "done" (do (require-conform ::specs/one-id-command args command summary) (db/update-task-status! ds (first args) "done"))))
 
 (defn -main [& args]
-  (let [[opts command command-args] (parse-global-options args)]
+  (let [[opts command command-args summary] (parse-global-options args)]
     (when (nil? command)
-      (fail! "Missing command"))
+      (fail! "Missing command" summary))
     (when-not (commands command)
-      (fail! (str "Unknown command: " command)))
+      (fail! (str "Unknown command: " command) summary))
     (try
-      (let [result (run-command! (db/datasource (:db opts)) command command-args)]
+      (let [result (run-command! (db/datasource (:db opts)) command command-args summary)]
         (when (or (query-commands command) (not= "human" (:format opts)))
           (print-result (:format opts) result)))
       (catch clojure.lang.ExceptionInfo e
-        (fail! (.getMessage e)))
+        (fail! (.getMessage e) summary))
       (catch Exception e
-        (fail! (.getMessage e))))))
+        (fail! (.getMessage e) summary)))))

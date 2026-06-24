@@ -1,7 +1,9 @@
 (ns todo.db
   (:require [clojure.data.json :as json]
+            [clojure.spec.alpha :as s]
             [next.jdbc :as jdbc]
-            [next.jdbc.result-set :as rs]))
+            [next.jdbc.result-set :as rs]
+            [todo.specs :as specs]))
 
 (def default-db-file "todo.sqlite")
 
@@ -16,9 +18,13 @@
 (defn execute-one! [ds sql-params]
   (jdbc/execute-one! ds sql-params {:builder-fn rs/as-unqualified-lower-maps}))
 
+(defn- require-valid! [spec value message]
+  (when-not (s/valid? spec value)
+    (throw (ex-info message {:value value :explain (s/explain-str spec value)})))
+  value)
+
 (defn ->json [m]
-  (when-not (or (nil? m) (map? m))
-    (throw (ex-info "Attributes must be a map that encodes to a JSON object" {:attributes m})))
+  (require-valid! ::specs/attributes m "Attributes must be nil or a map that encodes to a JSON object")
   (json/write-str (or m {})))
 
 (defn <-json [s]
@@ -54,14 +60,16 @@
   (execute! ds ["DROP TABLE IF EXISTS tasks"])
   (init! ds))
 
-(defn add-task! [ds {:keys [id title attributes]}]
+(defn add-task! [ds {:keys [id title attributes] :as task}]
+  (require-valid! ::specs/task-input task "Invalid task")
   (execute-one! ds
                 ["INSERT INTO tasks (id, title, attributes) VALUES (?, ?, json(?))
                   ON CONFLICT(id) DO UPDATE SET title = excluded.title, attributes = excluded.attributes
                   RETURNING id, title, attributes"
                  id title (->json attributes)]))
 
-(defn add-edge! [ds {:keys [from to type attributes]}]
+(defn add-edge! [ds {:keys [from to type attributes] :as edge}]
+  (require-valid! ::specs/edge-input edge "Invalid edge")
   (execute-one! ds
                 ["INSERT INTO task_edges (from_task_id, to_task_id, edge_type, attributes)
                   VALUES (?, ?, ?, json(?))
