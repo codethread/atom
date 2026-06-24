@@ -3,7 +3,7 @@
 **Document ID:** `DELTA-002`
 **Root spec:** [task-model.md](../../../specs/task-model.md)
 **Feature:** [../proposal.md](../proposal.md)
-**Status:** Reviewed
+**Status:** Merged
 **Last Updated:** 2026-06-24
 **Configuration identification:** `DELTA-002` is the task-model delta for this feature. Every nested point ID is prefixed with `DELTA-002`.
 

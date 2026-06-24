@@ -14,7 +14,7 @@ Root specs are canonical for shipped behavior:
 
 ## Active features
 
-- `batch-task-refs` — planned stdin EDN batch task creation with batch-local refs.
+None.
 
 ## Archived features
 
@@ -22,3 +22,4 @@ Archived feature folders preserve historical planning context. Current shipped c
 
 - `26-06-24__agent-tool-interface` — shipped agent-operable CLI/REPL interface for the todo graph MVP.
 - `26-06-24__db-owned-task-ids` — shipped generated task ids and creation-time `--link` edges.
+- `26-06-24__batch-task-refs` — shipped stdin EDN batch task creation with batch-local refs.

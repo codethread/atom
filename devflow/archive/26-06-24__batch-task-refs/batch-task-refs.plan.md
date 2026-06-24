@@ -6,7 +6,7 @@
 **RFC:** [RFC-001 Batch task refs](../../rfcs/2026-06-24-batch-task-refs.md)
 **Root specs:** [Task Model](../../specs/task-model.md), [CLI Surface](../../specs/cli.md)
 **Feature specs:** [specs/cli.delta.md](./specs/cli.delta.md), [specs/task-model.delta.md](./specs/task-model.delta.md)
-**Status:** Reviewed
+**Status:** Shipped
 **Last Updated:** 2026-06-24
 **Configuration identification:** `PLAN-001` is the implementation plan for this feature. Every nested point ID is prefixed with `PLAN-001`.
 
@@ -79,3 +79,7 @@ Outcome: README/agent examples and smoke coverage demonstrate the batch command,
 ### PLAN-001.DN1 Planning — 2026-06-24
 
 - Created proposal, CLI delta, task-model delta, and reviewed implementation plan after council approval. Deep review then locked the output representation to string ref names, tightened EDN/attribute validation, clarified trailing-form and unknown-key failures, and reconciled the RFC output wording. Main implementation watchpoints are atomic rollback and clear errors for symbol targets that should have been string durable ids.
+
+### PLAN-001.DN2 Shipped — 2026-06-24
+
+- Shipped stdin EDN batch task creation, atomic ref resolution, generic edge validation, tests, smoke coverage, docs, and root spec updates. Feature-local CLI and task-model deltas were merged into root specs; no scope was cut.
