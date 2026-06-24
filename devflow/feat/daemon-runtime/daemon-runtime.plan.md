@@ -130,3 +130,8 @@ Outcome: Dev helpers, smoke scripts, README, and AGENTS guidance demonstrate the
 
 - Added startup-only trusted daemon config via `daemon start --config <path>` with the intentionally small EDN shape `{:load-files ["trusted.clj"]}`; relative trusted-code paths resolve from the config file directory.
 - Config parsing and trusted Clojure loading fail startup loudly before runtime metadata is published; no runtime reload, saved query, Aero, SCI, or sandbox behavior was introduced.
+
+### PLAN-001.DN8 TASK-005 implementation — 2026-06-24
+
+- Updated the smoke demo to exercise CLI and REPL task flows through disposable daemon runtimes and to remove generated SQLite plus runtime metadata artifacts after validation.
+- Updated README and AGENTS daemon-backed CLI/REPL examples; AGENTS now calls out the required tmux manual verification for this daemon-runtime feature.

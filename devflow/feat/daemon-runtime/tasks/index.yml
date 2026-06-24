@@ -22,7 +22,7 @@ tasks:
   - id: 5
     description: update smoke docs and validation
     task_file: tasks/005-update-smoke-docs-and-validation.md
-    status: pending
+    status: complete
     blocked_by: [3, 4, 7]
   - id: 6
     description: verify daemon via tmux

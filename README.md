@@ -33,11 +33,18 @@ clojure -M:test
 clojure -M:smoke
 ```
 
-Use the agent CLI:
+Use the daemon-backed agent CLI. Start the daemon in one terminal; it stays in the foreground:
 
 ```sh
 DB=/tmp/todo-agent.sqlite
 clojure -M:todo --db "$DB" daemon start
+```
+
+Run task commands from another terminal:
+
+```sh
+DB=/tmp/todo-agent.sqlite
+clojure -M:todo --db "$DB" daemon status
 clojure -M:todo --db "$DB" init
 design=$(clojure -M:todo --db "$DB" add "Sketch model" --status done --attr priority=high)
 docs=$(clojure -M:todo --db "$DB" add "Write docs" --attr owner=agent)
@@ -46,7 +53,13 @@ clojure -M:todo --db "$DB" --format edn ready
 clojure -M:todo --db "$DB" daemon stop
 ```
 
-Use the REPL helpers:
+Task commands connect to the matching daemon selected by `--db`; start the daemon first and stop it when finished.
+
+Use the REPL helpers against a running daemon (started in another terminal):
+
+```sh
+clojure -M:todo --db agent.sqlite daemon start
+```
 
 ```clojure
 (require '[todo.repl :refer :all])
@@ -56,6 +69,10 @@ Use the REPL helpers:
 (def docs (:id (task! "Write docs" {:owner "agent"})))
 (update! docs {:edges [{:type "depends-on" :to design}]})
 (ready)
+```
+
+```sh
+clojure -M:todo --db agent.sqlite daemon stop
 ```
 
 ## Data model
