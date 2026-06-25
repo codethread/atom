@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"atom-todo-cli/internal/client"
@@ -15,6 +17,14 @@ import (
 
 type App struct{ Stdout, Stderr io.Writer }
 type Options struct{ DB, Format, ClientConfig string }
+type ExitError struct {
+	Code int
+	Err  error
+}
+
+func (e *ExitError) Error() string { return e.Err.Error() }
+func (e *ExitError) ExitCode() int { return e.Code }
+
 type Caller interface {
 	Call(string, map[string]any) (any, error)
 }
@@ -129,7 +139,7 @@ func (a *App) runCommand(o Options, args []string) error {
 	case "ready":
 		return a.parseQueryish(o, "ready", args[1:])
 	case "daemon":
-		return parseDaemon(args[1:])
+		return a.parseDaemon(o, args[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
 	}
@@ -244,6 +254,8 @@ func (a *App) call(o Options, op string, args map[string]any) error {
 		return err
 	}
 	switch op {
+	case "status", "stop":
+		return a.writeHumanJSON(result)
 	case "add":
 		if m, ok := result.(map[string]any); ok {
 			if id, ok := m["id"]; ok {
@@ -329,7 +341,7 @@ func (a *App) parseQueryish(o Options, op string, args []string) error {
 	}
 	return a.call(o, op+"-query", map[string]any{"query": *query, "params": pm})
 }
-func parseDaemon(args []string) error {
+func (a *App) parseDaemon(o Options, args []string) error {
 	if len(args) == 0 {
 		return errors.New("daemon requires start, status, or stop")
 	}
@@ -337,22 +349,53 @@ func parseDaemon(args []string) error {
 	case "start":
 		fs := flag.NewFlagSet("daemon start", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
-		fs.String("config", "", "")
+		configFile := fs.String("config", "", "")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		if fs.NArg() != 0 {
 			return errors.New("daemon start received unexpected arguments")
 		}
-		return errors.New("daemon start is not wired to the launcher yet")
+		return a.launchDaemon(o, *configFile)
 	case "status", "stop":
 		if len(args) != 1 {
 			return fmt.Errorf("daemon %s received unexpected arguments", args[0])
 		}
-		return fmt.Errorf("daemon %s is not wired to the daemon socket yet", args[0])
+		return a.call(o, args[0], map[string]any{})
 	default:
 		return fmt.Errorf("unknown daemon command: %s", args[0])
 	}
+}
+
+func (a *App) launchDaemon(o Options, configFile string) error {
+	dbPath, err := filepath.Abs(o.DB)
+	if err != nil {
+		return err
+	}
+	args := []string{"-M:todo", "--db", dbPath, "daemon", "start"}
+	if configFile != "" {
+		configPath, err := filepath.Abs(configFile)
+		if err != nil {
+			return err
+		}
+		args = append(args, "--config", configPath)
+	}
+	cmd := exec.Command("clojure", args...)
+	if _, err := os.Stat("deps.edn"); err != nil {
+		if _, parentErr := os.Stat(filepath.Join("..", "deps.edn")); parentErr == nil {
+			cmd.Dir = ".."
+		}
+	}
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = a.Stdout
+	cmd.Stderr = a.Stderr
+	if err := cmd.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); ok {
+			return &ExitError{Code: exit.ExitCode(), Err: err}
+		}
+		return err
+	}
+	return nil
 }
 func noArgs(args []string) error {
 	if len(args) > 0 {

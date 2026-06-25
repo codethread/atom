@@ -94,7 +94,7 @@ func validResponseError(e *ResponseError) bool {
 }
 
 func (c *SocketClient) Call(operation string, arguments map[string]any) (any, error) {
-	meta, canonical, err := c.metadata()
+	meta, canonical, metadataFile, err := c.metadata()
 	if err != nil {
 		return nil, err
 	}
@@ -137,36 +137,101 @@ func (c *SocketClient) Call(operation string, arguments map[string]any) (any, er
 	if resp.Error != nil {
 		return nil, errors.New("malformed daemon response: success envelope includes error")
 	}
+	if err := validateLifecycleResult(operation, resp.Result, meta, canonical); err != nil {
+		return nil, err
+	}
+	if operation == "stop" {
+		if err := waitForCleanup(metadataFile, meta.SocketPath); err != nil {
+			return nil, err
+		}
+	}
 	return resp.Result, nil
 }
 
-func (c *SocketClient) metadata() (Metadata, string, error) {
+func (c *SocketClient) metadata() (Metadata, string, string, error) {
 	canonical, err := canonicalPath(c.Config.DB)
 	if err != nil {
-		return Metadata{}, "", err
+		return Metadata{}, "", "", err
 	}
 	file := filepath.Join(os.TempDir(), "todo-daemon", stableHash(canonical)+".json")
 	b, err := os.ReadFile(file)
 	if os.IsNotExist(err) {
-		return Metadata{}, "", fmt.Errorf("missing daemon metadata for %s", canonical)
+		return Metadata{}, "", "", fmt.Errorf("missing daemon metadata for %s", canonical)
 	}
 	if err != nil {
-		return Metadata{}, "", err
+		return Metadata{}, "", "", err
 	}
 	var m Metadata
 	if err := json.Unmarshal(b, &m); err != nil {
-		return Metadata{}, "", fmt.Errorf("malformed daemon metadata: %w", err)
+		return Metadata{}, "", "", fmt.Errorf("malformed daemon metadata: %w", err)
 	}
 	if m.ProtocolVersion != protocolVersion || m.PID == 0 || m.DatabasePath == "" || m.DaemonID == "" || m.SocketPath == "" {
-		return Metadata{}, "", errors.New("malformed daemon metadata: missing required fields")
+		return Metadata{}, "", "", errors.New("malformed daemon metadata: missing required fields")
 	}
 	if m.DatabasePath != canonical {
-		return Metadata{}, "", fmt.Errorf("daemon metadata database mismatch: %s", m.DatabasePath)
+		return Metadata{}, "", "", fmt.Errorf("daemon metadata database mismatch: %s", m.DatabasePath)
 	}
 	if !pidAlive(m.PID) {
-		return Metadata{}, "", fmt.Errorf("stale daemon metadata: pid %d is not alive", m.PID)
+		return Metadata{}, "", "", fmt.Errorf("stale daemon metadata: pid %d is not alive", m.PID)
 	}
-	return m, canonical, nil
+	return m, canonical, file, nil
+}
+
+func validateLifecycleResult(operation string, result any, meta Metadata, canonical string) error {
+	switch operation {
+	case "status":
+		m, ok := result.(map[string]any)
+		if !ok || m["healthy"] != true || !samePositivePID(m["pid"], meta.PID) || m["database_path"] != canonical || m["daemon_id"] != meta.DaemonID || m["socket_path"] != meta.SocketPath {
+			return errors.New("malformed daemon response: invalid status result")
+		}
+	case "stop":
+		m, ok := result.(map[string]any)
+		if !ok || m["stopping"] != true || !samePositivePID(m["pid"], meta.PID) || m["database_path"] != canonical || m["daemon_id"] != meta.DaemonID {
+			return errors.New("malformed daemon response: invalid stop result")
+		}
+	}
+	return nil
+}
+
+func samePositivePID(v any, expected int) bool {
+	switch n := v.(type) {
+	case float64:
+		return n > 0 && int(n) == expected
+	case int:
+		return n > 0 && n == expected
+	default:
+		return false
+	}
+}
+
+func waitForCleanup(metadataFile, socketPath string) error {
+	ednFile := strings.TrimSuffix(metadataFile, filepath.Ext(metadataFile)) + ".edn"
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		metadataGone := false
+		if _, err := os.Stat(metadataFile); os.IsNotExist(err) {
+			metadataGone = true
+		} else if err != nil {
+			return err
+		}
+		socketGone := false
+		if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+			socketGone = true
+		} else if err != nil {
+			return err
+		}
+		ednGone := false
+		if _, err := os.Stat(ednFile); os.IsNotExist(err) {
+			ednGone = true
+		} else if err != nil {
+			return err
+		}
+		if metadataGone && ednGone && socketGone {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return errors.New("daemon stop did not clean up runtime metadata/socket")
 }
 
 func canonicalPath(p string) (string, error) {

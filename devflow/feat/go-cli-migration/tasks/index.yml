@@ -27,7 +27,7 @@ tasks:
   - id: 6
     description: Implement daemon lifecycle commands
     task_file: tasks/006-implement-daemon-lifecycle-commands.md
-    status: pending
+    status: complete
     blocked_by: [2, 3]
   - id: 7
     description: Update smoke and validation

@@ -30,7 +30,12 @@ func writeMeta(t *testing.T, db, sock string, pid int) {
 
 func serve(t *testing.T, handler func(map[string]any) map[string]any) string {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "s.sock")
+	dir, err := os.MkdirTemp(os.TempDir(), "td-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "s.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +114,60 @@ func TestMetadataAndTransportFailures(t *testing.T) {
 	_, err = New(Config{DB: db, Format: "json"}).Call("init", map[string]any{})
 	if err == nil || !strings.Contains(err.Error(), "stale daemon metadata") {
 		t.Fatalf("expected stale metadata, got %v", err)
+	}
+}
+
+func TestMalformedMetadataAndIdentityMismatch(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "todo.sqlite")
+	canon, err := canonicalPath(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(os.TempDir(), "todo-daemon")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	metaFile := filepath.Join(dir, stableHash(canon)+".json")
+	t.Cleanup(func() { os.Remove(metaFile) })
+	if err := os.WriteFile(metaFile, []byte(`{"protocol_version":1}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Config{DB: db, Format: "json"}).Call("init", map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "malformed daemon metadata") {
+		t.Fatalf("expected malformed metadata, got %v", err)
+	}
+
+	other := filepath.Join(t.TempDir(), "other.sqlite")
+	otherCanon, _ := canonicalPath(other)
+	m := Metadata{ProtocolVersion: 1, PID: os.Getpid(), DatabasePath: otherCanon, DaemonID: "daemon-1", SocketPath: filepath.Join(t.TempDir(), "no.sock")}
+	b, _ := json.Marshal(m)
+	if err := os.WriteFile(metaFile, b, 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Config{DB: db, Format: "json"}).Call("init", map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "database mismatch") {
+		t.Fatalf("expected metadata database mismatch, got %v", err)
+	}
+
+	sock := serve(t, func(req map[string]any) map[string]any {
+		return map[string]any{"protocol_version": 1, "request_id": req["request_id"], "ok": false, "result": nil, "error": map[string]any{"type": "protocol", "code": "protocol/identity-mismatch", "message": "Daemon identity mismatch", "details": map[string]any{}}}
+	})
+	writeMeta(t, db, sock, os.Getpid())
+	_, err = New(Config{DB: db, Format: "json"}).Call("status", map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "protocol/identity-mismatch") {
+		t.Fatalf("expected identity mismatch, got %v", err)
+	}
+}
+
+func TestMalformedLifecycleResults(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "todo.sqlite")
+	sock := serve(t, func(req map[string]any) map[string]any {
+		return map[string]any{"protocol_version": 1, "request_id": req["request_id"], "ok": true, "result": map[string]any{"healthy": true}, "error": nil}
+	})
+	writeMeta(t, db, sock, os.Getpid())
+	_, err := New(Config{DB: db, Format: "json"}).Call("status", map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "invalid status result") {
+		t.Fatalf("expected malformed status result, got %v", err)
 	}
 }
 

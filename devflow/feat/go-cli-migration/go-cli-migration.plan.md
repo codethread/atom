@@ -128,3 +128,9 @@ Outcome: User/agent docs, smoke flows, and root specs reflect `todo` as the publ
 - Wired Go `list`, `ready`, `list-query`, and `ready-query` over the JSON socket with string-valued `--param` maps and loud `--where` rejection.
 - The JSON socket now converts wire query names/params into the daemon's existing symbol/keyword query API, keeping registry mutation APIs unchanged and unexposed.
 - Added a Go integration test that starts a real Clojure daemon with a trusted config-loaded query and consumes it via `go run ./cmd/todo list --query ...`.
+
+### GOCLI-PLAN-001.DN8 Task 6 daemon lifecycle commands — 2026-06-25
+
+- Wired Go `daemon start` as a foreground Clojure launcher that forwards `--db` and trusted `--config`, preserving daemon stdio and exit status.
+- Wired `daemon status` and `daemon stop` over the JSON socket; stop now waits for metadata/socket cleanup before returning.
+- Added Go integration coverage for lifecycle status/stop, trusted config loading through the Go launcher, and startup config failure leaving no published metadata.
