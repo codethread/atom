@@ -88,12 +88,13 @@ Primary validation:
 
 ```sh
 PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test
+(cd cli && go test ./...)
 PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke
 ```
 
-The unit test suite covers parser, database, daemon, client, and REPL behavior. The smoke demo starts disposable daemon runtimes, exercises CLI subprocess commands through a real daemon, exercises REPL helpers through a real daemon connection, then removes generated SQLite and runtime metadata artifacts.
+The unit test suite covers parser, database, daemon, client, and REPL behavior. Go tests cover the native `todo` command, config, socket client, and integration paths. The smoke demo builds `./cli/bin/todo`, starts disposable daemon runtimes, exercises Go CLI subprocess commands through the JSON socket, exercises REPL helpers through a real daemon connection, then removes generated SQLite, runtime metadata, socket, and built CLI artifacts.
 
-For this daemon-runtime feature, also perform the manual tmux verification in the feature plan: hold a daemon open in a named `agent-<task>` tmux session, connect from a separate CLI/REPL or `dev/` process, create/read/update representative task data, capture that the daemon remained live, then stop the daemon and session.
+For this Go CLI migration feature, also perform the manual tmux verification in `devflow/feat/go-cli-migration/tasks/008-verify-daemon-in-tmux.md`: hold a Go-launched daemon open in a named `agent-<task>` tmux session, connect from separate `./cli/bin/todo` and REPL/`dev/` processes, create/read/update representative task data, capture that the daemon remained live, then stop the daemon and session.
 
 After validation, `git status --short` should not show generated SQLite or runtime metadata artifacts.
 

@@ -1,12 +1,12 @@
 (ns todo.smoke
   (:require [clojure.data.json :as json]
-            [clojure.string :as str]
             [todo.daemon.metadata :as metadata]
             [todo.daemon.runtime :as runtime]
             [todo.repl :as repl]))
 
 (def cli-smoke-db "smoke-cli.sqlite")
 (def repl-smoke-db "smoke-repl.sqlite")
+(def todo-bin "cli/bin/todo")
 
 (defn titles [rows]
   (mapv :title rows))
@@ -27,46 +27,55 @@
   (delete-sqlite-family! db-file)
   (delete-runtime-metadata! db-file))
 
-(defn run-cli! [db-file & args]
-  (let [command (into ["clojure" "-M:todo" "--db" db-file] args)
-        process (-> (ProcessBuilder. command)
+(defn delete-built-cli! []
+  (delete-tree! (java.nio.file.Paths/get "cli/bin" (make-array String 0))))
+
+(defn run-process! [message command]
+  (let [process (-> (ProcessBuilder. command)
                     (.redirectErrorStream true)
                     (.start))
         output (slurp (.getInputStream process))
         exit-code (.waitFor process)]
     (assert (= 0 exit-code)
-            (str "CLI command succeeds: " (pr-str command) "\n" output))
+            (str message ": " (pr-str command) "\n" output))
     output))
+
+(defn build-cli! []
+  (run-process! "Go CLI build succeeds" ["go" "build" "-o" "./cli/bin/todo" "./cli/cmd/todo"])
+  todo-bin)
+
+(defn run-cli! [db-file & args]
+  (run-process! "Go CLI command succeeds" (into [todo-bin "--db" db-file] args)))
 
 (defn start-cli-daemon!
   ([db-file] (start-cli-daemon! db-file []))
   ([db-file daemon-args]
-   (let [process (-> (ProcessBuilder. (into ["clojure" "-M:todo" "--db" db-file "daemon" "start"] daemon-args))
+   (let [process (-> (ProcessBuilder. (into [todo-bin "--db" db-file "daemon" "start"] daemon-args))
                      (.redirectErrorStream true)
                      (.start))]
-    (loop [attempts 50]
-      (when-not (.isAlive process)
-        (throw (ex-info "CLI daemon exited before becoming ready" {:output (slurp (.getInputStream process))})))
-      (when (zero? attempts)
-        (throw (ex-info "CLI daemon did not become ready" {})))
-      (when-not (try
-                  (run-cli! db-file "daemon" "status")
-                  true
-                  (catch AssertionError _ false))
-        (Thread/sleep 200)
-        (recur (dec attempts))))
-    process)))
+     (loop [attempts 50]
+       (when-not (.isAlive process)
+         (throw (ex-info "CLI daemon exited before becoming ready" {:output (slurp (.getInputStream process))})))
+       (when (zero? attempts)
+         (.destroy process)
+         (throw (ex-info "CLI daemon did not become ready" {})))
+       (when-not (try
+                   (run-cli! db-file "--format" "json" "daemon" "status")
+                   true
+                   (catch AssertionError _ false))
+         (Thread/sleep 200)
+         (recur (dec attempts))))
+     process)))
+
+(defn parse-json [s]
+  (json/read-str s :key-fn keyword))
 
 (defn cli-add! [db-file title & args]
-  (str/trim (apply run-cli! db-file "add" title args)))
+  (:id (parse-json (apply run-cli! db-file "--format" "json" "add" title args))))
 
 (defn assert= [expected actual message]
   (assert (= expected actual)
           (str message "\nexpected: " (pr-str expected) "\nactual: " (pr-str actual))))
-
-(defn section [title rows]
-  (println "\n--" title "--")
-  (doseq [row rows] (println row)))
 
 (defn stop-cli-daemon! [db-file daemon]
   (when (.isAlive daemon)
@@ -75,7 +84,9 @@
 
 (defn smoke-cli! [db-file]
   (clean-runtime-artifacts! db-file)
+  (delete-built-cli!)
   (try
+    (build-cli!)
     (let [config-dir (java.nio.file.Files/createTempDirectory "todo-smoke-query-config" (make-array java.nio.file.attribute.FileAttribute 0))
           query-file (java.io.File. (.toFile config-dir) "queries.clj")
           config-file (java.io.File. (.toFile config-dir) "daemon.edn")]
@@ -91,25 +102,32 @@
               (run-cli! db-file "update" schema "--edge" (str "depends-on:" design))
               (run-cli! db-file "update" docs "--edge" (str "depends-on:" schema))
               (assert= ["Create SQLite schema"]
-                       (titles (read-string (run-cli! db-file "--format" "edn" "ready")))
-                       "CLI ready sees tasks with final dependencies")
+                       (titles (parse-json (run-cli! db-file "--format" "json" "ready")))
+                       "Go CLI ready sees tasks with final dependencies")
               (run-cli! db-file "update" schema "--status" "done")
               (assert= ["Write usage notes"]
-                       (titles (json/read-str (run-cli! db-file "--format" "json" "ready") :key-fn keyword))
-                       "CLI update status changes readiness")
+                       (titles (parse-json (run-cli! db-file "--format" "json" "ready")))
+                       "Go CLI update status changes readiness")
               (assert= ["Write usage notes"]
-                       (titles (read-string (run-cli! db-file "--format" "edn" "list" "--query" "configured-agent")))
-                       "CLI consumes a query registered by trusted daemon startup config")
+                       (titles (parse-json (run-cli! db-file "--format" "json" "list" "--query" "configured-agent")))
+                       "Go CLI consumes a query registered by trusted daemon startup config")
               (assert= "done"
-                       (:status (read-string (run-cli! db-file "--format" "edn" "show" schema)))
-                       "CLI show exposes first-class status"))
-            (section "agent CLI process ready" (read-string (run-cli! db-file "--format" "edn" "ready")))
+                       (:status (parse-json (run-cli! db-file "--format" "json" "show" schema)))
+                       "Go CLI show exposes first-class status")
+              (let [status (parse-json (run-cli! db-file "--format" "json" "daemon" "status"))]
+                (assert= true
+                         (:healthy status)
+                         "Go CLI daemon status checks socket health")
+                (assert= (.getPath (metadata/socket-file (metadata/canonical-db-path db-file)))
+                         (:socket_path status)
+                         "Go CLI daemon status reports socket metadata")))
             (finally
               (stop-cli-daemon! db-file daemon))))
         (finally
           (delete-tree! config-dir))))
     (finally
-      (clean-runtime-artifacts! db-file))))
+      (clean-runtime-artifacts! db-file)
+      (delete-built-cli!))))
 
 (defn smoke-repl! [db-file]
   (clean-runtime-artifacts! db-file)
@@ -124,8 +142,11 @@
           (assert= ["Second task"] (titles (repl/ready)) "todo.repl ready returns tasks with final dependencies")
           (repl/defquery! 'agent-owner '[:= [:attr :owner] "agent"])
           (assert= ["Second task"]
-                   (titles (read-string (run-cli! db-file "--format" "edn" "list" "--query" "agent-owner")))
-                   "CLI consumes a query registered through todo.repl during the daemon lifetime")
+                   (titles (repl/tasks 'agent-owner))
+                   "todo.repl consumes a query registered during the daemon lifetime")
+          (assert= ["Second task"]
+                   (titles (repl/query '[:= [:attr :owner] "agent"]))
+                   "todo.repl retains EDN-rich ad hoc query debugging")
           (repl/update! b {:status "done"})
           (assert= "done" (:status (repl/task b)) "todo.repl update! updates status"))
         (finally
@@ -136,4 +157,4 @@
 (defn -main [& [db-file]]
   (smoke-cli! (if db-file (str db-file ".cli") cli-smoke-db))
   (smoke-repl! (if db-file (str db-file ".repl") repl-smoke-db))
-  (println "\nSmoke completed with daemon-backed CLI and REPL flows."))
+  (println "\nSmoke completed with daemon-backed Go CLI and REPL flows."))

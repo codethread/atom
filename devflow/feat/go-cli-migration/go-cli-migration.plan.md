@@ -134,3 +134,9 @@ Outcome: User/agent docs, smoke flows, and root specs reflect `todo` as the publ
 - Wired Go `daemon start` as a foreground Clojure launcher that forwards `--db` and trusted `--config`, preserving daemon stdio and exit status.
 - Wired `daemon status` and `daemon stop` over the JSON socket; stop now waits for metadata/socket cleanup before returning.
 - Added Go integration coverage for lifecycle status/stop, trusted config loading through the Go launcher, and startup config failure leaving no published metadata.
+
+### GOCLI-PLAN-001.DN9 Task 7 smoke and validation — 2026-06-25
+
+- Updated `dev/todo/smoke.clj` to build `./cli/bin/todo`, exercise independent Go CLI subprocesses over the JSON socket, assert only JSON machine output, and clean generated SQLite/runtime/socket/build artifacts.
+- Kept EDN-rich query authoring/debugging in the REPL smoke path through `todo.repl` instead of public CLI EDN.
+- Validation run: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `cd cli && go test ./...`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke` all pass.

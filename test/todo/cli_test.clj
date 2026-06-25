@@ -56,8 +56,9 @@
   (is (= {:config "daemon.edn"}
          (cli/parse-daemon-start-options ["--config" "daemon.edn"] "summary"))))
 
-(deftest list-and-ready-accept-query-options
-  (with-runtime
+(deftest internal-clojure-cli-retains-edn-query-options
+  (testing "legacy Clojure CLI parser/client behavior remains available for daemon and REPL support; public Go CLI rejects --where/EDN"
+    (with-runtime
     (fn [db-file]
       (let [design (:id (cli/run-command! db-file "add" ["Design" "--status" "done" "--attr" "owner=agent"] "summary"))
             docs (:id (cli/run-command! db-file "add" ["Docs" "--attr" "owner=agent"] "summary"))
@@ -75,7 +76,7 @@
         (is (= [docs]
                (mapv :id (cli/run-command! db-file "ready" ["--query" "agent-owner"] "summary"))))
         (is (= [misc]
-               (mapv :id (cli/run-command! db-file "list" ["--query" "by-owner" "--param" "owner=human"] "summary"))))))))
+               (mapv :id (cli/run-command! db-file "list" ["--query" "by-owner" "--param" "owner=human"] "summary")))))))))
 
 (deftest query-options-reject-query-file-and-missing-names
   (with-redefs [cli/fail! (fn [message _summary] (throw (ex-info message {})))]

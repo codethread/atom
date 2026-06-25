@@ -30,8 +30,11 @@ Run the unit tests and smoke demo:
 
 ```sh
 clojure -M:test
+(cd cli && go test ./...)
 clojure -M:smoke
 ```
+
+The smoke path builds and removes `./cli/bin/todo` while exercising the Go CLI against the daemon JSON socket. Manual tmux daemon verification for the Go CLI migration is tracked in `devflow/feat/go-cli-migration/tasks/008-verify-daemon-in-tmux.md`.
 
 Use the daemon-backed agent CLI. Start the daemon in one terminal; it stays in the foreground:
 

@@ -32,7 +32,7 @@ tasks:
   - id: 7
     description: Update smoke and validation
     task_file: tasks/007-update-smoke-and-validation.md
-    status: pending
+    status: complete
     blocked_by: [4, 5, 6]
   - id: 8
     description: "[HITL] Verify daemon in tmux"
