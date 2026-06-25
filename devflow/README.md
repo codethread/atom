@@ -11,6 +11,7 @@ Root specs are canonical for shipped behavior:
 - [Task Model](./specs/task-model.md) — task records, JSON attributes, edge semantics, and readiness rules.
 - [CLI Surface](./specs/cli.md) — scriptable command contract for agents.
 - [REPL API](./specs/repl-api.md) — interactive Clojure helper contract.
+- [Daemon Runtime](./specs/daemon-runtime.md) — local long-lived daemon lifecycle, metadata, transport, and trusted startup config.
 
 ## Active features
 
@@ -23,4 +24,5 @@ Archived feature folders preserve historical planning context. Current shipped c
 - `26-06-24__agent-tool-interface` — shipped agent-operable CLI/REPL interface for the todo graph MVP.
 - `26-06-24__db-owned-task-ids` — shipped generated task ids and creation-time `--link` edges.
 - `26-06-24__batch-task-refs` — shipped stdin EDN batch task creation with batch-local refs.
+- `26-06-25__daemon-runtime` — shipped local daemon runtime with nREPL transport, daemon-backed CLI/REPL clients, and trusted startup config.
 - `26-06-24__stripped-task-api` — shipped smaller CLI/REPL surface with first-class task lifecycle fields.

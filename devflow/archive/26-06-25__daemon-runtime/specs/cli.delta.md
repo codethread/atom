@@ -1,8 +1,8 @@
 # CLI Surface Delta: Daemon Runtime
 
 **Document ID:** `SPEC-002-D001`
-**Status:** Planned
-**Last Updated:** 2026-06-24
+**Status:** Merged
+**Last Updated:** 2026-06-25
 **Root spec:** [CLI Surface](../../../specs/cli.md)
 **Feature spec:** [Daemon Runtime](./daemon-runtime.md)
 

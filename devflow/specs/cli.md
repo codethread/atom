@@ -2,7 +2,7 @@
 
 **Document ID:** `SPEC-002`
 **Status:** Implemented
-**Last Updated:** 2026-06-24
+**Last Updated:** 2026-06-25
 **Related RFCs:** [RFC-002 Task Query DSL](../rfcs/2026-06-24-task-query-dsl.md)
 **Code:** `src/todo/cli.clj`
 

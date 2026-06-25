@@ -2,7 +2,7 @@
 
 **Document ID:** `SPEC-003`
 **Status:** Implemented
-**Last Updated:** 2026-06-24
+**Last Updated:** 2026-06-25
 **Code:** `src/todo/repl.clj`
 
 ## SPEC-003.P1 Purpose

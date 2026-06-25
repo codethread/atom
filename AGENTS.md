@@ -7,6 +7,7 @@ Canonical shipped contracts live in root specs:
 - [Task Model](./devflow/specs/task-model.md): task records, JSON attributes, edge semantics, and readiness rules.
 - [CLI Surface](./devflow/specs/cli.md): command vocabulary, options, output modes, and failure behavior.
 - [REPL API](./devflow/specs/repl-api.md): interactive helper vocabulary, daemon lifecycle, and return normalization.
+- [Daemon Runtime](./devflow/specs/daemon-runtime.md): local daemon lifecycle, runtime metadata, nREPL transport, and trusted startup config.
 
 ## Project commands
 

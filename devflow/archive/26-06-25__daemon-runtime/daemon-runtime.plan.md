@@ -6,8 +6,8 @@
 **RFC:** [RFC-002 Task Query DSL](../../rfcs/2026-06-24-task-query-dsl.md)
 **Root specs:** [CLI Surface](../../specs/cli.md), [REPL API](../../specs/repl-api.md), [Task Model](../../specs/task-model.md)
 **Feature specs:** [Daemon Runtime](./specs/daemon-runtime.md), [CLI delta](./specs/cli.delta.md), [REPL delta](./specs/repl-api.delta.md)
-**Status:** Reviewed
-**Last Updated:** 2026-06-24
+**Status:** Shipped
+**Last Updated:** 2026-06-25
 
 ## PLAN-001.P1 Goal and scope
 
@@ -145,3 +145,13 @@ Outcome: Dev helpers, smoke scripts, README, and AGENTS guidance demonstrate the
 - Stopped the daemon with `daemon stop`; tmux session exited and no `agent-` tmux session or `/tmp/todo-task006-tmux.sqlite*`/runtime metadata artifact remained.
 - Post-verification validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test` and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
 - `git status --short` was checked after cleanup/validation and returned clean, with no generated SQLite or runtime metadata artifacts.
+
+### PLAN-001.DN10 Follow-up RFC — 2026-06-25
+
+- During the daemon walkthrough, we confirmed the daemon/nREPL architecture enables shared live runtime state but does not make the current CLI fast because each `clojure -M:todo ...` invocation still starts a JVM client. Captured the accepted future direction in [RFC-003 Fast JSON Socket CLI](../../rfcs/2026-06-25-fast-json-socket-cli.md): keep nREPL for live Clojure access and add a Go CLI over a JSON Unix socket for fast scripted operations.
+
+### PLAN-001.DN11 Final archive note — 2026-06-25
+
+- Shipped scope: daemon-owned SQLite runtime, nREPL-backed client bridge, daemon lifecycle CLI, daemon-backed REPL helpers, trusted startup config, docs, automated smoke coverage, and tmux/manual validation.
+- Promoted durable daemon behavior into root specs, including new [Daemon Runtime](../../specs/daemon-runtime.md). CLI and REPL deltas were already merged into the root CLI/REPL specs.
+- Cut/deferred scope remains intentionally outside this feature: task query DSL, saved query execution, runtime reload commands, SCI/sandboxing, remote/multi-user operation, and the RFC-003 fast Go/JSON Unix socket CLI.
