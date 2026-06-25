@@ -16,6 +16,7 @@ Root specs are canonical for shipped behavior:
 ## Active features
 
 - `daemon-query-registry` — in-memory daemon query registry managed through REPL/config workflows and consumed by CLI named queries.
+- `go-cli-migration` — planned migration of the thin scripted CLI to a Go client over the daemon's JSON Unix socket; plan deferred until active query registry deltas `SPEC-002-D002` and `SPEC-004-D001` are promoted or otherwise stabilized.
 
 ## Archived features
 
