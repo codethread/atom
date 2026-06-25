@@ -1,0 +1,36 @@
+tasks:
+  - id: 1
+    description: Runtime deps local-root spike
+    task_file: tasks/001-runtime-deps-local-root-spike.md
+    status: pending
+    blocked_by: []
+  - id: 2
+    description: Approved libs config
+    task_file: tasks/002-approved-libs-config.md
+    status: pending
+    blocked_by: [1]
+  - id: 3
+    description: Sync approved local roots
+    task_file: tasks/003-sync-approved-local-roots.md
+    status: pending
+    blocked_by: [2]
+  - id: 4
+    description: Implement daemon use registry
+    task_file: tasks/004-implement-daemon-use-registry.md
+    status: pending
+    blocked_by: [3]
+  - id: 5
+    description: Remove plugin public surface
+    task_file: tasks/005-remove-plugin-public-surface.md
+    status: pending
+    blocked_by: [4]
+  - id: 6
+    description: Docs and smoke workflow
+    task_file: tasks/006-docs-and-smoke-workflow.md
+    status: pending
+    blocked_by: [5]
+  - id: 7
+    description: Promote specs and validate
+    task_file: tasks/007-promote-specs-and-validate.md
+    status: pending
+    blocked_by: [6]
