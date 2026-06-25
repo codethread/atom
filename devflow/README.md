@@ -16,6 +16,7 @@ Root specs are canonical for shipped behavior:
 ## Active features
 
 - `user-daemon-home` — drafted config-dir daemon world, fixed socket discovery, default daemon init, and connected REPL UX.
+- `runtime-plugin-system` — blocked draft for Emacs-like trusted runtime plugins, blessed source-visible libraries, bootstrap/prelude ergonomics, and plugin metadata after `user-daemon-home` ships.
 
 ## Archived features
 
