@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ func TestHelpIncludesCommandTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"start", "status", "stop"} {
+	for _, want := range []string{"start", "status", "stop", "repl"} {
 		if !strings.Contains(daemon, want) {
 			t.Fatalf("daemon help missing %q in:\n%s", want, daemon)
 		}
@@ -184,6 +185,71 @@ func TestDaemonStartLaunchesFromConfiguredSource(t *testing.T) {
 	}
 }
 
+func TestDaemonReplVerifiesDaemonAndLaunchesFromConfiguredSource(t *testing.T) {
+	cfg := t.TempDir()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"source":"`+source+`"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	origClient := newClient
+	origRun := runReplProcess
+	var launched Options
+	var launchedStdin bool
+	fc := &fakeClient{}
+	newClient = func(o Options) Caller { return fc }
+	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
+		launched = o
+		launchedStdin = stdin
+		return nil
+	}
+	t.Cleanup(func() { newClient = origClient; runReplProcess = origRun })
+	if _, err := run("--config-dir", cfg, "daemon", "repl", "--stdin"); err != nil {
+		t.Fatal(err)
+	}
+	realCfg, err := filepath.EvalSymlinks(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launched.Source != source || launched.ConfigDir != realCfg || !launched.ConfigDirExplicit || !launchedStdin {
+		t.Fatalf("unexpected repl launch: %#v stdin=%v", launched, launchedStdin)
+	}
+	if !reflect.DeepEqual(replArgs(launched, true), []string{"-M", "-m", "todo.repl", "--stdin", realCfg}) {
+		t.Fatalf("unexpected repl args: %#v", replArgs(launched, true))
+	}
+	if len(fc.calls) != 1 || fc.calls[0].op != "status" {
+		t.Fatalf("daemon repl should verify status first: %#v", fc.calls)
+	}
+}
+
+func TestDaemonReplStatusFailureBlocksLaunch(t *testing.T) {
+	cfg := t.TempDir()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"source":"`+source+`"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	origClient := newClient
+	origRun := runReplProcess
+	launched := false
+	newClient = func(o Options) Caller { return &fakeClient{err: errors.New("no running daemon")} }
+	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
+		launched = true
+		return nil
+	}
+	t.Cleanup(func() { newClient = origClient; runReplProcess = origRun })
+	if _, err := run("--config-dir", cfg, "daemon", "repl"); err == nil || !strings.Contains(err.Error(), "no running daemon") {
+		t.Fatalf("expected status failure, got %v", err)
+	}
+	if launched {
+		t.Fatal("repl process launched after status failure")
+	}
+}
+
 func TestSourceValidationForDaemonStart(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"source":"relative"}`), 0644); err != nil {
@@ -241,6 +307,7 @@ func TestXDGConfigLoading(t *testing.T) {
 type fakeClient struct {
 	calls  []fakeCall
 	result any
+	err    error
 }
 type fakeCall struct {
 	op   string
@@ -249,6 +316,9 @@ type fakeCall struct {
 
 func (f *fakeClient) Call(op string, args map[string]any) (any, error) {
 	f.calls = append(f.calls, fakeCall{op, args})
+	if f.err != nil {
+		return nil, f.err
+	}
 	if f.result != nil {
 		return f.result, nil
 	}

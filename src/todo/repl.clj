@@ -1,36 +1,47 @@
 (ns todo.repl
-  (:require [todo.client :as client]
+  (:require [clojure.main :as main]
+            [todo.client :as client]
+            [todo.daemon.config :as daemon-config]
             [todo.query :as query]))
 
-(defonce ^:private active-db-file (atom nil))
+(defonce ^:private active-config-dir (atom nil))
 
-(defn- db-file []
-  (or @active-db-file
-      (throw (ex-info "No todo daemon is open. Start a daemon for the database, then call (open! \"path/to/todo.sqlite\") before using todo.repl helpers."
-                      {:helper 'open!}))))
+(defn- config-dir []
+  (or @active-config-dir
+      (throw (ex-info "No todo daemon world is connected. Start a connected helper REPL with `todo daemon repl`, or call (connect!) / (connect! \"/path/to/config-dir\") before using todo.repl helpers."
+                      {:helper 'connect!}))))
 
-(defn open! [db-file]
-  (reset! active-db-file nil)
-  (client/status db-file)
-  (reset! active-db-file db-file))
+(defn connect!
+  ([]
+   (connect! nil))
+  ([config-dir]
+   (reset! active-config-dir nil)
+   (when (and config-dir (.isFile (java.io.File. config-dir)))
+     (throw (ex-info "connect! expects a daemon config directory, not a database file" {:config-dir config-dir})))
+   (let [world (daemon-config/world config-dir)]
+     (client/status-world (:config-dir world))
+     (reset! active-config-dir (:config-dir world)))))
+
+(defn- daemon [op & args]
+  (apply client/call-world (config-dir) {} op args))
 
 (defn init! []
-  (client/init (db-file)))
+  (daemon :init))
 
 (defn task!
   ([title]
    (task! title {}))
   ([title attributes]
-   (client/add (db-file) {:title title :attributes attributes}))
+   (daemon :add {:title title :attributes attributes}))
   ([title status attributes]
-   (client/add (db-file) {:title title :status status :attributes attributes})))
+   (daemon :add {:title title :status status :attributes attributes})))
 
 (defn update!
   ([id patch]
-   (client/update (db-file) id patch)))
+   (daemon :update id patch)))
 
 (defn task [id]
-  (client/show (db-file) id))
+  (daemon :show id))
 
 (defn- call-daemon [f]
   (try
@@ -41,37 +52,37 @@
         (throw e)))))
 
 (defn defquery! [query-name query-def]
-  (let [db (db-file)]
-    (call-daemon #(client/register-query db query-name query-def))))
+  (let [dir (config-dir)]
+    (call-daemon #(client/call-world dir {} :register-query query-name query-def))))
 
 (defn load-queries! [path]
-  (let [db (db-file)
+  (let [dir (config-dir)
         registry (query/read-edn-file path)]
     (when-not (map? registry)
       (throw (ex-info "Query file must contain one EDN map of query names to query definitions" {:path path})))
-    (call-daemon #(client/load-queries db registry))))
+    (call-daemon #(client/call-world dir {} :load-queries registry))))
 
 (defn queries []
-  (let [db (db-file)]
-    (call-daemon #(client/queries db))))
+  (let [dir (config-dir)]
+    (call-daemon #(client/call-world dir {} :queries))))
 
 (defn- named-query? [query-or-def]
   (or (symbol? query-or-def) (keyword? query-or-def)))
 
-(defn- run-query [db query-or-def params ad-hoc named]
+(defn- run-query [dir query-or-def params ad-hoc named]
   (call-daemon #(if (named-query? query-or-def)
-                  (named db query-or-def params)
-                  (ad-hoc db query-or-def params))))
+                  (client/call-world dir {} named query-or-def params)
+                  (client/call-world dir {} ad-hoc query-or-def params))))
 
 (defn query
   ([query-or-def]
    (query query-or-def {}))
   ([query-or-def params]
-   (run-query (db-file) query-or-def params client/list client/list-query)))
+   (run-query (config-dir) query-or-def params :list :list-query)))
 
 (defn tasks
   ([]
-   (client/list (db-file)))
+   (daemon :list))
   ([query-or-def]
    (query query-or-def))
   ([query-or-def params]
@@ -79,8 +90,38 @@
 
 (defn ready
   ([]
-   (client/ready (db-file)))
+   (daemon :ready))
   ([query-or-def]
    (ready query-or-def {}))
   ([query-or-def params]
-   (run-query (db-file) query-or-def params client/ready client/ready-query)))
+   (run-query (config-dir) query-or-def params :ready :ready-query)))
+
+(defn- eval-stdin! []
+  (let [reader (java.io.PushbackReader. *in*)
+        eof (Object.)]
+    (loop []
+      (let [form (read reader false eof)]
+        (when-not (identical? eof form)
+          (prn (eval form))
+          (recur))))))
+
+(defn -main [& args]
+  (let [[mode config-dir] (case (count args)
+                            0 [:repl nil]
+                            1 (if (= "--stdin" (first args))
+                                [:stdin nil]
+                                [:repl (first args)])
+                            2 (if (= "--stdin" (first args))
+                                [:stdin (second args)]
+                                (throw (ex-info "Usage: todo.repl [--stdin] [config-dir]" {:args args})))
+                            (throw (ex-info "Usage: todo.repl [--stdin] [config-dir]" {:args args})))]
+    (connect! config-dir)
+    (binding [*ns* (the-ns 'todo.repl)]
+      (case mode
+        :stdin (try
+                 (eval-stdin!)
+                 (catch Throwable t
+                   (binding [*out* *err*]
+                     (println (or (ex-message t) (str t))))
+                   (System/exit 1)))
+        :repl (main/repl :prompt #(print "todo=> "))))))

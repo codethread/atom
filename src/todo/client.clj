@@ -129,6 +129,13 @@
                                                                          :actual (:nonce actual)}))
     actual))
 
+(defn call-world [config-dir {:keys [timeout-ms] :or {timeout-ms default-timeout-ms}} op & args]
+  (let [meta (metadata-for-world config-dir)]
+    (with-open [conn (connect meta timeout-ms)]
+      (verify-identity! conn meta timeout-ms)
+      (eval-form conn (fixed-form op args) timeout-ms {:operation op
+                                                       :config-dir (:config-dir meta)}))))
+
 (defn call [db-file {:keys [timeout-ms] :or {timeout-ms default-timeout-ms}} op & args]
   (let [meta (metadata-for db-file)]
     (with-open [conn (connect meta timeout-ms)]

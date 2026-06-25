@@ -27,7 +27,7 @@
 (defn demo!
   "Connect to an already-running demo daemon and initialize the database."
   []
-  (open! demo-db)
+  (connect!)
   (init!)
   {:database demo-db
    :status :ready})

@@ -148,6 +148,12 @@ func (a *App) rootCommand() *cobra.Command {
 	daemon.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the daemon", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.withConfig(o, func(r Options) error { return a.call(r, "stop", map[string]any{}) })
 	}})
+	repl := &cobra.Command{Use: "repl", Short: "Start a connected Clojure helper REPL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		stdin, _ := cmd.Flags().GetBool("stdin")
+		return a.withConfig(o, func(r Options) error { return a.launchRepl(r, stdin) })
+	}}
+	repl.Flags().Bool("stdin", false, "read Clojure forms from stdin, print one result per top-level form, then exit")
+	daemon.AddCommand(repl)
 	root.AddCommand(daemon)
 	return root
 }
@@ -307,10 +313,21 @@ func daemonArgs(o Options) []string {
 	return append(args, "daemon", "start")
 }
 
-var runDaemonProcess = func(o Options, out, errOut io.Writer) error {
-	cmd := exec.Command("clojure", daemonArgs(o)...)
-	cmd.Dir = o.Source
-	cmd.Stdin = os.Stdin
+func replArgs(o Options, stdin bool) []string {
+	args := []string{"-M", "-m", "todo.repl"}
+	if stdin {
+		args = append(args, "--stdin")
+	}
+	if o.ConfigDirExplicit {
+		args = append(args, o.ConfigDir)
+	}
+	return args
+}
+
+func runProcess(source string, args []string, in io.Reader, out, errOut io.Writer) error {
+	cmd := exec.Command("clojure", args...)
+	cmd.Dir = source
+	cmd.Stdin = in
 	cmd.Stdout = out
 	cmd.Stderr = errOut
 	if err := cmd.Run(); err != nil {
@@ -322,11 +339,29 @@ var runDaemonProcess = func(o Options, out, errOut io.Writer) error {
 	return nil
 }
 
+var runDaemonProcess = func(o Options, out, errOut io.Writer) error {
+	return runProcess(o.Source, daemonArgs(o), os.Stdin, out, errOut)
+}
+
+var runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
+	return runProcess(o.Source, replArgs(o, stdin), in, out, errOut)
+}
+
 func (a *App) launchDaemon(o Options) error {
 	if err := config.ValidateSource(o.Source); err != nil {
 		return err
 	}
 	return runDaemonProcess(o, a.Stdout, a.Stderr)
+}
+
+func (a *App) launchRepl(o Options, stdin bool) error {
+	if err := config.ValidateSource(o.Source); err != nil {
+		return err
+	}
+	if _, err := newClient(o).Call("status", map[string]any{}); err != nil {
+		return err
+	}
+	return runReplProcess(o, stdin, os.Stdin, a.Stdout, a.Stderr)
 }
 func validStatus(s string) error {
 	switch s {

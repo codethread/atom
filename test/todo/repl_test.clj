@@ -1,58 +1,63 @@
 (ns todo.repl-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
+            [todo.daemon.config :as daemon-config]
             [todo.daemon.runtime :as runtime]
             [todo.db-test :as db-test]
             [todo.repl :as repl]))
 
 (defn reset-open-state! []
-  (reset! (var-get (ns-resolve 'todo.repl 'active-db-file)) nil))
+  (reset! (var-get (ns-resolve 'todo.repl 'active-config-dir)) nil))
 
 (defn with-runtime [f]
   (let [db-file (db-test/temp-db-file)
-        rt (runtime/start! db-file)]
-    (try
-      (f rt db-file)
-      (finally
-        (reset-open-state!)
-        (runtime/stop! rt)
-        (db-test/delete-sqlite-family! db-file)))))
+        config-dir (str "/tmp/td-" (java.util.UUID/randomUUID))]
+    (.mkdirs (java.io.File. config-dir))
+    (let [world (daemon-config/world config-dir)
+          rt (runtime/start! db-file {:world world})]
+      (try
+        (f rt db-file)
+        (finally
+          (reset-open-state!)
+          (runtime/stop! rt)
+          (db-test/delete-sqlite-family! db-file))))))
 
-(deftest helpers-fail-before-open
+(deftest helpers-fail-before-connect
   (reset-open-state!)
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"No todo daemon is open"
+                        #"No todo daemon world is connected"
                         (repl/tasks)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"No todo daemon is open"
+                        #"No todo daemon world is connected"
                         (repl/load-queries! "/path/does/not/matter.edn"))))
 
-(deftest open-fails-without-selecting-a-daemon
-  (let [db-file (db-test/temp-db-file)]
+(deftest connect-fails-without-selecting-a-daemon
+  (let [config-dir (str "/tmp/td-" (java.util.UUID/randomUUID))]
+    (.mkdirs (java.io.File. config-dir))
     (try
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"metadata is missing or stale"
-                            (repl/open! db-file)))
+                            (repl/connect! config-dir)))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"No todo daemon is open"
+                            #"No todo daemon world is connected"
                             (repl/tasks)))
       (finally
-        (reset-open-state!)
-        (db-test/delete-sqlite-family! db-file)))))
+        (reset-open-state!)))))
 
-(deftest failed-open-clears-previous-selection
+(deftest failed-connect-clears-previous-selection
   (with-runtime
-    (fn [_ db-file]
-      (repl/open! db-file)
-      (let [missing-db-file (db-test/temp-db-file)]
-        (try
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                                #"metadata is missing or stale"
-                                (repl/open! missing-db-file)))
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                                #"No todo daemon is open"
-                                (repl/tasks)))
-          (finally
-            (db-test/delete-sqlite-family! missing-db-file)))))))
+    (fn [rt db-file]
+      (repl/connect! (:config-dir (:metadata rt)))
+      (spit db-file "not a config dir")
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"connect! expects a daemon config directory"
+                              (repl/connect! db-file)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"No todo daemon world is connected"
+                              (repl/tasks)))
+        (finally
+          (db-test/delete-sqlite-family! db-file))))))
 
 (deftest dev-user-namespace-loads
   (require 'user :reload)
@@ -60,8 +65,8 @@
 
 (deftest helpers-use-daemon-backed-task-flow
   (with-runtime
-    (fn [_ db-file]
-      (is (= db-file (repl/open! db-file)))
+    (fn [rt db-file]
+      (is (= (:config-dir (:metadata rt)) (repl/connect! (:config-dir (:metadata rt)))))
       (is (= {:database "initialized"} (repl/init!)))
       (let [design (repl/task! "Sketch model" "done" {:priority "high"})
             docs (repl/task! "Write docs" {:owner "agent"})]
@@ -71,10 +76,25 @@
         (is (= #{(:id design) (:id docs)} (set (map :id (repl/tasks)))))
         (is (= [(:id docs)] (mapv :id (repl/ready))))))))
 
+(deftest stdin-main-evaluates-multiple-forms-in-helper-context
+  (with-runtime
+    (fn [rt _]
+      (let [out (java.io.StringWriter.)]
+        (binding [*in* (java.io.StringReader. "(init!)\n(tasks)\n(ready)\n")
+                  *out* out
+                  *err* (java.io.StringWriter.)
+                  *ns* (the-ns 'user)]
+          (repl/-main "--stdin" (:config-dir (:metadata rt))))
+        (let [lines (str/split-lines (str out))]
+          (is (= 3 (count lines)))
+          (is (= {:database "initialized"} (read-string (first lines))))
+          (is (= [] (read-string (second lines))))
+          (is (= [] (read-string (nth lines 2)))))))))
+
 (deftest query-helpers-use-daemon-backed-task-flow
   (with-runtime
-    (fn [_ db-file]
-      (repl/open! db-file)
+    (fn [rt db-file]
+      (repl/connect! (:config-dir (:metadata rt)))
       (repl/init!)
       (let [design (:id (repl/task! "Design" "done" {:owner "agent"}))
             docs (:id (repl/task! "Docs" {:owner "agent"}))
@@ -99,7 +119,7 @@
 (deftest query-registry-helpers-use-daemon-memory
   (with-runtime
     (fn [rt db-file]
-      (repl/open! db-file)
+      (repl/connect! (:config-dir (:metadata rt)))
       (repl/init!)
       (let [agent (:id (repl/task! "Agent task" {:owner "agent"}))
             human (:id (repl/task! "Human task" {:owner "human"}))]
@@ -109,7 +129,7 @@
                (repl/queries)))
         (is (= [agent] (mapv :id (repl/tasks 'mine))))
         (runtime/stop! rt)
-        (let [fresh-rt (runtime/start! db-file)]
+        (let [fresh-rt (runtime/start! db-file {:world (daemon-config/world (:config-dir (:metadata rt)))})]
           (try
             (is (= {} (repl/queries)))
             (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -132,14 +152,17 @@
 
 (deftest helpers-fail-loudly-when-daemon-becomes-unavailable
   (let [db-file (db-test/temp-db-file)
-        rt (runtime/start! db-file)]
-    (try
-      (repl/open! db-file)
-      (runtime/stop! rt)
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"metadata is missing or stale"
-                            (repl/tasks)))
-      (finally
-        (reset-open-state!)
+        config-dir (str "/tmp/td-" (java.util.UUID/randomUUID))]
+    (.mkdirs (java.io.File. config-dir))
+    (let [world (daemon-config/world config-dir)
+          rt (runtime/start! db-file {:world world})]
+      (try
+        (repl/connect! (:config-dir (:metadata rt)))
         (runtime/stop! rt)
-        (db-test/delete-sqlite-family! db-file)))))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"metadata is missing or stale"
+                              (repl/tasks)))
+        (finally
+          (reset-open-state!)
+          (runtime/stop! rt)
+          (db-test/delete-sqlite-family! db-file))))))

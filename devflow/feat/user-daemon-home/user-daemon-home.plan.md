@@ -127,3 +127,7 @@ Daemon startup now uses the selected world default database at `data/tasks.sqlit
 ### UDH-PLAN-001.DN9 Task 4 implementation notes — 2026-06-25
 
 Normal Go task/query/status/stop commands now resolve only the selected daemon world and output format; `source` is parsed only for Clojure-spawning lifecycle commands. Integration coverage builds the Go binary, starts a disposable config-dir daemon, then runs task/query/status/stop commands from a separate cwd. The test removes `source` from `config.json` after daemon startup and still verifies `show`, `update`, `list --query/--param`, and `ready --query/--param` against daemon-registered query state.
+
+### UDH-PLAN-001.DN10 Task 5 implementation notes — 2026-06-25
+
+Replaced public REPL database-path `open!` with daemon-world `connect!`, added the plain `todo.repl` entrypoint for connected interactive and stdin evaluation, and wired `todo daemon repl [--stdin]` in the Go CLI after source validation and daemon reachability checks. Local REPL tests now use disposable config-dir worlds. Broader README/spec promotion remains deferred to Tasks 6 and 7.

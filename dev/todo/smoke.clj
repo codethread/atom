@@ -161,9 +161,10 @@
 (defn smoke-repl! [db-file]
   (clean-runtime-artifacts! db-file)
   (try
-    (let [runtime (runtime/start! db-file)]
+    (let [world (smoke-world db-file)
+          runtime (runtime/start! db-file {:world world})]
       (try
-        (repl/open! db-file)
+        (repl/connect! (:config-dir world))
         (repl/init!)
         (let [a (:id (repl/task! "First task" "done" {}))
               b (:id (repl/task! "Second task" {:owner "agent"}))]
