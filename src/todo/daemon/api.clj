@@ -103,15 +103,7 @@
                       (catch Throwable t
                         (throw (ex-info "Plugin metadata is malformed" {:file (.getPath metadata-file)} t)))))
           init-path (.getCanonicalPath init-file)]
-      (try
-        (load-file init-path)
-        (catch Throwable t
-          (throw (ex-info "Plugin init.clj load failed" (cond-> {:name (:name metadata)
-                                                                  :dir (.getPath dir)
-                                                                  :init-file init-path
-                                                                  :cause-message (ex-message t)}
-                                                           (ex-data t) (assoc :cause-data (ex-data t)))
-                          t))))
+      (load-file init-path)
       (let [recorded (assoc metadata
                             :source :local
                             :dir (.getPath dir)

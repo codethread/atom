@@ -156,7 +156,7 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown keys" (plugin/load-plugin! loader-owned)))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"format version" (plugin/load-plugin! bad-version)))
         (is (not (.exists (java.io.File. invalid-marker))))
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"load failed" (plugin/load-plugin! throwing)))
+        (is (thrown? Throwable (plugin/load-plugin! throwing)))
         (is (nil? (plugin/plugin :demo/throwing)))))))
 
 (deftest bootstrap-and-prelude-namespaces-load
