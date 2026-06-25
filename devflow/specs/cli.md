@@ -10,7 +10,7 @@
 
 The CLI is the primary scripted interface for coding agents. It exposes a deliberately small task surface: initialize storage, create tasks, update tasks, inspect tasks, list tasks, ask for ready work, and manage the local daemon runtime.
 
-The public CLI is a thin Go executable named `todo`. It parses simple flags, resolves client defaults, sends JSON requests over the daemon's local Unix socket, formats human or JSON output, and never opens SQLite or evaluates rich query definitions locally.
+The public CLI is a thin Go executable named `todo`. It uses Cobra for command, subcommand, flag parsing, and help text; resolves client defaults; sends JSON requests over the daemon's local Unix socket; formats human or JSON output; and never opens SQLite or evaluates rich query definitions locally.
 
 ## SPEC-002.P2 Interface
 
@@ -48,7 +48,8 @@ daemon status
 - **SPEC-002.C10:** `list` and `ready` accept an optional named query from daemon memory with `--query` and repeated string-valued `--param key=value` runtime parameters.
 - **SPEC-002.C11:** `--where` and `--format edn` are not part of the public Go CLI. Rich EDN query authoring belongs in trusted daemon config and REPL workflows.
 - **SPEC-002.C12:** The CLI has no query registry mutation/listing commands and does not accept `--query-file`; query loading is a trusted daemon config or REPL workflow, and registry contents last only for the daemon lifetime.
-- **SPEC-002.C13:** Malformed options, invalid statuses, invalid edge targets, unknown commands, stale/missing metadata, socket transport/identity failures, malformed daemon responses, and database/domain errors fail non-zero.
+- **SPEC-002.C13:** Malformed options, invalid statuses, invalid edge targets, unknown commands, stale/missing metadata, socket transport/identity failures, malformed daemon responses, and database/domain errors fail non-zero. Task commands against a reachable but uninitialized database fail clearly with instructions to run `todo init`.
+- **SPEC-002.C13a:** The Go CLI implementation uses Cobra rather than hand-rolled command dispatch or flag parsing. Root, command, subcommand, and flag help must clearly describe the supported command tree and accepted flags.
 - **SPEC-002.C14:** `daemon start`, `daemon stop`, and `daemon status` manage the local daemon lifecycle for the selected database. `daemon start --config <path>` forwards trusted startup config to the Clojure daemon and stays in the foreground. `daemon status` validates metadata and socket identity and reports health, canonical database path, pid, daemon identity, socket endpoint, and nREPL endpoint. `daemon stop` stops only the matched daemon over the socket and waits for runtime metadata/socket cleanup.
 
 ## SPEC-002.P4 Deferred

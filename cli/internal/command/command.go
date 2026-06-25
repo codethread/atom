@@ -3,7 +3,6 @@ package command
 import (
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	"atom-todo-cli/internal/client"
 	"atom-todo-cli/internal/config"
+	"github.com/spf13/cobra"
 )
 
 type App struct{ Stdout, Stderr io.Writer }
@@ -40,54 +40,158 @@ func (a *App) Run(args []string) error {
 	if a.Stderr == nil {
 		a.Stderr = os.Stderr
 	}
-	opts, rest, err := Resolve(args)
+	cmd := a.rootCommand()
+	cmd.SetArgs(args)
+	cmd.SetOut(a.Stdout)
+	cmd.SetErr(a.Stderr)
+	return cmd.Execute()
+}
+
+func (a *App) rootCommand() *cobra.Command {
+	o := Options{}
+	root := &cobra.Command{
+		Use:           "todo",
+		Short:         "Manage Atom tasks through the local daemon",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	root.CompletionOptions.DisableDefaultCmd = true
+	root.PersistentFlags().StringVar(&o.ConfigPath, "config-path", "", "JSON client config path")
+	root.PersistentFlags().StringVar(&o.Format, "format", "", "output format: human or json")
+	root.AddCommand(&cobra.Command{Use: "init", Short: "Initialize task storage", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return a.withConfig(o, func(r Options) error { return a.call(r, "init", map[string]any{}) })
+	}})
+
+	add := &cobra.Command{Use: "add <title>", Short: "Create a task", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		status, _ := cmd.Flags().GetString("status")
+		attrs, _ := cmd.Flags().GetStringArray("attr")
+		if err := validStatus(status); err != nil {
+			return err
+		}
+		am, err := parseKV(attrs, "--attr")
+		if err != nil {
+			return err
+		}
+		return a.withConfig(o, func(r Options) error {
+			return a.call(r, "add", map[string]any{"title": args[0], "status": status, "attributes": am})
+		})
+	}}
+	add.Flags().String("status", "todo", "task status: todo, done, failed, or cancelled")
+	add.Flags().StringArray("attr", nil, "string attribute key=value (repeatable)")
+	root.AddCommand(add)
+
+	update := &cobra.Command{Use: "update <id>", Short: "Update a task", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		status, _ := cmd.Flags().GetString("status")
+		title, _ := cmd.Flags().GetString("title")
+		attrs, _ := cmd.Flags().GetStringArray("attr")
+		edges, _ := cmd.Flags().GetStringArray("edge")
+		if status != "" {
+			if err := validStatus(status); err != nil {
+				return err
+			}
+		}
+		am, err := parseKV(attrs, "--attr")
+		if err != nil {
+			return err
+		}
+		edgeRows := make([]map[string]any, 0, len(edges))
+		for _, v := range edges {
+			left, right, ok := strings.Cut(v, ":")
+			if !ok || left == "" || right == "" {
+				return fmt.Errorf("malformed --edge: %s", v)
+			}
+			edgeRows = append(edgeRows, map[string]any{"type": left, "to": right})
+		}
+		var titleArg any
+		if cmd.Flags().Changed("title") {
+			titleArg = title
+		}
+		var statusArg any
+		if status != "" {
+			statusArg = status
+		}
+		var attrArg any
+		if len(attrs) > 0 {
+			attrArg = am
+		}
+		return a.withConfig(o, func(r Options) error {
+			return a.call(r, "update", map[string]any{"id": args[0], "title": titleArg, "status": statusArg, "attributes": attrArg, "edges": edgeRows})
+		})
+	}}
+	update.Flags().String("title", "", "new task title")
+	update.Flags().String("status", "", "task status: todo, done, failed, or cancelled")
+	update.Flags().StringArray("attr", nil, "string attribute key=value (repeatable)")
+	update.Flags().StringArray("edge", nil, "outgoing edge edge-type:to-id (repeatable)")
+	root.AddCommand(update)
+
+	root.AddCommand(&cobra.Command{Use: "show <id>", Short: "Show one task", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		return a.withConfig(o, func(r Options) error { return a.call(r, "show", map[string]any{"id": args[0]}) })
+	}})
+	root.AddCommand(a.queryCommand(&o, "list", "List tasks"))
+	root.AddCommand(a.queryCommand(&o, "ready", "List ready tasks"))
+
+	daemon := &cobra.Command{Use: "daemon", Short: "Manage the local daemon"}
+	start := &cobra.Command{Use: "start [--config trusted.edn]", Short: "Start the daemon in the foreground", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, _ := cmd.Flags().GetString("config")
+		return a.withConfig(o, func(r Options) error { return a.launchDaemon(r, cfg) })
+	}}
+	start.Flags().String("config", "", "trusted daemon startup config EDN path")
+	daemon.AddCommand(start)
+	daemon.AddCommand(&cobra.Command{Use: "status", Short: "Show daemon status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return a.withConfig(o, func(r Options) error { return a.call(r, "status", map[string]any{}) })
+	}})
+	daemon.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the daemon", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return a.withConfig(o, func(r Options) error { return a.call(r, "stop", map[string]any{}) })
+	}})
+	root.AddCommand(daemon)
+	return root
+}
+
+func (a *App) queryCommand(o *Options, name, short string) *cobra.Command {
+	cmd := &cobra.Command{Use: name + " [--query name] [--param key=value ...]", Short: short, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		where, _ := cmd.Flags().GetString("where")
+		if cmd.Flags().Changed("where") || where != "" {
+			return errors.New("--where is not supported by the Go CLI; use --query")
+		}
+		query, _ := cmd.Flags().GetString("query")
+		params, _ := cmd.Flags().GetStringArray("param")
+		pm, err := parseKV(params, "--param")
+		if err != nil {
+			return err
+		}
+		if query == "" {
+			if cmd.Flags().Changed("query") {
+				return errors.New("--query requires a non-empty name")
+			}
+			if len(params) > 0 {
+				return errors.New("--param requires --query")
+			}
+			return a.withConfig(*o, func(r Options) error { return a.call(r, name, map[string]any{}) })
+		}
+		return a.withConfig(*o, func(r Options) error { return a.call(r, name+"-query", map[string]any{"query": query, "params": pm}) })
+	}}
+	cmd.Flags().String("query", "", "daemon-registered named query")
+	cmd.Flags().StringArray("param", nil, "query parameter key=value (repeatable)")
+	cmd.Flags().String("where", "", "unsupported; use --query")
+	_ = cmd.Flags().MarkHidden("where")
+	return cmd
+}
+
+func (a *App) withConfig(o Options, f func(Options) error) error {
+	opts, err := resolveOptions(o)
 	if err != nil {
 		return err
 	}
-	if len(rest) == 0 {
-		usage(a.Stdout)
-		return nil
-	}
-	return a.runCommand(opts, rest)
+	return f(opts)
 }
 
 func Resolve(args []string) (Options, []string, error) {
-	opts, rest, err := parseGlobal(args)
-	if err != nil {
-		return opts, rest, err
-	}
-	if len(rest) == 0 || rest[0] == "help" {
-		if opts.Format == "" {
-			opts.Format = config.DefaultFormat
-		}
-		return opts, rest, nil
-	}
-	cfg, err := config.Load(opts.ConfigPath)
-	if err != nil {
-		return opts, rest, err
-	}
-	opts.DB = cfg.DB
-	if opts.DB == "" {
-		return opts, rest, errors.New("client config db is required")
-	}
-	if opts.Format == "" {
-		opts.Format = cfg.Format
-	}
-	if opts.Format == "" {
-		opts.Format = config.DefaultFormat
-	}
-	if opts.Format != "human" && opts.Format != "json" {
-		return opts, rest, fmt.Errorf("unsupported format: %s", opts.Format)
-	}
-	return opts, rest, nil
-}
-
-func parseGlobal(args []string) (Options, []string, error) {
-	var o Options
+	o := Options{}
 	for i := 0; i < len(args); i++ {
 		s := args[i]
 		if !strings.HasPrefix(s, "-") {
-			return o, args[i:], nil
+			opts, err := resolveOptions(o)
+			return opts, args[i:], err
 		}
 		switch s {
 		case "--format":
@@ -102,10 +206,10 @@ func parseGlobal(args []string) (Options, []string, error) {
 				return o, nil, errors.New("--config-path requires a value")
 			}
 			o.ConfigPath = args[i]
-		case "--where":
-			return o, nil, errors.New("--where is not supported by the Go CLI; use --query")
 		case "-h", "--help":
 			return o, []string{"help"}, nil
+		case "--where":
+			return o, nil, errors.New("--where is not supported by the Go CLI; use --query")
 		default:
 			return o, nil, fmt.Errorf("unknown global option: %s", s)
 		}
@@ -113,129 +217,25 @@ func parseGlobal(args []string) (Options, []string, error) {
 	return o, nil, nil
 }
 
-func (a *App) runCommand(o Options, args []string) error {
-	switch args[0] {
-	case "help":
-		usage(a.Stdout)
-		return nil
-	case "init":
-		if err := noArgs(args[1:]); err != nil {
-			return err
-		}
-		return a.call(o, "init", map[string]any{})
-	case "add":
-		return a.parseAdd(o, args[1:])
-	case "update":
-		return a.parseUpdate(o, args[1:])
-	case "show":
-		if len(args) != 2 {
-			return errors.New("show requires exactly one id")
-		}
-		return a.call(o, "show", map[string]any{"id": args[1]})
-	case "list":
-		return a.parseQueryish(o, "list", args[1:])
-	case "ready":
-		return a.parseQueryish(o, "ready", args[1:])
-	case "daemon":
-		return a.parseDaemon(o, args[1:])
-	default:
-		return fmt.Errorf("unknown command: %s", args[0])
-	}
-}
-
-func usage(w io.Writer) {
-	fmt.Fprintln(w, `Usage: todo [--config-path path] [--format human|json] <command> [args]
-
-Commands:
-  init
-  add <title> [--status todo|done|failed|cancelled] [--attr key=value ...]
-  update <id> [--title title] [--status todo|done|failed|cancelled] [--attr key=value ...] [--edge edge-type:to-id ...]
-  show <id>
-  list [--query name] [--param key=value ...]
-  ready [--query name] [--param key=value ...]
-  daemon start [--config trusted.edn]
-  daemon status
-  daemon stop`)
-}
-
-func (a *App) parseAdd(o Options, args []string) error {
-	if len(args) == 0 {
-		return errors.New("add requires a title")
-	}
-	fs := flag.NewFlagSet("add", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	status := fs.String("status", "todo", "")
-	attrs := multiFlag{}
-	fs.Var(&attrs, "attr", "")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New("add received unexpected arguments")
-	}
-	if err := validStatus(*status); err != nil {
-		return err
-	}
-	am, err := parseKV(attrs, "--attr")
+func resolveOptions(o Options) (Options, error) {
+	cfg, err := config.Load(o.ConfigPath)
 	if err != nil {
-		return err
+		return o, err
 	}
-	return a.call(o, "add", map[string]any{"title": args[0], "status": *status, "attributes": am})
-}
-func (a *App) parseUpdate(o Options, args []string) error {
-	if len(args) == 0 {
-		return errors.New("update requires an id")
+	o.DB = cfg.DB
+	if o.DB == "" {
+		return o, errors.New("client config db is required")
 	}
-	fs := flag.NewFlagSet("update", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	status := fs.String("status", "", "")
-	title := fs.String("title", "", "")
-	attrs := multiFlag{}
-	edges := multiFlag{}
-	fs.Var(&attrs, "attr", "")
-	fs.Var(&edges, "edge", "")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
+	if o.Format == "" {
+		o.Format = cfg.Format
 	}
-	if fs.NArg() != 0 {
-		return errors.New("update received unexpected arguments")
+	if o.Format == "" {
+		o.Format = config.DefaultFormat
 	}
-	if *status != "" {
-		if err := validStatus(*status); err != nil {
-			return err
-		}
+	if o.Format != "human" && o.Format != "json" {
+		return o, fmt.Errorf("unsupported format: %s", o.Format)
 	}
-	am, err := parseKV(attrs, "--attr")
-	if err != nil {
-		return err
-	}
-	edgeRows := make([]map[string]any, 0, len(edges))
-	for _, v := range edges {
-		left, right, ok := strings.Cut(v, ":")
-		if !ok || left == "" || right == "" {
-			return fmt.Errorf("malformed --edge: %s", v)
-		}
-		edgeRows = append(edgeRows, map[string]any{"type": left, "to": right})
-	}
-	titleSet := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "title" {
-			titleSet = true
-		}
-	})
-	var titleArg any
-	if titleSet {
-		titleArg = *title
-	}
-	var statusArg any
-	if *status != "" {
-		statusArg = *status
-	}
-	var attrArg any
-	if len(attrs) > 0 {
-		attrArg = am
-	}
-	return a.call(o, "update", map[string]any{"id": args[0], "title": titleArg, "status": statusArg, "attributes": attrArg, "edges": edgeRows})
+	return o, nil
 }
 
 func (a *App) call(o Options, op string, args map[string]any) error {
@@ -252,7 +252,7 @@ func (a *App) call(o Options, op string, args map[string]any) error {
 		return err
 	}
 	switch op {
-	case "status", "stop":
+	case "status", "stop", "show":
 		return a.writeHumanJSON(result)
 	case "add":
 		if m, ok := result.(map[string]any); ok {
@@ -261,14 +261,11 @@ func (a *App) call(o Options, op string, args map[string]any) error {
 				return err
 			}
 		}
-	case "show":
-		return a.writeHumanJSON(result)
 	case "list", "ready", "list-query", "ready-query":
 		return a.writeHumanRows(result)
 	}
 	return nil
 }
-
 func (a *App) writeHumanJSON(result any) error {
 	if result == nil {
 		return nil
@@ -280,7 +277,6 @@ func (a *App) writeHumanJSON(result any) error {
 	_, err = fmt.Fprintln(a.Stdout, string(b))
 	return err
 }
-
 func (a *App) writeHumanRows(result any) error {
 	rows, ok := result.([]any)
 	if !ok {
@@ -298,89 +294,22 @@ func (a *App) writeHumanRows(result any) error {
 	return nil
 }
 
-func (a *App) parseQueryish(o Options, op string, args []string) error {
-	fs := flag.NewFlagSet(op, flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	query := fs.String("query", "", "")
-	params := multiFlag{}
-	fs.Var(&params, "param", "")
-	fs.String("where", "", "")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	whereSet := false
-	querySet := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "where" {
-			whereSet = true
-		}
-		if f.Name == "query" {
-			querySet = true
-		}
-	})
-	if whereSet {
-		return errors.New("--where is not supported by the Go CLI; use --query")
-	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("%s received unexpected arguments", op)
-	}
-	pm, err := parseKV(params, "--param")
-	if err != nil {
-		return err
-	}
-	if *query == "" {
-		if querySet {
-			return errors.New("--query requires a non-empty name")
-		}
-		if len(params) > 0 {
-			return errors.New("--param requires --query")
-		}
-		return a.call(o, op, map[string]any{})
-	}
-	return a.call(o, op+"-query", map[string]any{"query": *query, "params": pm})
-}
-func (a *App) parseDaemon(o Options, args []string) error {
-	if len(args) == 0 {
-		return errors.New("daemon requires start, status, or stop")
-	}
-	switch args[0] {
-	case "start":
-		fs := flag.NewFlagSet("daemon start", flag.ContinueOnError)
-		fs.SetOutput(io.Discard)
-		configFile := fs.String("config", "", "")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		if fs.NArg() != 0 {
-			return errors.New("daemon start received unexpected arguments")
-		}
-		return a.launchDaemon(o, *configFile)
-	case "status", "stop":
-		if len(args) != 1 {
-			return fmt.Errorf("daemon %s received unexpected arguments", args[0])
-		}
-		return a.call(o, args[0], map[string]any{})
-	default:
-		return fmt.Errorf("unknown daemon command: %s", args[0])
-	}
-}
-
 func (a *App) launchDaemon(o Options, configFile string) error {
 	args := []string{"-M:todo"}
 	if o.ConfigPath != "" {
-		configPath, err := filepath.Abs(o.ConfigPath)
+		p, err := filepath.Abs(o.ConfigPath)
 		if err != nil {
 			return err
 		}
-		args = append(args, "--config-path", configPath)
+		args = append(args, "--config-path", p)
 	}
 	args = append(args, "daemon", "start")
 	if configFile != "" {
-		configPath, err := filepath.Abs(configFile)
+		p, err := filepath.Abs(configFile)
 		if err != nil {
 			return err
 		}
-		args = append(args, "--config", configPath)
+		args = append(args, "--config", p)
 	}
 	cmd := exec.Command("clojure", args...)
 	if _, err := os.Stat("deps.edn"); err != nil {
@@ -396,12 +325,6 @@ func (a *App) launchDaemon(o Options, configFile string) error {
 			return &ExitError{Code: exit.ExitCode(), Err: err}
 		}
 		return err
-	}
-	return nil
-}
-func noArgs(args []string) error {
-	if len(args) > 0 {
-		return errors.New("unexpected arguments")
 	}
 	return nil
 }
@@ -423,8 +346,3 @@ func parseKV(vals []string, name string) (map[string]any, error) {
 	}
 	return m, nil
 }
-
-type multiFlag []string
-
-func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
-func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }

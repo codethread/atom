@@ -4,7 +4,8 @@
             [clojure.string :as str])
   (:import [java.io BufferedReader BufferedWriter InputStreamReader OutputStreamWriter]
            [java.net StandardProtocolFamily UnixDomainSocketAddress]
-           [java.nio.channels Channels ClosedChannelException ServerSocketChannel]))
+           [java.nio.channels Channels ClosedChannelException ServerSocketChannel]
+           [org.sqlite SQLiteException]))
 
 (def allowed-operations
   #{"init" "add" "update" "show" "list" "ready" "list-query" "ready-query" "status" "stop"})
@@ -24,9 +25,17 @@
         details (or (ex-data e) {})]
     {"protocol_version" 1 "request_id" request-id "ok" false "result" nil
      "error" {"type" "domain"
-              "code" (if (and (:canonical-query details) (contains? details :available)) "query/not-found" "domain/error")
+              "code" (or (:code details)
+                         (if (and (:canonical-query details) (contains? details :available)) "query/not-found" "domain/error"))
               "message" message
-              "details" details}}))
+              "details" (dissoc details :code)}}))
+
+(defn- uninitialized-db-error? [e]
+  (and (instance? SQLiteException e)
+       (str/includes? (or (ex-message e) "") "no such table:")))
+
+(defn- uninitialized-db-exception []
+  (ex-info "Database is not initialized; run `todo init` first" {:code "database/not-initialized"}))
 
 (defn- string-map? [m] (and (map? m) (every? string? (vals m))))
 (defn- valid-edge? [edge]
@@ -154,8 +163,10 @@
           (catch clojure.lang.ExceptionInfo e
             [(domain-error request-id e) false])
           (catch Exception e
-            [{"protocol_version" 1 "request_id" request-id "ok" false "result" nil
-              "error" {"type" "transport" "code" "transport/server-error" "message" (ex-message e) "details" {}}} false]))))
+            (if (uninitialized-db-error? e)
+              [(domain-error request-id (uninitialized-db-exception)) false]
+              [{"protocol_version" 1 "request_id" request-id "ok" false "result" nil
+                "error" {"type" "transport" "code" "transport/server-error" "message" (ex-message e) "details" {}}} false])))))
     (catch Exception _
       [(protocol-error nil "protocol/malformed-json" "Request must be one JSON object followed by newline" {}) false])))
 

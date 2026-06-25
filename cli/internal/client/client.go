@@ -75,6 +75,9 @@ func (e *ResponseError) Error() string {
 			message = fmt.Sprintf("%s (available: %s)", message, strings.Join(names, ", "))
 		}
 	}
+	if e.Code == "database/not-initialized" {
+		return message
+	}
 	if e.Code != "" {
 		return fmt.Sprintf("daemon %s error (%s): %s", e.Type, e.Code, message)
 	}

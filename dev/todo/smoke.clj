@@ -1,5 +1,6 @@
 (ns todo.smoke
   (:require [clojure.data.json :as json]
+            [clojure.string]
             [todo.daemon.metadata :as metadata]
             [todo.daemon.runtime :as runtime]
             [todo.repl :as repl]))
@@ -12,7 +13,7 @@
   (mapv :title rows))
 
 (defn delete-sqlite-family! [db-file]
-  (doseq [suffix ["" "-journal" "-wal" "-shm"]]
+  (doseq [suffix ["" "-journal" "-wal" "-shm" ".client.json"]]
     (.delete (java.io.File. (str db-file suffix)))))
 
 (defn delete-runtime-metadata! [db-file]
@@ -44,13 +45,18 @@
   (run-process! "Go CLI build succeeds" ["go" "build" "-o" "./cli/bin/todo" "./cli/cmd/todo"])
   todo-bin)
 
+(defn write-client-config! [db-file]
+  (let [path (str db-file ".client.json")]
+    (spit path (json/write-str {:db db-file :format "human"}))
+    path))
+
 (defn run-cli! [db-file & args]
-  (run-process! "Go CLI command succeeds" (into [todo-bin "--db" db-file] args)))
+  (run-process! "Go CLI command succeeds" (into [todo-bin "--config-path" (write-client-config! db-file)] args)))
 
 (defn start-cli-daemon!
   ([db-file] (start-cli-daemon! db-file []))
   ([db-file daemon-args]
-   (let [process (-> (ProcessBuilder. (into [todo-bin "--db" db-file "daemon" "start"] daemon-args))
+   (let [process (-> (ProcessBuilder. (into [todo-bin "--config-path" (write-client-config! db-file) "daemon" "start"] daemon-args))
                      (.redirectErrorStream true)
                      (.start))]
      (loop [attempts 50]
@@ -77,6 +83,23 @@
   (assert (= expected actual)
           (str message "\nexpected: " (pr-str expected) "\nactual: " (pr-str actual))))
 
+(defn assert-contains [haystack needle message]
+  (assert (clojure.string/includes? haystack needle)
+          (str message "\nmissing: " (pr-str needle) "\nin: " haystack)))
+
+(defn smoke-cli-help! []
+  (let [root (run-process! "Go CLI root help succeeds" [todo-bin "--help"])
+        add (run-process! "Go CLI add help succeeds" [todo-bin "add" "--help"])
+        daemon (run-process! "Go CLI daemon help succeeds" [todo-bin "daemon" "--help"])
+        start (run-process! "Go CLI daemon start help succeeds" [todo-bin "daemon" "start" "--help"])]
+    (doseq [needle ["Available Commands:" "add" "list" "daemon"]]
+      (assert-contains root needle "Go CLI root help shows command tree"))
+    (doseq [needle ["add <title>" "--status" "--attr"]]
+      (assert-contains add needle "Go CLI command help shows flags"))
+    (doseq [needle ["start" "status" "stop"]]
+      (assert-contains daemon needle "Go CLI subcommand help shows children"))
+    (assert-contains start "--config" "Go CLI nested subcommand help shows flags")))
+
 (defn stop-cli-daemon! [db-file daemon]
   (when (.isAlive daemon)
     (run-cli! db-file "daemon" "stop")
@@ -87,6 +110,7 @@
   (delete-built-cli!)
   (try
     (build-cli!)
+    (smoke-cli-help!)
     (let [config-dir (java.nio.file.Files/createTempDirectory "todo-smoke-query-config" (make-array java.nio.file.attribute.FileAttribute 0))
           query-file (java.io.File. (.toFile config-dir) "queries.clj")
           config-file (java.io.File. (.toFile config-dir) "daemon.edn")]

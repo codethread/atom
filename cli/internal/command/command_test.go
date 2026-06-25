@@ -16,13 +16,43 @@ func run(args ...string) (string, error) {
 }
 
 func TestHelpIncludesCommandTree(t *testing.T) {
-	out, err := run("--help")
+	root, err := run("--help")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"init", "add <title>", "update <id>", "show <id>", "list [--query name]", "ready [--query name]", "daemon start [--config trusted.edn]", "daemon status", "daemon stop"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("help missing %q in:\n%s", want, out)
+	for _, want := range []string{"Available Commands:", "init", "add", "update", "show", "list", "ready", "daemon"} {
+		if !strings.Contains(root, want) {
+			t.Fatalf("root help missing %q in:\n%s", want, root)
+		}
+	}
+
+	add, err := run("add", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"add <title>", "--status", "--attr"} {
+		if !strings.Contains(add, want) {
+			t.Fatalf("add help missing %q in:\n%s", want, add)
+		}
+	}
+
+	daemon, err := run("daemon", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"start", "status", "stop"} {
+		if !strings.Contains(daemon, want) {
+			t.Fatalf("daemon help missing %q in:\n%s", want, daemon)
+		}
+	}
+
+	start, err := run("daemon", "start", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"start [--config trusted.edn]", "--config"} {
+		if !strings.Contains(start, want) {
+			t.Fatalf("daemon start help missing %q in:\n%s", want, start)
 		}
 	}
 }

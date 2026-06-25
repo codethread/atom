@@ -186,6 +186,16 @@
         (is (false? (get rejected "ok")))
         (is (= "protocol/operation-not-allowed" (get-in rejected ["error" "code"])))))))
 
+(deftest json-socket-reports-uninitialized-database
+  (with-runtime
+    (fn [rt _]
+      (let [response (socket-request rt "list" {})]
+        (is (= false (get response "ok")))
+        (is (= "domain" (get-in response ["error" "type"])))
+        (is (= "database/not-initialized" (get-in response ["error" "code"])))
+        (is (= "Database is not initialized; run `todo init` first"
+               (get-in response ["error" "message"])))))))
+
 (deftest json-socket-rejects-identity-mismatch
   (with-runtime
     (fn [rt _]

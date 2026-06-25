@@ -95,6 +95,15 @@ func TestCallSuccessAndDaemonError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "missing") || !strings.Contains(err.Error(), "mine, ready") {
 		t.Fatalf("expected query details, got %v", err)
 	}
+
+	sock = serve(t, func(req map[string]any) map[string]any {
+		return map[string]any{"protocol_version": 1, "request_id": req["request_id"], "ok": false, "result": nil, "error": map[string]any{"type": "domain", "code": "database/not-initialized", "message": "Database is not initialized; run `todo init` first", "details": map[string]any{}}}
+	})
+	writeMeta(t, db, sock, os.Getpid())
+	_, err = New(Config{DB: db, Format: "json"}).Call("list", map[string]any{})
+	if err == nil || err.Error() != "Database is not initialized; run `todo init` first" {
+		t.Fatalf("expected init guidance, got %v", err)
+	}
 }
 
 func TestMetadataAndTransportFailures(t *testing.T) {
