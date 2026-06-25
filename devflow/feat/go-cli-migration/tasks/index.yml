@@ -1,0 +1,46 @@
+tasks:
+  - id: 1
+    description: Freeze JSON protocol contracts
+    task_file: tasks/001-freeze-json-protocol-contracts.md
+    status: pending
+    blocked_by: []
+  - id: 2
+    description: Add daemon socket runtime
+    task_file: tasks/002-add-daemon-socket-runtime.md
+    status: pending
+    blocked_by: [1]
+  - id: 3
+    description: Add Go CLI skeleton
+    task_file: tasks/003-add-go-cli-skeleton.md
+    status: pending
+    blocked_by: [1]
+  - id: 4
+    description: Wire Go task commands
+    task_file: tasks/004-wire-go-task-commands.md
+    status: pending
+    blocked_by: [2, 3]
+  - id: 5
+    description: Wire Go query commands
+    task_file: tasks/005-wire-go-query-commands.md
+    status: pending
+    blocked_by: [2, 3, 4]
+  - id: 6
+    description: Implement daemon lifecycle commands
+    task_file: tasks/006-implement-daemon-lifecycle-commands.md
+    status: pending
+    blocked_by: [2, 3]
+  - id: 7
+    description: Update smoke and validation
+    task_file: tasks/007-update-smoke-and-validation.md
+    status: pending
+    blocked_by: [4, 5, 6]
+  - id: 8
+    description: "[HITL] Verify daemon in tmux"
+    task_file: tasks/008-verify-daemon-in-tmux.md
+    status: blocked
+    blocked_by: [7]
+  - id: 9
+    description: Promote docs and specs
+    task_file: tasks/009-promote-docs-and-specs.md
+    status: pending
+    blocked_by: [8]

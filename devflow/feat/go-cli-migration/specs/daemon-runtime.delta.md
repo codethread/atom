@@ -39,4 +39,4 @@ Extend the daemon runtime with a local JSON Unix domain socket transport for the
 ## SPEC-004-D002.P4 Open questions
 
 - **SPEC-004-D002.Q1:** Define exact request/response JSON field names, timeout behavior, and error shape during implementation planning.
-- **SPEC-004-D002.Q2:** Decide socket file placement relative to existing runtime metadata directories after reviewing post-query-registry daemon code.
+- **SPEC-004-D002.Q2:** Decide socket file placement relative to existing runtime metadata directories after active query registry delta `SPEC-004-D001` is promoted or otherwise stabilized.

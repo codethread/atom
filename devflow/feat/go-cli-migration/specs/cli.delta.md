@@ -49,4 +49,4 @@ Replace the JVM-backed scripted CLI entrypoint with a small Go executable named 
 
 ## SPEC-002-D003.P4 Open questions
 
-- **SPEC-002-D003.Q1:** Define the exact daemon lifecycle launch/package strategy for the Go CLI after current daemon query registry paths settle.
+- **SPEC-002-D003.Q1:** Define the exact daemon lifecycle launch/package strategy for the Go CLI after active query registry deltas `SPEC-002-D002` and `SPEC-004-D001` are promoted or otherwise stabilized.
