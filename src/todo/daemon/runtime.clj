@@ -21,6 +21,15 @@
     (when (.isFile file)
       (.getCanonicalPath file))))
 
+(defn- with-library-classloader [runtime f]
+  (let [thread (Thread/currentThread)
+        previous-loader (.getContextClassLoader thread)]
+    (try
+      (.setContextClassLoader thread (:library-classloader runtime))
+      (f)
+      (finally
+        (.setContextClassLoader thread previous-loader)))))
+
 (defn start!
   ([] (start! nil {}))
   ([db-file] (start! db-file {}))
@@ -54,6 +63,9 @@
            runtime-base {:datasource ds
                          :query-registry (atom {})
                          :plugin-registry (atom {})
+                         :approved-lib-sync-state (atom {})
+                         :library-classloader (clojure.lang.DynamicClassLoader.
+                                               (.getContextClassLoader (Thread/currentThread)))
                          :server server
                          :metadata meta}
            runtime-state (atom runtime-base)]
@@ -63,7 +75,7 @@
            (reset! runtime-state runtime)
            (reset! current-runtime runtime)
            (when-let [init (init-file world)]
-             (load-file init))
+             (with-library-classloader runtime #(load-file init)))
            (let [published-runtime (assoc runtime :metadata-file (metadata/publish! meta))]
              (reset! runtime-state published-runtime)
              (reset! current-runtime published-runtime)

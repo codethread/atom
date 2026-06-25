@@ -25,7 +25,9 @@
    :plugins 'todo.daemon.api/plugins
    :plugin 'todo.daemon.api/plugin
    :load-plugin 'todo.daemon.api/load-plugin
-   :approved-libs 'todo.daemon.api/approved-libs})
+   :approved-libs 'todo.daemon.api/approved-libs
+   :sync-approved-libs 'todo.daemon.api/sync-approved-libs
+   :approved-lib-syncs 'todo.daemon.api/approved-lib-syncs})
 
 (defn fail [message data]
   (throw (ex-info message data)))

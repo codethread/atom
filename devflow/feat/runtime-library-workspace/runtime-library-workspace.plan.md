@@ -131,3 +131,7 @@ Final deep review found three blockers before tasking: runtime model still named
 ### RLW-PLAN-001.DN6 Approved libs config implementation — 2026-06-25
 
 Added `atom.libs.alpha/approved` and daemon API support for selected-config-dir `libs.edn` normalization. Missing `libs.edn` returns an empty approved config, while malformed/unreadable EDN and structural schema violations fail loudly with `ex-info`. Normalization preserves original `:local/root` strings and records canonical `:root` paths without rejecting missing local roots; sync classification remains for the next task.
+
+### RLW-PLAN-001.DN7 Approved local-root sync implementation — 2026-06-25
+
+Added daemon-lifetime approved-lib sync state plus `atom.libs.alpha/sync!` and `syncs` helpers routed through daemon API calls. Sync records `:loaded`, `:already-available`, and structured `:failed` outcomes; missing roots, non-directory roots, unreadable roots, and runtime add failures are per-library results while malformed `libs.edn` still throws structurally. Direct in-process sync and `init.clj` loading use a daemon-owned dynamic classloader/repl binding. Tests keep runtime-added local roots on disk for the process lifetime because tools.deps basis entries are global and later dependency resolution can fail if a previously added local root is deleted.

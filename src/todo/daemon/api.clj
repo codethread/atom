@@ -2,6 +2,7 @@
   (:refer-clojure :exclude [list update])
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.repl.deps :as repl-deps]
             [clojure.string :as str]
             [next.jdbc :as jdbc]
             [todo.daemon.runtime :as runtime]
@@ -27,6 +28,19 @@
 
 (defn- plugin-registry [runtime]
   (:plugin-registry runtime))
+
+(defn- approved-lib-sync-state [runtime]
+  (:approved-lib-sync-state runtime))
+
+(defn- with-library-classloader [runtime f]
+  (let [thread (Thread/currentThread)
+        previous-loader (.getContextClassLoader thread)
+        loader (:library-classloader runtime)]
+    (try
+      (.setContextClassLoader thread loader)
+      (f)
+      (finally
+        (.setContextClassLoader thread previous-loader)))))
 
 (defn- config-dir [runtime]
   (get-in runtime [:metadata :config-dir]))
@@ -81,6 +95,52 @@
          (edn/read-string (slurp file))
          (catch Throwable t
            (throw (ex-info "libs.edn is malformed or unreadable" {:file (.getPath file)} t))))))))
+
+(defn- sync-failed [lib entry reason data]
+  [lib (merge {:lib lib
+               :local/root (:local/root entry)
+               :root (:root entry)
+               :status :failed
+               :reason reason}
+              data)])
+
+(defn- sync-approved-lib! [runtime lib entry]
+  (let [root-file (io/file (:root entry))]
+    (cond
+      (not (.exists root-file))
+      (sync-failed lib entry :missing-root {})
+
+      (not (.isDirectory root-file))
+      (sync-failed lib entry :unreadable-root {})
+
+      (not (.canRead root-file))
+      (sync-failed lib entry :unreadable-root {})
+
+      :else
+      (try
+        (let [added (with-library-classloader
+                      runtime
+                      #(binding [clojure.core/*repl* true]
+                         (repl-deps/add-libs {lib {:local/root (:root entry)}})))]
+          [lib {:lib lib
+                :local/root (:local/root entry)
+                :root (:root entry)
+                :status (if (seq added) :loaded :already-available)}])
+        (catch Throwable t
+          (sync-failed lib entry :runtime-add-failed {:message (ex-message t)
+                                                      :class (str (class t))}))))))
+
+(defn sync-approved-libs [runtime]
+  (reset! (approved-lib-sync-state runtime) {})
+  (let [approved (approved-libs runtime)
+        results (into (sorted-map)
+                      (map (fn [[lib entry]] (sync-approved-lib! runtime lib entry)))
+                      (:libs approved))]
+    (reset! (approved-lib-sync-state runtime) results)
+    {:libs results}))
+
+(defn approved-lib-syncs [runtime]
+  {:libs (into (sorted-map) @(approved-lib-sync-state runtime))})
 
 (def supported-plugin-format-version 1)
 (def plugin-authored-keys #{:format-version :name :version :requires-atom :provides})
