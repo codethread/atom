@@ -151,3 +151,7 @@ Removed the public `atom.plugin.alpha` namespace, daemon API plugin metadata/loa
 ### RLW-PLAN-001.DN11 Docs and smoke workflow — 2026-06-25
 
 Expanded README guidance around config-dir as a Git/submodule/manual-copy library workspace, `libs.edn` local-root approval, canonicalized relative/absolute roots, layered `use!`, fix-forward introspection, and the connected-helper-REPL classpath boundary; AGENTS now links to that single narrative to avoid drift. Smoke now boots a disposable world with a local tools.deps root, layered daemon-side module activation, connected REPL sync/use introspection, and an optional missing local root that records failed sync/skipped use state without preventing daemon startup.
+
+### RLW-PLAN-001.DN12 Spec promotion validation — 2026-06-25
+
+Promoted runtime library workspace contracts into root daemon runtime and REPL API specs, confirmed the CLI spec already preserves the thin no-library-command boundary, and marked feature-local deltas as merged. Full validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`. `git status --short` showed only source/spec/task edits and no generated SQLite/runtime artifacts after smoke.

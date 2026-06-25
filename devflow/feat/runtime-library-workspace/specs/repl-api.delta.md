@@ -1,7 +1,7 @@
 # REPL API Delta: Runtime Library Workspace
 
 **Document ID:** `RLW-DELTA-002`
-**Status:** Draft
+**Status:** Merged into root spec
 **Last Updated:** 2026-06-25
 **Root spec:** [REPL API](../../../specs/repl-api.md)
 **Proposal:** [../proposal.md](../proposal.md)

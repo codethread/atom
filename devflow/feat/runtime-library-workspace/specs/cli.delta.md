@@ -1,7 +1,7 @@
 # CLI Surface Delta: Runtime Library Workspace
 
 **Document ID:** `RLW-DELTA-003`
-**Status:** Draft
+**Status:** Merged into root spec
 **Last Updated:** 2026-06-25
 **Root spec:** [CLI Surface](../../../specs/cli.md)
 **Proposal:** [../proposal.md](../proposal.md)

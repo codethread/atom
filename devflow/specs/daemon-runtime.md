@@ -12,7 +12,7 @@ The daemon runtime is the long-lived local Clojure process that owns task storag
 
 ## SPEC-004.P2 Runtime model
 
-- **SPEC-004.C1:** A daemon owns exactly one active SQLite datasource, one in-memory named-query registry, and one in-memory approved-library sync state, and one in-memory module-use registry for its lifetime.
+- **SPEC-004.C1:** A daemon owns exactly one active SQLite datasource, one in-memory named-query registry, one in-memory approved-library sync state, and one in-memory module-use registry for its lifetime.
 - **SPEC-004.C2:** A daemon exposes two local transports: nREPL for Clojure REPL/client workflows and a JSON Unix domain socket for the public Go CLI.
 - **SPEC-004.C3:** Transports are local-only by default: nREPL binds to loopback, and the JSON CLI transport uses a Unix domain socket under the selected runtime state directory.
 - **SPEC-004.C4:** A daemon world is selected by config-dir. The default config-dir is `$XDG_CONFIG_HOME/atom` or `~/.config/atom`; an explicit config-dir override selects a separate world.
@@ -74,11 +74,12 @@ The daemon runtime is the long-lived local Clojure process that owns task storag
 - **SPEC-004.C39:** Atom ships blessed source-visible alpha runtime libraries. Maintained namespaces include `atom.libs.alpha` and `atom.prelude.alpha`.
 - **SPEC-004.C40:** Blessed alpha libraries are documented, tested, and used by examples. They are recommended maintenance paths, not enforcement boundaries; trusted code may require lower-level namespaces or use raw SQLite schema when it accepts compatibility cost.
 - **SPEC-004.C41:** The selected config-dir is a trusted library workspace root. User-owned config may include `init.clj`, `libs.edn`, local source directories, and user code.
-- **SPEC-004.C42:** `libs.edn`, when present, declares approved daemon-wide local roots. Relative `:local/root` entries resolve against the selected config-dir; malformed config fails loudly.
-- **SPEC-004.C43:** `atom.libs.alpha/sync!` uses Clojure runtime dependency tooling to add approved local roots to the daemon runtime and records per-library outcomes in daemon memory.
-- **SPEC-004.C44:** Runtime library availability and runtime activation are distinct. Making a root available allows daemon-side `require`; activation remains explicit trusted Clojure such as `use!`, direct function calls, or selected-config-dir-relative `load-file`.
-- **SPEC-004.C45:** `atom.libs.alpha/use!` records module-use attempts and outcomes for daemon-lifetime introspection. This state is not durable package metadata.
-- **SPEC-004.C46:** Runtime dependency loading is daemon-wide. There is no per-module version isolation or unloading guarantee; clean replacement may require daemon restart.
-- **SPEC-004.C47:** Runtime source acquisition is outside normal daemon boot. Atom must not silently clone repositories, add Git submodules, or fetch source as part of module activation.
-- **SPEC-004.C48:** The MVP supports approved local roots first. Maven/remote dependency downloads, package registries, git fetching, dependency solving, lockfiles, and CLI package commands are outside this contract.
-- **SPEC-004.C49:** Blessed `atom.*.alpha` namespaces are loaded from the selected world's configured Atom source checkout/classpath. Startup or REPL use fails loudly if those namespaces are unavailable.
+- **SPEC-004.C42:** `libs.edn`, when present, declares approved daemon-wide local roots. Relative `:local/root` entries resolve against the selected config-dir; absolute roots are accepted as explicit user-approved paths. Malformed config fails loudly.
+- **SPEC-004.C43:** Missing `libs.edn` yields an empty approved config unless user code explicitly requires libraries to exist. Per-library missing, unreadable, or add-libs-failed roots are sync outcomes rather than structural config errors.
+- **SPEC-004.C44:** `atom.libs.alpha/sync!` uses Clojure runtime dependency tooling to add approved local roots to the daemon runtime and records per-library loaded, already-available, or failed outcomes in daemon memory.
+- **SPEC-004.C45:** Runtime library availability and runtime activation are distinct. Making a root available allows daemon-side `require`; activation remains explicit trusted Clojure such as `use!`, direct function calls, or selected-config-dir-relative `load-file`.
+- **SPEC-004.C46:** `atom.libs.alpha/use!` records module-use attempts and loaded, skipped, or failed outcomes for daemon-lifetime introspection. This state is not durable package metadata.
+- **SPEC-004.C47:** Runtime dependency loading is daemon-wide. There is no per-module version isolation or unloading guarantee; clean replacement may require daemon restart.
+- **SPEC-004.C48:** Runtime source acquisition is outside normal daemon boot. Atom must not silently clone repositories, add Git submodules, or fetch source as part of module activation.
+- **SPEC-004.C49:** The MVP supports approved local roots first. Maven/remote dependency downloads, package registries, git fetching, dependency solving, lockfiles, and CLI package commands are outside this contract.
+- **SPEC-004.C50:** Blessed `atom.*.alpha` namespaces are loaded from the selected world's configured Atom source checkout/classpath. Startup or REPL use fails loudly if those namespaces are unavailable.

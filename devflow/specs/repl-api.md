@@ -49,7 +49,29 @@ ready
 - **SPEC-003.C18:** `atom.libs.alpha` helpers route to the selected daemon world when called from connected REPL clients. Direct `require` in a connected helper REPL remains local to the helper JVM.
 - **SPEC-003.C19:** `atom.prelude.alpha` is opt-in and favors `atom.libs.alpha` conveniences. Blessed alpha namespaces are the documented path, but trusted users may require lower-level namespaces or read raw SQLite when they accept compatibility cost.
 
-## SPEC-003.P4 Example library init
+## SPEC-003.P4 Runtime library workspace helpers
+
+`atom.libs.alpha` is the blessed alpha namespace for trusted config and connected REPL library workspace workflows. It is explicit and is not preloaded into `todo.repl`.
+
+Approved library config lives in `libs.edn` in the selected config-dir. The MVP config is an EDN map with exactly one top-level key, `:libs`. `:libs` is a map from symbol library coordinates to maps containing exactly one required key, `:local/root`, whose value is a non-blank string path. Unknown top-level keys, non-symbol coordinates, missing `:libs`, non-map entries, unknown per-lib keys, and missing/non-string `:local/root` fail loudly as structural config errors.
+
+Relative `:local/root` values resolve against selected config-dir; absolute roots are accepted as explicit user-approved paths. Normalized approved config returns entries shaped as `{lib-symbol {:local/root original-path :root canonical-path}}`. Per-library missing or unreadable local roots are not structural config errors; `(libs/sync!)` records them as failed sync outcomes so optional module activation can skip without aborting daemon startup.
+
+Helpers include:
+
+- `(libs/approved)` returns normalized approved config.
+- `(libs/sync!)` uses Clojure runtime dependency tooling to add approved local roots and returns structured results for loaded, already-available, and failed libraries.
+- `(libs/syncs)` returns daemon-lifetime approved-library sync state.
+- `(libs/use! key opts)` records one daemon-lifetime module-use attempt under keyword `key`; duplicate keys replace prior state for reload workflows.
+- `(libs/uses)` and `(libs/use key)` expose daemon-lifetime module-use state.
+
+`use!` options identify exactly one load target with `:ns` for daemon-side `require` or `:file` for selected-config-dir-relative daemon-side `load-file`. Options may include `:libs`, a vector or set of symbol library coordinate keys that must be approved and available before target loading; `:after`, a vector of prior loaded `use!` keys; `:call`, a fully qualified zero-arity function symbol to resolve and call after successful load; and `:required? true` for strict load/call failure behavior.
+
+Malformed `use!` options always throw. Unmet `:libs` requirements record and return `{:status :skipped ...}` before target loading, with reasons including `:not-approved`, `:not-synced`, or `:sync-failed` when known. Unmet `:after` requirements record and return `{:status :skipped ...}` with reason `:missing-after`. Load or call exceptions record and return `{:status :failed ...}` by default; `:required? true` rethrows after recording. Raw `require` remains the strict fail-fast path for required config.
+
+Maven/remote dependency coordinates, version-range matching, alternate approved-library config files, source fetching, and direct connected-helper-REPL `require` of newly synced daemon libraries are outside the MVP contract.
+
+## SPEC-003.P5 Example library init
 
 A selected config-dir `init.clj` may sync approved local roots and activate optional modules:
 
@@ -69,7 +91,7 @@ A selected config-dir `libs.edn` approves local roots:
 {:libs {my/module {:local/root "libs/my-module"}}}
 ```
 
-## SPEC-003.P5 Non-goals
+## SPEC-003.P6 Non-goals
 
 The REPL API does not expose bespoke helpers such as `depends!`, `edge!`, `done!`, `by-attr`, `deps`, `blocking`, or `graph`. Those are either covered by `update!` or the generic query API.
 
