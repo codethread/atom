@@ -2,7 +2,7 @@ tasks:
   - id: 1
     description: Freeze JSON protocol contracts
     task_file: tasks/001-freeze-json-protocol-contracts.md
-    status: pending
+    status: complete
     blocked_by: []
   - id: 2
     description: Add daemon socket runtime

@@ -5,7 +5,7 @@
 **Proposal:** [proposal.md](./proposal.md)
 **RFC:** [RFC-003 Fast JSON Socket CLI](../../rfcs/2026-06-25-fast-json-socket-cli.md), [RFC-004 Go CLI Migration](../../rfcs/2026-06-25-go-cli-migration.md)
 **Root specs:** [CLI Surface `SPEC-002`](../../specs/cli.md), [Daemon Runtime `SPEC-004`](../../specs/daemon-runtime.md), [Project Tenets](../../TENETS.md)
-**Feature specs:** [CLI delta `SPEC-002-D003`](./specs/cli.delta.md), [Daemon Runtime delta `SPEC-004-D002`](./specs/daemon-runtime.delta.md), [Tenets delta `TEN-D001`](./specs/tenets.delta.md)
+**Feature specs:** [CLI delta `SPEC-002-D003`](./specs/cli.delta.md), [Daemon Runtime delta `SPEC-004-D002`](./specs/daemon-runtime.delta.md), [JSON Socket Protocol `GOCLI-PROTO-001`](./specs/json-socket-protocol.md), [Tenets delta `TEN-D001`](./specs/tenets.delta.md)
 **Status:** Reviewed
 **Last Updated:** 2026-06-25
 
@@ -99,3 +99,8 @@ Outcome: User/agent docs, smoke flows, and root specs reflect `todo` as the publ
 ### GOCLI-PLAN-001.DN2 Plan reviewed — 2026-06-25
 
 - Deep review found no remaining issues after adding explicit protocol, Go-readable metadata, operation allowlist, foreground daemon start, status/stop, and build-path planning. Plan marked Reviewed and ready for task slicing.
+
+### GOCLI-PLAN-001.DN3 Task 1 protocol freeze — 2026-06-25
+
+- Added feature-local protocol note `specs/json-socket-protocol.md` with stable IDs for JSON runtime metadata, one-request-per-connection newline framing, request/response/error envelopes, timeout behavior, operation allowlist/exclusions, status/stop identity checks, and foreground `daemon start` launcher semantics.
+- Added golden JSON fixtures under `specs/fixtures/` for one success response and one domain error response so later Clojure and Go tests can consume the same contract examples.

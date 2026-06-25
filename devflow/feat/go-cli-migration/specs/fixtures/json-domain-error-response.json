@@ -1,0 +1,14 @@
+{
+  "protocol_version": 1,
+  "request_id": "018ff8a0-2f6b-7bb2-8b03-ea6f0ad6f4bb",
+  "ok": false,
+  "result": null,
+  "error": {
+    "type": "domain",
+    "code": "task/not-found",
+    "message": "Task not found: missing-task",
+    "details": {
+      "id": "missing-task"
+    }
+  }
+}

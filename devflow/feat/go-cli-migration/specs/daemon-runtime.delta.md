@@ -8,7 +8,7 @@
 
 ## SPEC-004-D002.P1 Summary
 
-Extend the daemon runtime with a local JSON Unix domain socket transport for the Go CLI while retaining nREPL for live Clojure development and trusted runtime modification. Runtime metadata grows to advertise the socket endpoint for the selected canonical database.
+Extend the daemon runtime with a local JSON Unix domain socket transport for the Go CLI while retaining nREPL for live Clojure development and trusted runtime modification. Runtime metadata grows to advertise the socket endpoint for the selected canonical database. The exact feature-local wire contract is frozen in [`GOCLI-PROTO-001`](./json-socket-protocol.md).
 
 ## SPEC-004-D002.P2 Contract changes
 
@@ -38,5 +38,5 @@ Extend the daemon runtime with a local JSON Unix domain socket transport for the
 
 ## SPEC-004-D002.P4 Open questions
 
-- **SPEC-004-D002.Q1:** Define exact request/response JSON field names, timeout behavior, and error shape during implementation planning.
-- **SPEC-004-D002.Q2:** Decide socket file placement relative to existing runtime metadata directories after active query registry delta `SPEC-004-D001` is promoted or otherwise stabilized.
+- **SPEC-004-D002.Q1:** Resolved by `GOCLI-PROTO-001`: request/response field names, timeout behavior, framing, operation allowlist, and error shape are defined for implementation.
+- **SPEC-004-D002.Q2:** Resolved by `GOCLI-PROTO-001.M1`: Go-readable JSON metadata is written atomically under the deterministic runtime metadata directory keyed by canonical database path; the socket path is advertised in that JSON metadata.

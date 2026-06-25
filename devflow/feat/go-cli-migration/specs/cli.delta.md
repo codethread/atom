@@ -49,4 +49,4 @@ Replace the JVM-backed scripted CLI entrypoint with a small Go executable named 
 
 ## SPEC-002-D003.P4 Open questions
 
-- **SPEC-002-D003.Q1:** Define the exact daemon lifecycle launch/package strategy for the Go CLI after active query registry deltas `SPEC-002-D002` and `SPEC-004-D001` are promoted or otherwise stabilized.
+- **SPEC-002-D003.Q1:** Resolved by `GOCLI-PROTO-001.L5-L7`: in development, foreground `todo daemon start` execs the Clojure daemon entrypoint as the long-lived process, forwards `--db` and trusted `--config`, streams process I/O, and surfaces startup/config failures loudly before metadata publication.
