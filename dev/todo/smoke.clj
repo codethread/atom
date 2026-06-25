@@ -74,17 +74,19 @@
     (spit (java.io.File. dir "config.json") (json/write-str {:source checkout-root :format "human"}))
     (.getCanonicalPath dir)))
 
-(defn write-plugin-startup-config! [db-file]
+(defn write-library-startup-config! [db-file]
   (let [config-dir (write-client-config! db-file)
-        plugin-dir (java.io.File. config-dir "plugins/smoke-plugin")
-        marker (java.io.File. config-dir "plugin-loaded.txt")]
-    (.mkdirs plugin-dir)
-    (spit (java.io.File. plugin-dir "atom-plugin.edn")
-          "{:format-version 1 :name :smoke/plugin}\n")
-    (spit (java.io.File. plugin-dir "init.clj")
-          (str "(spit " (pr-str (.getCanonicalPath marker)) " \"loaded\")\n"))
+        lib-dir (java.io.File. config-dir "libs/smoke-lib")
+        src-dir (java.io.File. lib-dir "src/smoke")
+        marker (java.io.File. config-dir "library-loaded.txt")]
+    (.mkdirs src-dir)
+    (spit (java.io.File. lib-dir "deps.edn") "{:paths [\"src\"]}\n")
+    (spit (java.io.File. src-dir "lib.clj")
+          (str "(ns smoke.lib)\n(defn install! [] (spit " (pr-str (.getCanonicalPath marker)) " \"loaded\") :ok)\n"))
+    (spit (java.io.File. config-dir "libs.edn")
+          "{:libs {smoke/lib {:local/root \"libs/smoke-lib\"}}}\n")
     (spit (java.io.File. config-dir "init.clj")
-          "(require '[atom.bootstrap.alpha :as atom]\n         '[atom.plugin.alpha :as plugin])\n(atom/use-defaults!)\n(plugin/load-plugin! \"plugins/smoke-plugin\")\n")
+          "(require '[atom.libs.alpha :as libs])\n(libs/sync!)\n(libs/use! :smoke/lib {:ns 'smoke.lib :libs #{'smoke/lib} :call 'smoke.lib/install!})\n")
     (.getCanonicalPath marker)))
 
 (defn outside-repo-dir []
@@ -156,10 +158,10 @@
   (try
     (build-cli!)
     (smoke-cli-help!)
-    (let [marker (write-plugin-startup-config! db-file)
+    (let [marker (write-library-startup-config! db-file)
           daemon (start-cli-daemon! db-file)]
       (try
-        (assert= "loaded" (slurp marker) "selected config-dir init.clj loads local plugin during daemon startup")
+        (assert= "loaded" (slurp marker) "selected config-dir init.clj activates local library during daemon startup")
         (run-cli! db-file "init")
             (let [design (cli-add! db-file "Sketch task graph model" "--status" "done" "--attr" "priority=high")
                   schema (cli-add! db-file "Create SQLite schema" "--attr" "priority=high")
@@ -183,14 +185,12 @@
                 (assert= (.getPath (metadata/socket-file (smoke-world db-file)))
                          (:socket_path status)
                          "Go CLI daemon status reports socket metadata")
-                (let [stdin-output (run-cli-stdin! db-file "(require '[atom.plugin.alpha :as plugin])\n(defquery! 'agent-owned '[:= [:attr :owner] \"agent\"])\n(count (tasks))\n(mapv :title (ready))\n(mapv :name (plugin/plugins))\n(plugin/plugin :smoke/plugin)\n" "daemon" "repl" "--stdin")]
+                (let [stdin-output (run-cli-stdin! db-file "(require '[atom.libs.alpha :as libs])\n(defquery! 'agent-owned '[:= [:attr :owner] \"agent\"])\n(count (tasks))\n(mapv :title (ready))\n(libs/syncs)\n(libs/use :smoke/lib)\n" "daemon" "repl" "--stdin")]
                   (assert-contains stdin-output "agent-owned" "Go CLI daemon repl --stdin registers daemon query state")
                   (assert-contains stdin-output "3\n" "Go CLI daemon repl --stdin prints direct form result")
                   (assert-contains stdin-output "[\"Write usage notes\"]" "Go CLI daemon repl --stdin has connected helper context")
-                  (assert-contains stdin-output "atom.bootstrap.alpha" "Go CLI daemon repl --stdin sees bootstrap default metadata")
-                  (assert-contains stdin-output "atom.plugin.alpha" "Go CLI daemon repl --stdin sees plugin helper default metadata")
-                  (assert-contains stdin-output "smoke/plugin" "Go CLI daemon repl --stdin introspects plugin metadata")
-                  (assert-contains stdin-output ":source :local" "Go CLI daemon repl --stdin sees local plugin loader-owned metadata")
+                  (assert-contains stdin-output "smoke/lib" "Go CLI daemon repl --stdin introspects library sync and use state")
+                  (assert-contains stdin-output ":status :loaded" "Go CLI daemon repl --stdin sees loaded module use state")
                   (assert (not (clojure.string/includes? stdin-output "\"result\""))
                           (str "Go CLI daemon repl --stdin must not wrap output in a CLI response envelope\n" stdin-output))
                   (assert= ["Write usage notes"]

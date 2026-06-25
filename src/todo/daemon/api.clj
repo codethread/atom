@@ -7,8 +7,7 @@
             [next.jdbc :as jdbc]
             [todo.daemon.runtime :as runtime]
             [todo.db :as db]
-            [todo.query :as query])
-  (:import [java.time Instant]))
+            [todo.query :as query]))
 
 (defn normalize-row [row]
   (cond-> row
@@ -26,8 +25,6 @@
 (defn- query-registry [runtime]
   (:query-registry runtime))
 
-(defn- plugin-registry [runtime]
-  (:plugin-registry runtime))
 
 (defn- approved-lib-sync-state [runtime]
   (:approved-lib-sync-state runtime))
@@ -255,99 +252,6 @@
 
 (defn use [runtime key]
   (get @(module-use-state runtime) key))
-
-(def supported-plugin-format-version 1)
-(def plugin-authored-keys #{:format-version :name :version :requires-atom :provides})
-
-(defn canonical-plugin-name [plugin-name]
-  (cond
-    (symbol? plugin-name) plugin-name
-    (keyword? plugin-name) (symbol (namespace plugin-name) (name plugin-name))
-    :else (throw (ex-info "Plugin name must be a symbol or keyword" {:name plugin-name}))))
-
-(defn- canonical-provides [provides]
-  (when-not (vector? provides)
-    (throw (ex-info "Plugin :provides must be a vector" {:provides provides})))
-  (mapv canonical-plugin-name provides))
-
-(defn- validate-plugin-metadata-keys! [metadata allowed-keys]
-  (when-not (map? metadata)
-    (throw (ex-info "Plugin metadata must be a map" {:metadata metadata})))
-  (let [keys-present (set (keys metadata))
-        unknown (seq (remove allowed-keys keys-present))]
-    (when unknown
-      (throw (ex-info "Plugin metadata contains unknown keys" {:keys (vec unknown)})))))
-
-(defn- normalize-plugin-metadata! [metadata]
-  (when-not (contains? metadata :format-version)
-    (throw (ex-info "Plugin metadata requires :format-version" {})))
-  (when-not (= supported-plugin-format-version (:format-version metadata))
-    (throw (ex-info "Unsupported plugin metadata format version" {:format-version (:format-version metadata)})))
-  (when-not (contains? metadata :name)
-    (throw (ex-info "Plugin metadata requires :name" {})))
-  (when (and (contains? metadata :version) (not (string? (:version metadata))))
-    (throw (ex-info "Plugin :version must be a string" {:version (:version metadata)})))
-  (when (and (contains? metadata :requires-atom) (not (string? (:requires-atom metadata))))
-    (throw (ex-info "Plugin :requires-atom must be a string" {:requires-atom (:requires-atom metadata)})))
-  (cond-> (assoc metadata :name (canonical-plugin-name (:name metadata)))
-    (contains? metadata :provides) (clojure.core/update :provides canonical-provides)))
-
-(defn validate-plugin-metadata! [metadata]
-  (validate-plugin-metadata-keys! metadata plugin-authored-keys)
-  (normalize-plugin-metadata! metadata))
-
-(defn register-plugin [runtime metadata]
-  (let [recorded (validate-plugin-metadata! metadata)]
-    (swap! (plugin-registry runtime) assoc (:name recorded) recorded)
-    recorded))
-
-(defn plugins [runtime]
-  (vec (vals (into (sorted-map) @(plugin-registry runtime)))))
-
-(defn plugin [runtime plugin-name]
-  (get @(plugin-registry runtime) (canonical-plugin-name plugin-name)))
-
-(defn- canonical-plugin-dir [runtime path]
-  (let [file (io/file path)
-        resolved (if (.isAbsolute file)
-                   file
-                   (io/file (get-in runtime [:metadata :config-dir]) path))]
-    (.getCanonicalFile resolved)))
-
-(defn load-plugin [runtime path]
-  (let [dir (canonical-plugin-dir runtime path)
-        metadata-file (io/file dir "atom-plugin.edn")
-        init-file (io/file dir "init.clj")]
-    (when-not (.isDirectory dir)
-      (throw (ex-info "Plugin directory does not exist" {:path path :dir (.getPath dir)})))
-    (when-not (.isFile metadata-file)
-      (throw (ex-info "Plugin metadata file is missing" {:dir (.getPath dir)
-                                                          :file (.getPath metadata-file)})))
-    (when-not (.isFile init-file)
-      (throw (ex-info "Plugin init.clj is missing" {:dir (.getPath dir)
-                                                     :file (.getPath init-file)})))
-    (let [metadata (validate-plugin-metadata!
-                    (try
-                      (edn/read-string (slurp metadata-file))
-                      (catch Throwable t
-                        (throw (ex-info "Plugin metadata is malformed" {:file (.getPath metadata-file)} t)))))
-          init-path (.getCanonicalPath init-file)]
-      (try
-        (load-file init-path)
-        (catch Throwable t
-          (throw (ex-info "Plugin init.clj failed to load"
-                          {:plugin (:name metadata)
-                           :dir (.getPath dir)
-                           :init-file init-path
-                           :cause-message (ex-message t)}
-                          t))))
-      (let [recorded (assoc metadata
-                            :source :local
-                            :dir (.getPath dir)
-                            :init-file init-path
-                            :loaded-at (str (Instant/now)))]
-        (swap! (plugin-registry runtime) assoc (:name recorded) recorded)
-        recorded))))
 
 (defn- validated-query-entry [[query-name query-def]]
   [(query/canonical-query-name query-name)

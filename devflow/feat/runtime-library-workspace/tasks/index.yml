@@ -22,7 +22,7 @@ tasks:
   - id: 5
     description: Remove plugin public surface
     task_file: tasks/005-remove-plugin-public-surface.md
-    status: pending
+    status: complete
     blocked_by: [4]
   - id: 6
     description: Docs and smoke workflow

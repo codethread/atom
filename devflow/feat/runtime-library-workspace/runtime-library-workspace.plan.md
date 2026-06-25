@@ -143,3 +143,7 @@ Added daemon-lifetime module-use state plus `atom.libs.alpha/use!`, `uses`, and 
 ### RLW-PLAN-001.DN9 Task 4 review revisions — 2026-06-25
 
 Deep review tightened `use!` around the published workspace contract: `:file` now rejects absolute paths and always resolves relative to selected config-dir, module-use keys are keyword-only for the MVP to keep registry ordering and `:after` lookup simple, fatal JVM `Error`s are no longer downgraded to optional module failures, and tests now cover daemon nREPL execution plus gating-before-side-effects.
+
+### RLW-PLAN-001.DN10 Remove plugin public surface — 2026-06-25
+
+Removed the public `atom.plugin.alpha` namespace, daemon API plugin metadata/loader operations, connected-client plugin operation routing, and daemon plugin registry state. A later YAGNI pass removed the now-empty `atom.bootstrap.alpha/use-defaults!` surface entirely and kept `atom.prelude.alpha` as a thin `atom.libs.alpha` convenience namespace. Root docs/specs and smoke coverage now present `libs.edn`, `sync!`, and `use!` as the public extension path.

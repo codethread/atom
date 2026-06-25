@@ -90,51 +90,35 @@ Named queries live in daemon memory for the current daemon lifetime. Load them f
 
 The registry is not saved to SQLite; restart the daemon and reload trusted config/REPL query definitions when needed. The CLI intentionally has no `--query-file` loader so runtime customization stays daemon/REPL-owned, matching the daemon-core design described in [Devflow Philosophy](./devflow/PHILOSOPHY.md).
 
-## Runtime plugins and startup config
+## Runtime libraries and startup config
 
-Atom is not core-only: trusted runtime customization belongs in the selected daemon world's `init.clj` and connected REPL workflows. A minimal recommended `init.clj` uses the blessed alpha bootstrap namespace:
-
-```clojure
-(require '[atom.bootstrap.alpha :as atom])
-
-(atom/use-defaults!)
-```
-
-Local plugins are plain source directories that you clone or copy yourself, commonly below the selected config-dir. Load them from `init.clj` with `atom.plugin.alpha/load-plugin!`:
+Atom is not core-only: trusted runtime customization belongs in the selected daemon world's `init.clj` and connected REPL workflows. The blessed extension path is a normal Clojure library workspace: approve local roots in `libs.edn`, sync them into the daemon, then activate optional modules with `atom.libs.alpha/use!`.
 
 ```clojure
-(require '[atom.bootstrap.alpha :as atom]
-         '[atom.plugin.alpha :as plugin])
+(require '[atom.libs.alpha :as libs])
 
-(atom/use-defaults!)
-(plugin/load-plugin! "plugins/my-plugin") ; relative to selected config-dir
+(libs/sync!)
+(libs/use! :my/module
+  {:ns 'my.module.alpha
+   :libs #{'my/module}
+   :call 'my.module.alpha/install!})
 ```
 
-A local plugin loaded this way must contain metadata and an entry file:
-
-```text
-plugins/my-plugin/
-|-- atom-plugin.edn
-`-- init.clj
-```
+A minimal `libs.edn` lives in the selected config-dir:
 
 ```clojure
-;; plugins/my-plugin/atom-plugin.edn
-{:format-version 1
- :name my/my-plugin
- :version "0.1.0-alpha"
- :provides [:example/helpers]}
+{:libs {my/module {:local/root "libs/my-module"}}}
 ```
 
-Plugin `init.clj` files should be idempotent because users may reload them during REPL work. `load-plugin!` owns metadata registration from `atom-plugin.edn`; the plugin entry file should not self-register that same loader-owned metadata. If trusted plugin code performs side effects and then fails, those side effects are not rolled back. Plugin-specific dependencies and JVM classpath mutation are not supported by the MVP loader.
+Relative roots resolve against the selected config-dir. Source acquisition is user-owned: clone, copy, or use Git submodules before daemon startup. Atom does not install packages, fetch source, or expose package commands in the public CLI.
 
-Inspect loaded plugin metadata through the connected REPL or non-interactive stdin:
+Inspect approved libraries, sync outcomes, and module-use state through the connected REPL or non-interactive stdin:
 
 ```sh
-printf '(require '\''[atom.plugin.alpha :as plugin])\n(plugin/plugins)\n(plugin/plugin :my/my-plugin)\n' | "$TODO" daemon repl --stdin
+printf '(require '\''[atom.libs.alpha :as libs])\n(libs/approved)\n(libs/syncs)\n(libs/uses)\n' | "$TODO" daemon repl --stdin
 ```
 
-Coupling tiers are explicit. Blessed `atom.*.alpha` namespaces are the documented, tested path for startup and REPL workflows. Supported lower-level libraries are available to trusted code when the coupling cost is worth it. Internal implementation namespaces are inspectable and callable, but may change freely. Raw SQLite/schema access is also allowed for trusted code, with the plugin owning compatibility risk when persistence details change.
+Coupling tiers are explicit. Blessed `atom.*.alpha` namespaces are the documented, tested path for startup and REPL workflows. Supported lower-level libraries are available to trusted code when the coupling cost is worth it. Internal implementation namespaces are inspectable and callable, but may change freely. Raw SQLite/schema access is also allowed for trusted code, with the caller owning compatibility risk when persistence details change.
 
 ## Data model
 

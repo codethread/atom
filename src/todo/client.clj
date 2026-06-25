@@ -21,10 +21,6 @@
    :resolve-query 'todo.daemon.api/resolve-query
    :list-query 'todo.daemon.api/list-query
    :ready-query 'todo.daemon.api/ready-query
-   :register-plugin 'todo.daemon.api/register-plugin
-   :plugins 'todo.daemon.api/plugins
-   :plugin 'todo.daemon.api/plugin
-   :load-plugin 'todo.daemon.api/load-plugin
    :approved-libs 'todo.daemon.api/approved-libs
    :sync-approved-libs 'todo.daemon.api/sync-approved-libs
    :approved-lib-syncs 'todo.daemon.api/approved-lib-syncs

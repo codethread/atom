@@ -44,42 +44,33 @@ ready
 - **SPEC-003.C13:** `query` returns tasks matching an ad hoc query definition or daemon-registered query name, with optional runtime parameters.
 - **SPEC-003.C14:** `task`, `tasks`, `query`, and `ready` return rows with JSON-bearing columns normalized to Clojure values.
 - **SPEC-003.C15:** `ready` returns non-final tasks whose direct `depends-on` dependencies are all final and may be further filtered by an ad hoc or registered query.
-- **SPEC-003.C16:** Blessed plugin/library helpers live in explicit `atom.*.alpha` namespaces, not in the preloaded `todo.repl` helper namespace.
-- **SPEC-003.C17:** `atom.plugin.alpha` exposes plugin metadata helpers: `register!` replaces daemon-lifetime metadata by canonical plugin name, `plugins` returns the current registry, `plugin` returns one entry or nil, and `load-plugin!` loads a local plugin directory using the required `atom-plugin.edn` plus `init.clj` convention.
-- **SPEC-003.C18:** `load-plugin!` uses absolute paths as-is, resolves relative paths against the daemon's selected config-dir, and returns the recorded plugin metadata map on success.
-- **SPEC-003.C19:** `atom.bootstrap.alpha/use-defaults!` registers metadata for the built-in `atom.plugin.alpha` and `atom.bootstrap.alpha` libraries and returns useful registry/metadata state. It does not load plugins from disk and does not require or register the optional prelude.
-- **SPEC-003.C20:** `atom.prelude.alpha` is opt-in. Blessed alpha namespaces are the documented path, but trusted users may require lower-level namespaces or read raw SQLite when they accept compatibility cost.
+- **SPEC-003.C16:** Blessed library-workspace helpers live in explicit `atom.*.alpha` namespaces, not in the preloaded `todo.repl` helper namespace.
+- **SPEC-003.C17:** `atom.libs.alpha` exposes approved library config helpers, approved-local-root sync helpers, resilient module activation with `use!`, and daemon-lifetime sync/use introspection.
+- **SPEC-003.C18:** `atom.libs.alpha` helpers route to the selected daemon world when called from connected REPL clients. Direct `require` in a connected helper REPL remains local to the helper JVM.
+- **SPEC-003.C19:** `atom.prelude.alpha` is opt-in and favors `atom.libs.alpha` conveniences. Blessed alpha namespaces are the documented path, but trusted users may require lower-level namespaces or read raw SQLite when they accept compatibility cost.
 
-## SPEC-003.P4 Example plugin init
+## SPEC-003.P4 Example library init
 
-A selected config-dir `init.clj` may bootstrap defaults and load a manually managed local plugin directory:
-
-```clojure
-(require '[atom.bootstrap.alpha :as atom]
-         '[atom.plugin.alpha :as plugin])
-
-(atom/use-defaults!)
-(plugin/load-plugin! "plugins/my-plugin")
-```
-
-The plugin directory loaded above lives under the selected config-dir and uses this convention:
-
-```text
-my-plugin/
-|-- atom-plugin.edn
-`-- init.clj
-```
+A selected config-dir `init.clj` may sync approved local roots and activate optional modules:
 
 ```clojure
-;; atom-plugin.edn
-{:format-version 1
- :name my/my-plugin
- :version "0.1.0-alpha"
- :provides [:example/helpers]}
+(require '[atom.libs.alpha :as libs])
+
+(libs/sync!)
+(libs/use! :my/module
+  {:ns 'my.module.alpha
+   :libs #{'my/module}
+   :call 'my.module.alpha/install!})
+```
+
+A selected config-dir `libs.edn` approves local roots:
+
+```clojure
+{:libs {my/module {:local/root "libs/my-module"}}}
 ```
 
 ## SPEC-003.P5 Non-goals
 
 The REPL API does not expose bespoke helpers such as `depends!`, `edge!`, `done!`, `by-attr`, `deps`, `blocking`, or `graph`. Those are either covered by `update!` or the generic query API.
 
-The plugin REPL API does not add CLI plugin authoring commands, package installation, plugin-specific Maven dependencies, or dynamic classpath mutation.
+The REPL API does not add CLI package authoring commands, package installation, source fetching, or plugin-directory loading.
