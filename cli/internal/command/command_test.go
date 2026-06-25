@@ -88,16 +88,22 @@ func TestConfigDirPrecedenceAndValidation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"source":"/tmp/source","format":"json"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	opts, rest, err := Resolve([]string{"--config-dir", dir, "--format", "human", "list"})
-	if err != nil {
+	var captured Options
+	orig := newClient
+	newClient = func(o Options) Caller {
+		captured = o
+		return &fakeClient{result: []any{}}
+	}
+	t.Cleanup(func() { newClient = orig })
+	if _, err := run("--config-dir", dir, "--format", "human", "list"); err != nil {
 		t.Fatal(err)
 	}
 	realDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.Format != "human" || opts.Source != "/tmp/source" || opts.ConfigDir != realDir || len(rest) != 1 || rest[0] != "list" {
-		t.Fatalf("unexpected resolved options/rest: %#v %#v", opts, rest)
+	if captured.Format != "human" || captured.Source != "/tmp/source" || captured.ConfigDir != realDir {
+		t.Fatalf("unexpected resolved options: %#v", captured)
 	}
 
 	if _, err := run("--config-path", dir, "list"); err == nil || !strings.Contains(err.Error(), "unknown flag: --config-path") {
@@ -291,16 +297,18 @@ func TestXDGConfigLoading(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(path, "config.json"), []byte(`{"format":"json"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	opts, _, err := Resolve([]string{"list"})
-	if err != nil {
+	var captured Options
+	orig := newClient
+	newClient = func(o Options) Caller {
+		captured = o
+		return &fakeClient{result: []any{}}
+	}
+	t.Cleanup(func() { newClient = orig })
+	if _, err := run("list"); err != nil {
 		t.Fatal(err)
 	}
-	if opts.ConfigDir != filepath.Join(dir, "atom") || opts.StateDir != filepath.Join(stateDir, "atom") {
-		t.Fatalf("unexpected default world: %#v", opts)
-	}
-	_, err = run("list")
-	if err == nil || !strings.Contains(err.Error(), "no running daemon") {
-		t.Fatalf("expected xdg config to parse and reach daemon metadata lookup, got %v", err)
+	if captured.ConfigDir != filepath.Join(dir, "atom") || captured.StateDir != filepath.Join(stateDir, "atom") {
+		t.Fatalf("unexpected default world: %#v", captured)
 	}
 }
 

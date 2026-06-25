@@ -196,39 +196,6 @@ func (a *App) withConfig(o Options, f func(Options) error) error {
 	return f(opts)
 }
 
-func Resolve(args []string) (Options, []string, error) {
-	o := Options{}
-	for i := 0; i < len(args); i++ {
-		s := args[i]
-		if !strings.HasPrefix(s, "-") {
-			opts, err := resolveOptions(o)
-			return opts, args[i:], err
-		}
-		switch s {
-		case "--format":
-			i++
-			if i >= len(args) {
-				return o, nil, errors.New("--format requires a value")
-			}
-			o.Format = args[i]
-		case "--config-dir":
-			i++
-			if i >= len(args) {
-				return o, nil, errors.New("--config-dir requires a value")
-			}
-			o.ConfigDir = args[i]
-			o.ConfigDirExplicit = true
-		case "-h", "--help":
-			return o, []string{"help"}, nil
-		case "--where":
-			return o, nil, errors.New("--where is not supported by the Go CLI; use --query")
-		default:
-			return o, nil, fmt.Errorf("unknown global option: %s", s)
-		}
-	}
-	return o, nil, nil
-}
-
 func resolveOptions(o Options) (Options, error) {
 	cfg, world, err := config.Load(o.ConfigDir)
 	if err != nil {
