@@ -140,3 +140,7 @@ Added `atom.bootstrap.alpha/use-defaults!` to register intentionally small built
 ### RPS-PLAN-001.DN11 Init and REPL examples — 2026-06-25
 
 Updated README examples to show selected config-dir `init.clj` bootstrapping defaults, manually managed local plugin directories loaded with `atom.plugin.alpha/load-plugin!`, metadata introspection through `todo daemon repl --stdin`, and the blessed/lower-level/internal/raw-schema coupling tiers. Smoke coverage now writes a disposable config-dir `init.clj`, creates a local plugin directory with `atom-plugin.edn`, verifies daemon startup loads it, and inspects loaded plugin metadata through connected REPL stdin.
+
+### RPS-PLAN-001.DN12 Validation docs prep — 2026-06-25
+
+Full validation passed for the implemented runtime plugin system: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`. The feature-local spec deltas remain staged for root spec promotion in task 8, and `git status --short` showed no generated SQLite/runtime/plugin artifacts after validation.
