@@ -110,3 +110,9 @@ Outcome: User/agent docs, smoke flows, and root specs reflect `todo` as the publ
 - Added Clojure JSON Unix socket transport alongside nREPL, with JSON metadata publication retaining EDN/nREPL compatibility.
 - Socket filenames use a shortened database hash under the runtime directory because Unix domain socket path length limits reject the full metadata hash path on macOS temp directories; JSON metadata is the authoritative advertised socket path.
 - The transport dispatches only the Go CLI allowlist to `todo.daemon.api`; registry mutation/listing/inspection operations remain unavailable over JSON.
+
+### GOCLI-PLAN-001.DN5 Task 3 Go CLI skeleton — 2026-06-25
+
+- Added `cli/` as a standalone Go module plus root `go.work` so the planned root build command works before packaging is defined.
+- Current Go commands validate flags/config/help and then intentionally fail at daemon socket stubs for task/query/status/stop operations; future wiring tasks should replace only the socket client layer and command argument payload construction.
+- Client config is JSON-only with supported keys `db` and `format`; unsupported keys and malformed config fail before command execution.

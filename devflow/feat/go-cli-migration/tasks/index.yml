@@ -12,7 +12,7 @@ tasks:
   - id: 3
     description: Add Go CLI skeleton
     task_file: tasks/003-add-go-cli-skeleton.md
-    status: pending
+    status: complete
     blocked_by: [1]
   - id: 4
     description: Wire Go task commands
