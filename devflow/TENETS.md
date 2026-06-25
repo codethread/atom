@@ -13,3 +13,7 @@
   - We expose the minimum possible surface area over api, and what we expose, we make extremely robust. Everything else we delegate to userland via our attributes and query language
 - **TEN-005**: Task graphs are DAGs.
   - The graph should remain reconstructable and traversable by agents without cycle-specific reasoning. Cycles in task relationships make planning, dependency traversal, hierarchy, and supersession flows ambiguous, so edge writes must fail loudly rather than persist a cycle.
+- **TEN-006**: The CLI is a thin JSON control surface; the daemon/REPL is the rich semantic surface.
+  - The scripted CLI should expose simple commands, string flags, JSON machine output, and named handles to daemon-owned behavior. It should not parse, author, or debug rich Clojure/EDN userland structures.
+  - Complex query definitions, runtime customization, inspection, and debugging belong in trusted daemon config and REPL workflows. The CLI can invoke those capabilities by stable names and simple JSON-shaped params.
+  - The engine may translate between JSON wire data and Clojure-native/EDN data internally, but that translation is hidden behind daemon APIs.

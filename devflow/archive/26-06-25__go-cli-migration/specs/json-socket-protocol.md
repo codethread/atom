@@ -2,7 +2,7 @@
 
 **Document ID:** `GOCLI-PROTO-001`
 **Feature:** [Go CLI Migration](../proposal.md)
-**Status:** Draft
+**Status:** Implemented
 **Last Updated:** 2026-06-25
 **Related specs:** [`SPEC-004-D002`](./daemon-runtime.delta.md), [`SPEC-002-D003`](./cli.delta.md)
 
@@ -18,7 +18,7 @@ This note freezes the minimal cross-language JSON contract between the Go `todo`
 - **GOCLI-PROTO-001.M1.2:** The daemon writes Go-readable JSON metadata atomically under the deterministic runtime metadata directory for that canonical database path.
 - **GOCLI-PROTO-001.M1.3:** The deterministic runtime metadata directory is the existing daemon runtime directory: `${java.io.tmpdir}/todo-daemon` for the Clojure daemon implementation. The database key is the lowercase hex SHA-256 digest of the canonical database path encoded as UTF-8.
 - **GOCLI-PROTO-001.M1.4:** The Go-readable metadata file path is `${runtime_dir}/${database_key}.json`. During transition, existing Clojure nREPL metadata may continue to use `${runtime_dir}/${database_key}.edn`; that EDN file is for Clojure clients only and Go clients must not parse it.
-- **GOCLI-PROTO-001.M1.5:** The daemon socket path is `${runtime_dir}/${database_key}.sock`.
+- **GOCLI-PROTO-001.M1.5:** The daemon socket path is advertised by JSON metadata. The implementation uses a shortened stable hash filename under `${runtime_dir}` to stay below Unix socket path length limits.
 - **GOCLI-PROTO-001.M1.6:** Missing, malformed, stale, mismatched, or unreachable metadata is an error. Clients fail loudly and must not open SQLite directly.
 
 ### GOCLI-PROTO-001.M2 JSON shape
@@ -29,7 +29,7 @@ This note freezes the minimal cross-language JSON contract between the Go `todo`
   "pid": 12345,
   "database_path": "/absolute/canonical/todo.sqlite",
   "daemon_id": "2f5fd2c8-4d1f-4bc4-8d6c-f7d8ac16a245",
-  "socket_path": "/tmp/todo-daemon/7d0f0a0f4b2d4e6c8a1b3c5d7e9f0123456789abcdef0123456789abcdef0123.sock",
+  "socket_path": "/tmp/todo-daemon/7d0f0a0f4b2d4e6c.sock",
   "started_at": "2026-06-25T12:00:00Z",
   "nrepl": {
     "host": "127.0.0.1",
@@ -50,7 +50,7 @@ This note freezes the minimal cross-language JSON contract between the Go `todo`
 
 - **GOCLI-PROTO-001.T1:** Transport is a local Unix domain stream socket. Remote TCP access, authentication, and multi-user authorization are outside this feature.
 - **GOCLI-PROTO-001.T2:** Each connection carries exactly one request and one response. The client writes one UTF-8 JSON object followed by `\n`, half-closes or flushes the write side, then reads one UTF-8 JSON object followed by `\n`.
-- **GOCLI-PROTO-001.T3:** The server closes the connection after writing the response. Extra client data after the first newline is a malformed request.
+- **GOCLI-PROTO-001.T3:** The server closes the connection after writing the response. Clients must send only one request per connection; extra client data is unsupported and may be ignored when the server closes the connection.
 - **GOCLI-PROTO-001.T4:** Default client dial timeout is 1 second. Default request/response deadline is 10 seconds. `stop` uses the same request deadline for acknowledgement; daemon process exit may complete after the response.
 - **GOCLI-PROTO-001.T5:** Dial timeout, socket I/O timeout, malformed JSON, unknown protocol version, unknown operation, and identity mismatch are transport/protocol errors and produce non-zero CLI exits.
 

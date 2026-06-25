@@ -3,10 +3,10 @@
 **Document ID:** `GOCLI-PLAN-001`
 **Feature:** `go-cli-migration`
 **Proposal:** [proposal.md](./proposal.md)
-**RFC:** [RFC-003 Fast JSON Socket CLI](../../rfcs/2026-06-25-fast-json-socket-cli.md), [RFC-004 Go CLI Migration](../../rfcs/2026-06-25-go-cli-migration.md)
+**RFC:** [RFC-003 Fast JSON Socket CLI](./rfcs/2026-06-25-fast-json-socket-cli.md), [RFC-004 Go CLI Migration](./rfcs/2026-06-25-go-cli-migration.md)
 **Root specs:** [CLI Surface `SPEC-002`](../../specs/cli.md), [Daemon Runtime `SPEC-004`](../../specs/daemon-runtime.md), [Project Tenets](../../TENETS.md)
 **Feature specs:** [CLI delta `SPEC-002-D003`](./specs/cli.delta.md), [Daemon Runtime delta `SPEC-004-D002`](./specs/daemon-runtime.delta.md), [JSON Socket Protocol `GOCLI-PROTO-001`](./specs/json-socket-protocol.md), [Tenets delta `TEN-D001`](./specs/tenets.delta.md)
-**Status:** Reviewed
+**Status:** Shipped
 **Last Updated:** 2026-06-25
 
 ## GOCLI-PLAN-001.P1 Goal and scope
@@ -140,3 +140,9 @@ Outcome: User/agent docs, smoke flows, and root specs reflect `todo` as the publ
 - Updated `dev/todo/smoke.clj` to build `./cli/bin/todo`, exercise independent Go CLI subprocesses over the JSON socket, assert only JSON machine output, and clean generated SQLite/runtime/socket/build artifacts.
 - Kept EDN-rich query authoring/debugging in the REPL smoke path through `todo.repl` instead of public CLI EDN.
 - Validation run: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `cd cli && go test ./...`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke` all pass.
+
+### GOCLI-PLAN-001.DN10 Final alignment review and promotion — 2026-06-25
+
+- Final self-review inspected the Go command/client implementation, daemon JSON socket/metadata path, feature deltas, root docs/specs, and smoke/test coverage. Alignment fixes made before shipping: root CLI and daemon runtime specs now describe the public Go CLI and JSON socket transport; project tenets include the thin JSON CLI / rich daemon-REPL boundary; README/AGENTS command examples now use `./cli/bin/todo`; protocol docs now match the shortened socket filename implementation.
+- Task 8 manual verification was reported complete by the user; task 9 spec/docs promotion is complete. Feature-local deltas are marked `Merged` and the plan is marked `Shipped`.
+- Final validation during finish: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test` and `cd cli && go test ./...` passed. Smoke validation was already recorded in DN9 for Task 7.

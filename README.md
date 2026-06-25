@@ -34,26 +34,27 @@ clojure -M:test
 clojure -M:smoke
 ```
 
-The smoke path builds and removes `./cli/bin/todo` while exercising the Go CLI against the daemon JSON socket. Manual tmux daemon verification for the Go CLI migration is tracked in `devflow/feat/go-cli-migration/tasks/008-verify-daemon-in-tmux.md`.
+The smoke path builds and removes `./cli/bin/todo` while exercising the Go CLI against the daemon JSON socket.
 
-Use the daemon-backed agent CLI. Start the daemon in one terminal; it stays in the foreground:
+Build and use the daemon-backed Go CLI. Start the daemon in one terminal; it stays in the foreground:
 
 ```sh
+go build -o ./cli/bin/todo ./cli/cmd/todo
 DB=/tmp/todo-agent.sqlite
-clojure -M:todo --db "$DB" daemon start
+./cli/bin/todo --db "$DB" daemon start
 ```
 
 Run task commands from another terminal:
 
 ```sh
 DB=/tmp/todo-agent.sqlite
-clojure -M:todo --db "$DB" daemon status
-clojure -M:todo --db "$DB" init
-design=$(clojure -M:todo --db "$DB" add "Sketch model" --status done --attr priority=high)
-docs=$(clojure -M:todo --db "$DB" add "Write docs" --attr owner=agent)
-clojure -M:todo --db "$DB" update "$docs" --edge depends-on:$design
-clojure -M:todo --db "$DB" --format edn ready
-clojure -M:todo --db "$DB" daemon stop
+./cli/bin/todo --db "$DB" daemon status
+./cli/bin/todo --db "$DB" init
+design=$(./cli/bin/todo --db "$DB" add "Sketch model" --status done --attr priority=high)
+docs=$(./cli/bin/todo --db "$DB" add "Write docs" --attr owner=agent)
+./cli/bin/todo --db "$DB" update "$docs" --edge depends-on:$design
+./cli/bin/todo --db "$DB" --format json ready
+./cli/bin/todo --db "$DB" daemon stop
 ```
 
 Task commands connect to the matching daemon selected by `--db`; start the daemon first and stop it when finished.
@@ -61,7 +62,7 @@ Task commands connect to the matching daemon selected by `--db`; start the daemo
 Use the REPL helpers against a running daemon (started in another terminal):
 
 ```sh
-clojure -M:todo --db agent.sqlite daemon start
+./cli/bin/todo --db agent.sqlite daemon start
 ```
 
 ```clojure
@@ -78,8 +79,8 @@ clojure -M:todo --db agent.sqlite daemon start
 Named queries live in daemon memory for the current daemon lifetime. Load them from trusted daemon config or REPL helpers such as `defquery!` / `load-queries!`, then consume them from either REPL helpers or the small CLI surface:
 
 ```sh
-clojure -M:todo --db agent.sqlite --format edn list --query agent-owned
-clojure -M:todo --db agent.sqlite daemon stop
+./cli/bin/todo --db agent.sqlite --format json list --query agent-owned
+./cli/bin/todo --db agent.sqlite daemon stop
 ```
 
 The registry is not saved to SQLite; restart the daemon and reload trusted config/REPL query definitions when needed. The CLI intentionally has no `--query-file` loader so runtime customization stays daemon/REPL-owned, matching the daemon-core design described in [Devflow Philosophy](./devflow/PHILOSOPHY.md).

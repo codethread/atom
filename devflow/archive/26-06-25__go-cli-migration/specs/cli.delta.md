@@ -3,7 +3,7 @@
 **Document ID:** `SPEC-002-D003`
 **Root spec:** [cli.md](../../../specs/cli.md)
 **Feature:** [../proposal.md](../proposal.md)
-**Status:** Draft
+**Status:** Merged
 **Last Updated:** 2026-06-25
 
 ## SPEC-002-D003.P1 Summary

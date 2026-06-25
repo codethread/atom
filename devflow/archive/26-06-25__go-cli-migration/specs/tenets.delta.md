@@ -3,7 +3,7 @@
 **Document ID:** `TEN-D001`
 **Root document:** [TENETS.md](../../../TENETS.md)
 **Feature:** [../proposal.md](../proposal.md)
-**Status:** Draft
+**Status:** Merged
 **Last Updated:** 2026-06-25
 
 ## TEN-D001.P1 Summary

@@ -3,7 +3,7 @@
 **Document ID:** `SPEC-004-D002`
 **Root spec:** [daemon-runtime.md](../../../specs/daemon-runtime.md)
 **Feature:** [../proposal.md](../proposal.md)
-**Status:** Draft
+**Status:** Merged
 **Last Updated:** 2026-06-25
 
 ## SPEC-004-D002.P1 Summary

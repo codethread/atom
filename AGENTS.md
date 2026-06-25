@@ -22,17 +22,21 @@ PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke
 Common commands:
 
 ```sh
+# Build the public Go CLI.
+go build -o ./cli/bin/todo ./cli/cmd/todo
+
 # Run in a dedicated terminal; daemon start stays in the foreground.
-clojure -M:todo --db /tmp/todo-agent.sqlite daemon start
+./cli/bin/todo --db /tmp/todo-agent.sqlite daemon start
 # Optional trusted startup config:
-# clojure -M:todo --db /tmp/todo-agent.sqlite daemon start --config /path/to/daemon.edn
+# ./cli/bin/todo --db /tmp/todo-agent.sqlite daemon start --config /path/to/daemon.edn
 
 # Run from another terminal while the daemon is alive.
-clojure -M:todo --db /tmp/todo-agent.sqlite init
-clojure -M:todo --db /tmp/todo-agent.sqlite --format edn list
-clojure -M:todo --db /tmp/todo-agent.sqlite daemon status
-clojure -M:todo --db /tmp/todo-agent.sqlite daemon stop
+./cli/bin/todo --db /tmp/todo-agent.sqlite init
+./cli/bin/todo --db /tmp/todo-agent.sqlite --format json list
+./cli/bin/todo --db /tmp/todo-agent.sqlite daemon status
+./cli/bin/todo --db /tmp/todo-agent.sqlite daemon stop
 clojure -M:test
+(cd cli && go test ./...)
 clojure -M:repl
 clojure -M:run
 ```
@@ -42,24 +46,25 @@ clojure -M:run
 Agents should prefer the CLI for scripted work. Pass `--db <path>` on every command when using disposable or feature-local databases.
 
 ```sh
+go build -o ./cli/bin/todo ./cli/cmd/todo
 DB=/tmp/todo-agent.sqlite
 # Run in a dedicated terminal; daemon start stays in the foreground.
-clojure -M:todo --db "$DB" daemon start
+./cli/bin/todo --db "$DB" daemon start
 # Optional: daemon.edn may contain {:load-files ["trusted.clj"]}
 
 # Run from another terminal while the daemon is alive.
-clojure -M:todo --db "$DB" init
-design=$(clojure -M:todo --db "$DB" add "Sketch model" --status done --attr priority=high)
-docs=$(clojure -M:todo --db "$DB" add "Write docs" --attr owner=agent)
-clojure -M:todo --db "$DB" update "$docs" --edge depends-on:$design
-clojure -M:todo --db "$DB" --format edn ready
-clojure -M:todo --db "$DB" daemon stop
+./cli/bin/todo --db "$DB" init
+design=$(./cli/bin/todo --db "$DB" add "Sketch model" --status done --attr priority=high)
+docs=$(./cli/bin/todo --db "$DB" add "Write docs" --attr owner=agent)
+./cli/bin/todo --db "$DB" update "$docs" --edge depends-on:$design
+./cli/bin/todo --db "$DB" --format json ready
+./cli/bin/todo --db "$DB" daemon stop
 ```
 
 Use `todo.repl` for interactive exploration when a daemon is already running for the same database in another terminal:
 
 ```sh
-clojure -M:todo --db agent.sqlite daemon start
+./cli/bin/todo --db agent.sqlite daemon start
 ```
 
 ```clojure
@@ -76,8 +81,8 @@ clojure -M:todo --db agent.sqlite daemon start
 Named queries are daemon-lifetime runtime state: register or load them through trusted daemon config or REPL helpers (`defquery!`, `load-queries!`), inspect them with `queries`, then consume them from either REPL helpers or CLI commands such as `list --query agent-owned`. They disappear when the daemon stops; the CLI does not accept `--query-file` because runtime customization belongs in daemon/REPL workflows rather than the low-privilege CLI.
 
 ```sh
-clojure -M:todo --db agent.sqlite daemon status
-clojure -M:todo --db agent.sqlite daemon stop
+./cli/bin/todo --db agent.sqlite daemon status
+./cli/bin/todo --db agent.sqlite daemon stop
 ```
 
 For the full CLI and REPL contracts, read the root specs linked above instead of duplicating details here.
@@ -93,8 +98,6 @@ PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke
 ```
 
 The unit test suite covers parser, database, daemon, client, and REPL behavior. Go tests cover the native `todo` command, config, socket client, and integration paths. The smoke demo builds `./cli/bin/todo`, starts disposable daemon runtimes, exercises Go CLI subprocess commands through the JSON socket, exercises REPL helpers through a real daemon connection, then removes generated SQLite, runtime metadata, socket, and built CLI artifacts.
-
-For this Go CLI migration feature, also perform the manual tmux verification in `devflow/feat/go-cli-migration/tasks/008-verify-daemon-in-tmux.md`: hold a Go-launched daemon open in a named `agent-<task>` tmux session, connect from separate `./cli/bin/todo` and REPL/`dev/` processes, create/read/update representative task data, capture that the daemon remained live, then stop the daemon and session.
 
 After validation, `git status --short` should not show generated SQLite or runtime metadata artifacts.
 
@@ -116,10 +119,10 @@ sqlite3 smoke-cli.sqlite 'select from_task_id, to_task_id, edge_type, attributes
 - Keep task attributes as JSON `TEXT`; do not introduce JSONB assumptions.
 - Do not add schemas for userland attributes yet.
 - Keep SQL and shared persistence behavior in `todo.db`.
-- Keep shell automation in `todo.cli`.
+- Keep public CLI automation in `cli/` and daemon transport glue thin; keep legacy `todo.cli` internal/dev-only during migration.
 - Keep interactive convenience wrappers in `todo.repl`.
 - Fail loudly on invalid CLI input instead of silently falling back.
-- Keep CLI query output machine-readable via EDN/JSON.
+- Keep public CLI machine output JSON-only; EDN belongs to Clojure REPL/config/dev workflows.
 - When changing shipped behavior, update the relevant root spec in `devflow/specs/`.
 
 ## Devflow notes
