@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -94,7 +95,7 @@ func TestConfigDirPrecedenceAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.DB != filepath.Join(realDir, "data", "tasks.sqlite") || opts.Format != "human" || opts.Source != "/tmp/source" || len(rest) != 1 || rest[0] != "list" {
+	if opts.Format != "human" || opts.Source != "/tmp/source" || opts.ConfigDir != realDir || len(rest) != 1 || rest[0] != "list" {
 		t.Fatalf("unexpected resolved options/rest: %#v %#v", opts, rest)
 	}
 
@@ -147,6 +148,42 @@ func TestConfigDirPrecedenceAndValidation(t *testing.T) {
 	}
 }
 
+func TestDaemonStartLaunchesFromConfiguredSource(t *testing.T) {
+	cfg := t.TempDir()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"source":"`+source+`"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var launched Options
+	orig := runDaemonProcess
+	runDaemonProcess = func(o Options, out, errOut io.Writer) error {
+		launched = o
+		return nil
+	}
+	t.Cleanup(func() { runDaemonProcess = orig })
+	if _, err := run("--config-dir", cfg, "daemon", "start"); err != nil {
+		t.Fatal(err)
+	}
+	realCfg, err := filepath.EvalSymlinks(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launched.Source != source || launched.ConfigDir != realCfg || !launched.ConfigDirExplicit {
+		t.Fatalf("unexpected launch options: %#v", launched)
+	}
+	if !reflect.DeepEqual(daemonArgs(launched), []string{"-M:todo", "--config-dir", realCfg, "daemon", "start"}) {
+		t.Fatalf("unexpected explicit daemon args: %#v", daemonArgs(launched))
+	}
+	defaultLaunch := launched
+	defaultLaunch.ConfigDirExplicit = false
+	if !reflect.DeepEqual(daemonArgs(defaultLaunch), []string{"-M:todo", "daemon", "start"}) {
+		t.Fatalf("unexpected default daemon args: %#v", daemonArgs(defaultLaunch))
+	}
+}
+
 func TestSourceValidationForDaemonStart(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"source":"relative"}`), 0644); err != nil {
@@ -192,7 +229,7 @@ func TestXDGConfigLoading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.DB != filepath.Join(dataDir, "atom", "tasks.sqlite") || opts.ConfigDir != filepath.Join(dir, "atom") {
+	if opts.ConfigDir != filepath.Join(dir, "atom") || opts.StateDir != filepath.Join(stateDir, "atom") {
 		t.Fatalf("unexpected default world: %#v", opts)
 	}
 	_, err = run("list")

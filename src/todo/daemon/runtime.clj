@@ -16,17 +16,26 @@
 (defn current-pid []
   (.pid (ProcessHandle/current)))
 
+(defn init-file [world]
+  (let [file (clojure.java.io/file (:config-dir world) "init.clj")]
+    (when (.isFile file)
+      (.getCanonicalPath file))))
+
 (defn start!
+  ([] (start! nil {}))
   ([db-file] (start! db-file {}))
-  ([db-file {:keys [config-file world]}]
+  ([db-file {:keys [world]}]
    (when @current-runtime
      (throw (ex-info "A daemon runtime is already active in this process" {:metadata (:metadata @current-runtime)})))
    (let [world (or world (config/world))
+         db-file (or db-file (:db-path world))
          canonical-path (metadata/canonical-db-path db-file)
          existing (metadata/read-metadata world)]
      (when-not (metadata/stale-or-missing? existing)
        (throw (ex-info "Daemon metadata already exists for daemon world" {:config-dir (:config-dir world)
                                                                            :metadata existing})))
+     (.mkdirs (clojure.java.io/file (:state-dir world)))
+     (.mkdirs (clojure.java.io/file (:data-dir world)))
      (let [ds (db/datasource canonical-path)
            server (nrepl/start-server :bind loopback-host :port 0)
            port (:port server)
@@ -48,8 +57,8 @@
                runtime (assoc runtime-base :socket-runtime socket-runtime)]
            (reset! runtime-state runtime)
            (reset! current-runtime runtime)
-         (when config-file
-           (config/load-config! config-file))
+           (when-let [init (init-file world)]
+             (load-file init))
            (let [published-runtime (assoc runtime :metadata-file (metadata/publish! meta))]
              (reset! runtime-state published-runtime)
              (reset! current-runtime published-runtime)

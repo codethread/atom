@@ -163,6 +163,49 @@
                                                            :edges [{:type "depends-on" :to (:id target)}]})))
         (is (empty? (db/task-dependencies (:datasource rt) (:id source))))))))
 
+(deftest runtime-uses-world-default-database-and-directories
+  (let [world (temp-world)
+        rt (runtime/start! nil {:world world})]
+    (try
+      (is (= (.getPath (.getCanonicalFile (io/file (:db-path world))))
+             (get-in rt [:metadata :canonical-db-path])))
+      (is (.isDirectory (io/file (:state-dir world))))
+      (is (.isDirectory (io/file (:data-dir world))))
+      (is (= (str (:state-dir world) "/daemon.sock") (get-in rt [:metadata :socket-path])))
+      (is (= (str (:state-dir world) "/daemon.edn") (.getPath (metadata/metadata-file world))))
+      (is (= (str (:state-dir world) "/daemon.json") (.getPath (metadata/json-metadata-file world))))
+      (finally
+        (runtime/stop! rt)
+        (delete-tree! (io/file (:config-dir world)))))))
+
+(deftest runtime-loads-default-init-clj
+  (let [world (temp-world)
+        init (io/file (:config-dir world) "init.clj")]
+    (try
+      (spit init "(require '[todo.daemon.api :as api] '[todo.daemon.runtime :as runtime]) (api/register-query @runtime/current-runtime 'trusted [:= :status \"todo\"])")
+      (let [rt (runtime/start! nil {:world world})]
+        (try
+          (is (= {"trusted" [:= :status "todo"]} (api/queries rt)))
+          (finally
+            (runtime/stop! rt))))
+      (finally
+        (delete-tree! (io/file (:config-dir world)))))))
+
+(deftest runtime-init-failures-do-not-publish-metadata
+  (let [world (temp-world)
+        init (io/file (:config-dir world) "init.clj")]
+    (try
+      (spit init "(throw (ex-info \"init failed\" {}))")
+      (is (thrown? Exception (runtime/start! nil {:world world})))
+      (is (nil? @runtime/current-runtime))
+      (is (nil? (metadata/read-metadata world)))
+      (is (false? (.exists (metadata/json-metadata-file world))))
+      (is (false? (.exists (metadata/socket-file world))))
+      (finally
+        (runtime/stop! @runtime/current-runtime)
+        (metadata/delete! world)
+        (delete-tree! (io/file (:config-dir world)))))))
+
 (deftest runtime-metadata-records-canonical-loopback-identity
   (with-runtime
     (fn [rt db-file]
@@ -317,61 +360,3 @@
       (finally
         (runtime/stop! rt)
         (db-test/delete-sqlite-family! db-file)))))
-
-(deftest runtime-starts-with-minimal-trusted-config
-  (let [dir (java.nio.file.Files/createTempDirectory "todo-daemon-config" (make-array java.nio.file.attribute.FileAttribute 0))
-        loaded (io/file (.toFile dir) "loaded.clj")
-        config (io/file (.toFile dir) "config.edn")]
-    (try
-      (spit loaded "(ns todo.daemon-test-loaded) (def loaded? true)")
-      (spit config "{:load-files [\"loaded.clj\"]}")
-      (with-runtime {:config-file (.getPath config)}
-        (fn [_rt _]
-          (is (true? @(requiring-resolve 'todo.daemon-test-loaded/loaded?)))))
-      (finally
-        (delete-tree! (.toFile dir))))))
-
-(deftest runtime-config-failures-do-not-publish-metadata
-  (let [db-file (db-test/temp-db-file)
-        world (temp-world)
-        dir (.toPath (io/file (:config-dir world)))
-        malformed (io/file (.toFile dir) "malformed.edn")
-        trailing (io/file (.toFile dir) "trailing.edn")
-        unsupported (io/file (.toFile dir) "unsupported.edn")
-        missing-load (io/file (.toFile dir) "missing-load.edn")
-        bad-code (io/file (.toFile dir) "bad.clj")
-        bad-code-config (io/file (.toFile dir) "bad-code.edn")]
-    (try
-      (spit malformed "{:load-files [")
-      (is (thrown? Exception (runtime/start! db-file {:config-file (.getPath malformed) :world world})))
-      (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata world)))
-      (spit trailing "{:load-files []} {:reload true}")
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"exactly one EDN map"
-                            (runtime/start! db-file {:config-file (.getPath trailing) :world world})))
-      (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata world)))
-      (spit unsupported "{:reload true}")
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"Unsupported daemon config keys"
-                            (runtime/start! db-file {:config-file (.getPath unsupported) :world world})))
-      (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata world)))
-      (spit missing-load "{:load-files [\"missing.clj\"]}")
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"Daemon trusted load file not found"
-                            (runtime/start! db-file {:config-file (.getPath missing-load) :world world})))
-      (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata world)))
-      (spit bad-code "(throw (ex-info \"trusted code failed\" {}))")
-      (spit bad-code-config "{:load-files [\"bad.clj\"]}")
-      (is (thrown? Exception
-                   (runtime/start! db-file {:config-file (.getPath bad-code-config) :world world})))
-      (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata world)))
-      (finally
-        (runtime/stop! @runtime/current-runtime)
-        (metadata/delete! world)
-        (db-test/delete-sqlite-family! db-file)
-        (delete-tree! (.toFile dir))))))

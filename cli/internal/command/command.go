@@ -15,7 +15,10 @@ import (
 )
 
 type App struct{ Stdout, Stderr io.Writer }
-type Options struct{ DB, Format, ConfigDir, StateDir, Source string }
+type Options struct {
+	Format, ConfigDir, StateDir, Source string
+	ConfigDirExplicit                  bool
+}
 type ExitError struct {
 	Code int
 	Err  error
@@ -58,6 +61,9 @@ func (a *App) rootCommand() *cobra.Command {
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.PersistentFlags().StringVar(&o.ConfigDir, "config-dir", "", "daemon world config directory")
+	root.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		o.ConfigDirExplicit = cmd.Flags().Changed("config-dir")
+	}
 	root.PersistentFlags().StringVar(&o.Format, "format", "", "output format: human or json")
 	root.AddCommand(&cobra.Command{Use: "init", Short: "Initialize task storage", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.withConfig(o, func(r Options) error { return a.call(r, "init", map[string]any{}) })
@@ -205,6 +211,7 @@ func Resolve(args []string) (Options, []string, error) {
 				return o, nil, errors.New("--config-dir requires a value")
 			}
 			o.ConfigDir = args[i]
+			o.ConfigDirExplicit = true
 		case "-h", "--help":
 			return o, []string{"help"}, nil
 		case "--where":
@@ -221,7 +228,6 @@ func resolveOptions(o Options) (Options, error) {
 	if err != nil {
 		return o, err
 	}
-	o.DB = world.DBPath
 	o.Source = cfg.Source
 	o.ConfigDir = world.ConfigDir
 	o.StateDir = world.StateDir
@@ -293,16 +299,20 @@ func (a *App) writeHumanRows(result any) error {
 	return nil
 }
 
-func (a *App) launchDaemon(o Options) error {
-	if err := config.ValidateSource(o.Source); err != nil {
-		return err
+func daemonArgs(o Options) []string {
+	args := []string{"-M:todo"}
+	if o.ConfigDirExplicit {
+		args = append(args, "--config-dir", o.ConfigDir)
 	}
-	args := []string{"-M:todo", "--config-dir", o.ConfigDir, "daemon", "start"}
-	cmd := exec.Command("clojure", args...)
+	return append(args, "daemon", "start")
+}
+
+var runDaemonProcess = func(o Options, out, errOut io.Writer) error {
+	cmd := exec.Command("clojure", daemonArgs(o)...)
 	cmd.Dir = o.Source
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = a.Stdout
-	cmd.Stderr = a.Stderr
+	cmd.Stdout = out
+	cmd.Stderr = errOut
 	if err := cmd.Run(); err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
 			return &ExitError{Code: exit.ExitCode(), Err: err}
@@ -310,6 +320,13 @@ func (a *App) launchDaemon(o Options) error {
 		return err
 	}
 	return nil
+}
+
+func (a *App) launchDaemon(o Options) error {
+	if err := config.ValidateSource(o.Source); err != nil {
+		return err
+	}
+	return runDaemonProcess(o, a.Stdout, a.Stderr)
 }
 func validStatus(s string) error {
 	switch s {

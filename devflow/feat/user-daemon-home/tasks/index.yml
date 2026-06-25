@@ -12,7 +12,7 @@ tasks:
   - id: 3
     description: Daemon startup and init
     task_file: tasks/003-daemon-startup-and-init.md
-    status: pending
+    status: complete
     blocked_by: [1, 2]
   - id: 4
     description: Task commands use daemon world
