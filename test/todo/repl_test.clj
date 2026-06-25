@@ -5,8 +5,7 @@
             [todo.repl :as repl]))
 
 (defn reset-open-state! []
-  (reset! (var-get (ns-resolve 'todo.repl 'active-db-file)) nil)
-  (reset! (var-get (ns-resolve 'todo.repl 'query-registry)) {}))
+  (reset! (var-get (ns-resolve 'todo.repl 'active-db-file)) nil))
 
 (defn with-runtime [f]
   (let [db-file (db-test/temp-db-file)
@@ -22,7 +21,10 @@
   (reset-open-state!)
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"No todo daemon is open"
-                        (repl/tasks))))
+                        (repl/tasks)))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"No todo daemon is open"
+                        (repl/load-queries! "/path/does/not/matter.edn"))))
 
 (deftest open-fails-without-selecting-a-daemon
   (let [db-file (db-test/temp-db-file)]
@@ -78,14 +80,55 @@
             docs (:id (repl/task! "Docs" {:owner "agent"}))
             misc (:id (repl/task! "Misc" {:owner "human"}))]
         (repl/update! docs {:edges [{:type "depends-on" :to design}]})
-        (is (= 'agent-ready (repl/defquery! 'agent-ready {:params [:owner]
-                                                          :where [:= [:attr :owner] [:param :owner]]})))
+        (is (= {"agent-ready" {:params [:owner]
+                                :where [:= [:attr :owner] [:param :owner]]}}
+               (repl/defquery! 'agent-ready {:params [:owner]
+                                             :where [:= [:attr :owner] [:param :owner]]})))
+        (is (= {"agent-ready" {:params [:owner]
+                                :where [:= [:attr :owner] [:param :owner]]}}
+               (repl/queries)))
         (is (= #{design docs}
                (set (map :id (repl/tasks 'agent-ready {:owner "agent"})))))
         (is (= [docs]
                (mapv :id (repl/ready [:= [:attr :owner] "agent"]))))
+        (is (= [docs]
+               (mapv :id (repl/ready :agent-ready {:owner "agent"}))))
         (is (= [misc]
-               (mapv :id (repl/query 'agent-ready {:owner "human"}))))))))
+               (mapv :id (repl/query :agent-ready {:owner "human"}))))))))
+
+(deftest query-registry-helpers-use-daemon-memory
+  (with-runtime
+    (fn [rt db-file]
+      (repl/open! db-file)
+      (repl/init!)
+      (let [agent (:id (repl/task! "Agent task" {:owner "agent"}))
+            human (:id (repl/task! "Human task" {:owner "human"}))]
+        (is (= {"mine" [:= [:attr :owner] "agent"]}
+               (repl/defquery! :mine [:= [:attr :owner] "agent"])))
+        (is (= {"mine" [:= [:attr :owner] "agent"]}
+               (repl/queries)))
+        (is (= [agent] (mapv :id (repl/tasks 'mine))))
+        (runtime/stop! rt)
+        (let [fresh-rt (runtime/start! db-file)]
+          (try
+            (is (= {} (repl/queries)))
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                  #"Query not found"
+                                  (repl/tasks :mine)))
+            (let [query-file (java.io.File/createTempFile "todo-queries" ".edn")]
+              (try
+                (spit query-file (pr-str {'mine [:= [:attr :owner] "human"]}))
+                (is (= {"mine" [:= [:attr :owner] "human"]}
+                       (repl/load-queries! (.getAbsolutePath query-file))))
+                (is (= [human] (mapv :id (repl/query :mine))))
+                (spit query-file "{mine [:= [:attr :owner] \"agent\"]} {:extra true}")
+                (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                      #"exactly one form"
+                                      (repl/load-queries! (.getAbsolutePath query-file))))
+                (finally
+                  (.delete query-file))))
+            (finally
+              (runtime/stop! fresh-rt))))))))
 
 (deftest helpers-fail-loudly-when-daemon-becomes-unavailable
   (let [db-file (db-test/temp-db-file)

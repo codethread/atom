@@ -12,7 +12,7 @@ tasks:
   - id: 3
     description: repl daemon query registry
     task_file: tasks/003-repl-daemon-query-registry.md
-    status: pending
+    status: complete
     blocked_by: [1]
   - id: 4
     description: cross surface validation docs

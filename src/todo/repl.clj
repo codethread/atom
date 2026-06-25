@@ -3,7 +3,6 @@
             [todo.query :as query]))
 
 (defonce ^:private active-db-file (atom nil))
-(defonce ^:private query-registry (atom {}))
 
 (defn- db-file []
   (or @active-db-file
@@ -33,35 +32,42 @@
 (defn task [id]
   (client/show (db-file) id))
 
+(defn- call-daemon [f]
+  (try
+    (f)
+    (catch clojure.lang.ExceptionInfo e
+      (if-let [daemon-message (:daemon-message (ex-data e))]
+        (throw (ex-info daemon-message (:daemon-data (ex-data e))))
+        (throw e)))))
+
 (defn defquery! [query-name query-def]
-  (query/validate-query-def! query-def)
-  (swap! query-registry assoc query-name query-def)
-  query-name)
+  (let [db (db-file)]
+    (call-daemon #(client/register-query db query-name query-def))))
 
 (defn load-queries! [path]
-  (let [registry (query/read-edn-file path)]
+  (let [db (db-file)
+        registry (query/read-edn-file path)]
     (when-not (map? registry)
       (throw (ex-info "Query file must contain one EDN map of query names to query definitions" {:path path})))
-    (doseq [[query-name query-def] registry]
-      (when-not (or (symbol? query-name) (keyword? query-name))
-        (throw (ex-info "Query names must be symbols or keywords" {:query query-name})))
-      (query/validate-query-def! query-def))
-    (swap! query-registry merge registry)
-    (keys registry)))
+    (call-daemon #(client/load-queries db registry))))
 
 (defn queries []
-  @query-registry)
+  (let [db (db-file)]
+    (call-daemon #(client/queries db))))
 
-(defn- resolve-query [query-or-def]
-  (if (or (symbol? query-or-def) (keyword? query-or-def))
-    (query/query-def @query-registry query-or-def)
-    query-or-def))
+(defn- named-query? [query-or-def]
+  (or (symbol? query-or-def) (keyword? query-or-def)))
+
+(defn- run-query [db query-or-def params ad-hoc named]
+  (call-daemon #(if (named-query? query-or-def)
+                  (named db query-or-def params)
+                  (ad-hoc db query-or-def params))))
 
 (defn query
   ([query-or-def]
    (query query-or-def {}))
   ([query-or-def params]
-   (client/list (db-file) (resolve-query query-or-def) params)))
+   (run-query (db-file) query-or-def params client/list client/list-query)))
 
 (defn tasks
   ([]
@@ -77,4 +83,4 @@
   ([query-or-def]
    (ready query-or-def {}))
   ([query-or-def params]
-   (client/ready (db-file) (resolve-query query-or-def) params)))
+   (run-query (db-file) query-or-def params client/ready client/ready-query)))

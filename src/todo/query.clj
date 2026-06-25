@@ -113,8 +113,13 @@
        (fail! "Unknown query operator" {:operator op :expr expr})))))
 
 (defn read-edn-file [path]
-  (with-open [r (io/reader (io/file path))]
-    (edn/read {:eof nil} (java.io.PushbackReader. r))))
+  (let [eof ::eof]
+    (with-open [r (io/reader (io/file path))]
+      (let [reader (java.io.PushbackReader. r)
+            value (edn/read {:eof nil} reader)]
+        (when-not (= eof (edn/read {:eof eof} reader))
+          (fail! "EDN file must contain exactly one form" {:path path}))
+        value))))
 
 (defn canonical-query-name [query-name]
   (let [canonical-name (cond

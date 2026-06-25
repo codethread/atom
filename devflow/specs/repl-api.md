@@ -34,10 +34,10 @@ ready
 - **SPEC-003.C3:** `task!` creates a task and returns the created row. Supported arities are `(task! title)`, `(task! title attributes)`, and `(task! title status attributes)`.
 - **SPEC-003.C4:** `update!` accepts a task id and patch map with optional `:title`, `:status`, `:attributes`, and `:edges`.
 - **SPEC-003.C5:** `:edges` are maps with `:type`, `:to`, and optional `:attributes`; each edge is written from the updated task to `:to`.
-- **SPEC-003.C6:** `defquery!` registers a named query expression or parameterized query map in the active REPL process.
-- **SPEC-003.C7:** `load-queries!` reads one EDN map of query names to query definitions and merges it into the REPL query registry.
-- **SPEC-003.C8:** `queries` returns the current REPL query registry.
-- **SPEC-003.C9:** `query` returns tasks matching an ad hoc query definition or registered query name, with optional runtime parameters.
+- **SPEC-003.C6:** `defquery!` registers a named query expression or parameterized query map in the active daemon's in-memory query registry.
+- **SPEC-003.C7:** `load-queries!` reads one EDN map of query names to query definitions and merges it into the active daemon's in-memory query registry.
+- **SPEC-003.C8:** `queries` returns the active daemon's in-memory query registry.
+- **SPEC-003.C9:** `query` returns tasks matching an ad hoc query definition or daemon-registered query name, with optional runtime parameters.
 - **SPEC-003.C10:** `task`, `tasks`, `query`, and `ready` return rows with JSON-bearing columns normalized to Clojure values.
 - **SPEC-003.C11:** `ready` returns non-final tasks whose direct `depends-on` dependencies are all final and may be further filtered by an ad hoc or registered query.
 
