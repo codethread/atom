@@ -1,7 +1,7 @@
 # Daemon Runtime Delta — User Daemon Home
 
 **Document ID:** `UDH-DELTA-001`
-**Status:** Draft
+**Status:** Merged into root spec
 **Date:** 2026-06-25
 **Updates:** [Daemon Runtime](../../../specs/daemon-runtime.md)
 
