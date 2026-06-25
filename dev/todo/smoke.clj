@@ -22,8 +22,14 @@
 (defn smoke-world-db [db-file]
   (str (.resolve (smoke-config-dir db-file) "data/tasks.sqlite")))
 
+(defn smoke-world [db-file]
+  (let [config-dir (.getCanonicalPath (.toFile (smoke-config-dir db-file)))]
+    {:config-dir config-dir
+     :state-dir (str config-dir "/state")
+     :data-dir (str config-dir "/data")}))
+
 (defn delete-runtime-metadata! [db-file]
-  (metadata/delete! (metadata/canonical-db-path db-file)))
+  (metadata/delete! (smoke-world db-file)))
 
 (defn delete-tree! [file]
   (when file
@@ -143,7 +149,7 @@
                 (assert= true
                          (:healthy status)
                          "Go CLI daemon status checks socket health")
-                (assert= (.getPath (metadata/socket-file (metadata/canonical-db-path (smoke-world-db db-file))))
+                (assert= (.getPath (metadata/socket-file (smoke-world db-file)))
                          (:socket_path status)
                          "Go CLI daemon status reports socket metadata")))
         (finally

@@ -10,7 +10,7 @@
 (def allowed-operations
   #{"init" "add" "update" "show" "list" "ready" "list-query" "ready-query" "status" "stop"})
 
-(def required-request-keys #{"protocol_version" "request_id" "daemon_id" "database_path" "operation" "arguments" "options"})
+(def required-request-keys #{"protocol_version" "request_id" "daemon_id" "operation" "arguments" "options"})
 (def allowed-option-keys #{"format"})
 
 (defn- protocol-error [request-id code message details]
@@ -86,8 +86,6 @@
       (protocol-error nil "protocol/malformed-request" "request_id must be a string" {})
       (not= (:nonce metadata) (get req "daemon_id"))
       (protocol-error (get req "request_id") "protocol/identity-mismatch" "Daemon identity mismatch" {})
-      (not= (:canonical-db-path metadata) (get req "database_path"))
-      (protocol-error (get req "request_id") "protocol/database-mismatch" "Database path mismatch" {})
       (not (allowed-operations (get req "operation")))
       (protocol-error (get req "request_id") "protocol/operation-not-allowed" "Operation is not available over JSON socket" {"operation" (get req "operation")})
       (not (map? (get req "arguments")))
@@ -101,8 +99,15 @@
 
 (defn- status-result [runtime]
   (let [m (:metadata runtime)]
-    {"healthy" true "pid" (:pid m) "database_path" (:canonical-db-path m)
-     "daemon_id" (:nonce m) "socket_path" (get-in m [:json :socket-path])
+    {"healthy" true
+     "pid" (:pid m)
+     "protocol_version" (:protocol-version m)
+     "config_dir" (:config-dir m)
+     "data_dir" (:data-dir m)
+     "database_path" (:canonical-db-path m)
+     "daemon_id" (:nonce m)
+     "socket_path" (:socket-path m)
+     "started_at" (:started-at m)
      "nrepl" {"host" (get-in m [:endpoint :host]) "port" (get-in m [:endpoint :port])}}))
 
 (defn- api [sym]
@@ -149,7 +154,7 @@
     "list-query" (dispatch-query runtime 'list args)
     "ready-query" (dispatch-query runtime 'ready args)
     "status" (status-result runtime)
-    "stop" {"stopping" true "pid" (get-in runtime [:metadata :pid]) "database_path" (get-in runtime [:metadata :canonical-db-path]) "daemon_id" (get-in runtime [:metadata :nonce])}))
+    "stop" {"stopping" true "pid" (get-in runtime [:metadata :pid]) "daemon_id" (get-in runtime [:metadata :nonce])}))
 
 (defn handle-request [runtime line]
   (try

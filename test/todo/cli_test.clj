@@ -173,21 +173,5 @@
                             (cli/run-command! db-file "add" ["No daemon"] "summary")))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata is missing or stale"
                             (cli/run-command! db-file "show" ["missing"] "summary")))
-      (let [rt (runtime/start! db-file)]
-        (try
-          (client/init db-file)
-          (let [status (cli/run-daemon-command! db-file ["status"] "summary")]
-            (doseq [payload [status]]
-              (is (= "ok" (:health payload)))
-              (is (= (metadata/canonical-db-path db-file) (:canonical-db-path payload)))
-              (is (integer? (:pid payload)))
-              (is (some? (get-in payload [:endpoint :port])))
-              (is (some? (get-in payload [:identity :nonce])))))
-          (metadata/publish! (assoc (:metadata rt) :nonce "wrong"))
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity does not match"
-                                (cli/run-command! db-file "list" [] "summary")))
-          (finally
-            (metadata/publish! (:metadata rt))
-            (runtime/stop! rt))))
       (finally
         (delete-sqlite-family! db-file)))))

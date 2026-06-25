@@ -90,7 +90,11 @@ func TestConfigDirPrecedenceAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.DB != filepath.Join(dir, "data", "tasks.sqlite") || opts.Format != "human" || opts.Source != "/tmp/source" || len(rest) != 1 || rest[0] != "list" {
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.DB != filepath.Join(realDir, "data", "tasks.sqlite") || opts.Format != "human" || opts.Source != "/tmp/source" || len(rest) != 1 || rest[0] != "list" {
 		t.Fatalf("unexpected resolved options/rest: %#v %#v", opts, rest)
 	}
 

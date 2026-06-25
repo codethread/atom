@@ -54,6 +54,10 @@ func ExplicitWorld(configDir string) (World, error) {
 	if err != nil {
 		return World{}, err
 	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = real
+	}
+	abs = filepath.Clean(abs)
 	return world(abs, filepath.Join(abs, "state"), filepath.Join(abs, "data")), nil
 }
 

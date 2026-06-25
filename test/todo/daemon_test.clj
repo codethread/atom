@@ -17,28 +17,35 @@
   (doseq [f (reverse (file-seq file))]
     (.delete f)))
 
+(defn temp-world []
+  (let [file (java.io.File/createTempFile "tdx" "")]
+    (.delete file)
+    (.mkdirs file)
+    (daemon-config/world (.getCanonicalPath file))))
+
 (defn with-runtime
   ([f] (with-runtime nil f))
   ([start-options f]
    (let [db-file (db-test/temp-db-file)
-         rt (runtime/start! db-file (or start-options {}))]
+         world (or (:world start-options) (temp-world))
+         rt (runtime/start! db-file (assoc (or start-options {}) :world world))]
      (try
        (f rt db-file)
        (finally
          (runtime/stop! rt)
-         (db-test/delete-sqlite-family! db-file))))))
+         (db-test/delete-sqlite-family! db-file)
+         (delete-tree! (io/file (:config-dir world))))))))
 
 (defn socket-request [rt operation arguments]
   (let [m (:metadata rt)
         req {"protocol_version" 1
              "request_id" "test-request"
              "daemon_id" (:nonce m)
-             "database_path" (:canonical-db-path m)
              "operation" operation
              "arguments" arguments
              "options" {"format" "json"}}]
     (with-open [ch (doto (SocketChannel/open StandardProtocolFamily/UNIX)
-                     (.connect (UnixDomainSocketAddress/of (get-in m [:json :socket-path]))))
+                     (.connect (UnixDomainSocketAddress/of (:socket-path m))))
                 rdr (BufferedReader. (InputStreamReader. (Channels/newInputStream ch)))
                 wrt (BufferedWriter. (OutputStreamWriter. (Channels/newOutputStream ch)))]
       (.write wrt (json/write-str req))
@@ -163,18 +170,18 @@
             status (runtime/status rt)
             file (:metadata-file rt)
             from-disk (edn/read-string (slurp file))
-            json-disk (json/read-str (slurp (metadata/json-metadata-file canonical)))]
+            json-disk (json/read-str (slurp (metadata/json-metadata-file (:metadata rt))))]
         (is (= canonical (:canonical-db-path status)))
         (is (= status from-disk))
-        (is (= file (metadata/metadata-file canonical)))
+        (is (= file (metadata/metadata-file (:metadata rt))))
         (is (pos-int? (get-in status [:endpoint :port])))
         (is (string? (:nonce status)))
         (is (= :nrepl (:transport status)))
-        (is (= 1 (get-in status [:json :protocol-version])))
-        (is (string? (get-in status [:json :socket-path])))
+        (is (= 1 (:protocol-version status)))
+        (is (string? (:socket-path status)))
         (is (= canonical (get json-disk "database_path")))
         (is (= (:nonce status) (get json-disk "daemon_id")))
-        (is (= (get-in status [:json :socket-path]) (get json-disk "socket_path")))
+        (is (= (:socket-path status) (get json-disk "socket_path")))
         (is (= "127.0.0.1" (get-in json-disk ["nrepl" "host"])))
         (is (false? (metadata/stale-or-missing? status)))
         (is (= "127.0.0.1" (get-in status [:endpoint :host])))
@@ -221,9 +228,9 @@
     (fn [rt _]
       (let [m (:metadata rt)
             req {"protocol_version" 1 "request_id" "bad-identity" "daemon_id" "wrong"
-                 "database_path" (:canonical-db-path m) "operation" "stop" "arguments" {} "options" {"format" "json"}}]
+                 "operation" "stop" "arguments" {} "options" {"format" "json"}}]
         (with-open [ch (doto (SocketChannel/open StandardProtocolFamily/UNIX)
-                         (.connect (UnixDomainSocketAddress/of (get-in m [:json :socket-path]))))
+                         (.connect (UnixDomainSocketAddress/of (:socket-path m))))
                     rdr (BufferedReader. (InputStreamReader. (Channels/newInputStream ch)))
                     wrt (BufferedWriter. (OutputStreamWriter. (Channels/newOutputStream ch)))]
           (.write wrt (json/write-str req))
@@ -240,9 +247,9 @@
     (fn [rt _]
       (let [m (:metadata rt)
             req {"protocol_version" 1 "request_id" "bad-stop" "daemon_id" (:nonce m)
-                 "database_path" (:canonical-db-path m) "operation" "stop" "arguments" {"force" true} "options" {"format" "json"}}]
+                 "operation" "stop" "arguments" {"force" true} "options" {"format" "json"}}]
         (with-open [ch (doto (SocketChannel/open StandardProtocolFamily/UNIX)
-                         (.connect (UnixDomainSocketAddress/of (get-in m [:json :socket-path]))))
+                         (.connect (UnixDomainSocketAddress/of (:socket-path m))))
                     rdr (BufferedReader. (InputStreamReader. (Channels/newInputStream ch)))
                     wrt (BufferedWriter. (OutputStreamWriter. (Channels/newOutputStream ch)))]
           (.write wrt (json/write-str req))
@@ -256,54 +263,57 @@
 
 (deftest json-socket-stop-cleans-runtime
   (let [db-file (db-test/temp-db-file)
-        rt (runtime/start! db-file)
-        canonical (metadata/canonical-db-path db-file)]
+        world (temp-world)
+        rt (runtime/start! db-file {:world world})]
     (try
       (let [response (socket-request rt "stop" {})]
         (is (true? (get response "ok")))
         (is (= true (get-in response ["result" "stopping"]))))
       (Thread/sleep 250)
       (is (nil? @runtime/current-runtime))
-      (is (false? (.exists (metadata/socket-file canonical))))
-      (is (false? (.exists (metadata/json-metadata-file canonical))))
+      (is (false? (.exists (metadata/socket-file (:metadata rt)))))
+      (is (false? (.exists (metadata/json-metadata-file (:metadata rt)))))
       (finally
         (runtime/stop! @runtime/current-runtime)
         (db-test/delete-sqlite-family! db-file)))))
 
 (deftest metadata-shape-detects-missing-and-stale-files
   (let [db-file (db-test/temp-db-file)
-        canonical (metadata/canonical-db-path db-file)]
+        canonical (metadata/canonical-db-path db-file)
+        world (temp-world)]
     (try
-      (metadata/delete! canonical)
+      (metadata/delete! world)
       (testing "missing metadata reads as nil and is stale"
-        (is (nil? (metadata/read-metadata canonical)))
+        (is (nil? (metadata/read-metadata world)))
         (is (metadata/stale-or-missing? nil)))
       (testing "malformed metadata shape is stale"
         (is (metadata/stale-or-missing? {:pid 1 :canonical-db-path canonical})))
       (finally
-        (metadata/delete! canonical)
-        (db-test/delete-sqlite-family! db-file)))))
+        (metadata/delete! world)
+        (db-test/delete-sqlite-family! db-file)
+        (delete-tree! (io/file (:config-dir world)))))))
 
 (deftest runtime-stop-removes-metadata
   (let [db-file (db-test/temp-db-file)
-        rt (runtime/start! db-file)
-        canonical (metadata/canonical-db-path db-file)]
+        world (temp-world)
+        rt (runtime/start! db-file {:world world})]
     (try
       (runtime/stop! rt)
-      (is (nil? (metadata/read-metadata canonical)))
-      (is (false? (.exists (metadata/json-metadata-file canonical))))
-      (is (false? (.exists (metadata/socket-file canonical))))
+      (is (nil? (metadata/read-metadata world)))
+      (is (false? (.exists (metadata/json-metadata-file (:metadata rt)))))
+      (is (false? (.exists (metadata/socket-file (:metadata rt)))))
       (finally
         (runtime/stop! rt)
         (db-test/delete-sqlite-family! db-file)))))
 
 (deftest runtime-rejects-duplicate-live-metadata
   (let [db-file (db-test/temp-db-file)
-        rt (runtime/start! db-file)]
+        world (temp-world)
+        rt (runtime/start! db-file {:world world})]
     (try
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"already active"
-                            (runtime/start! db-file)))
+                            (runtime/start! db-file {:world world})))
       (finally
         (runtime/stop! rt)
         (db-test/delete-sqlite-family! db-file)))))
@@ -323,8 +333,8 @@
 
 (deftest runtime-config-failures-do-not-publish-metadata
   (let [db-file (db-test/temp-db-file)
-        canonical (metadata/canonical-db-path db-file)
-        dir (java.nio.file.Files/createTempDirectory "todo-daemon-bad-config" (make-array java.nio.file.attribute.FileAttribute 0))
+        world (temp-world)
+        dir (.toPath (io/file (:config-dir world)))
         malformed (io/file (.toFile dir) "malformed.edn")
         trailing (io/file (.toFile dir) "trailing.edn")
         unsupported (io/file (.toFile dir) "unsupported.edn")
@@ -333,35 +343,35 @@
         bad-code-config (io/file (.toFile dir) "bad-code.edn")]
     (try
       (spit malformed "{:load-files [")
-      (is (thrown? Exception (runtime/start! db-file {:config-file (.getPath malformed)})))
+      (is (thrown? Exception (runtime/start! db-file {:config-file (.getPath malformed) :world world})))
       (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata canonical)))
+      (is (nil? (metadata/read-metadata world)))
       (spit trailing "{:load-files []} {:reload true}")
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"exactly one EDN map"
-                            (runtime/start! db-file {:config-file (.getPath trailing)})))
+                            (runtime/start! db-file {:config-file (.getPath trailing) :world world})))
       (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata canonical)))
+      (is (nil? (metadata/read-metadata world)))
       (spit unsupported "{:reload true}")
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"Unsupported daemon config keys"
-                            (runtime/start! db-file {:config-file (.getPath unsupported)})))
+                            (runtime/start! db-file {:config-file (.getPath unsupported) :world world})))
       (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata canonical)))
+      (is (nil? (metadata/read-metadata world)))
       (spit missing-load "{:load-files [\"missing.clj\"]}")
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"Daemon trusted load file not found"
-                            (runtime/start! db-file {:config-file (.getPath missing-load)})))
+                            (runtime/start! db-file {:config-file (.getPath missing-load) :world world})))
       (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata canonical)))
+      (is (nil? (metadata/read-metadata world)))
       (spit bad-code "(throw (ex-info \"trusted code failed\" {}))")
       (spit bad-code-config "{:load-files [\"bad.clj\"]}")
       (is (thrown? Exception
-                   (runtime/start! db-file {:config-file (.getPath bad-code-config)})))
+                   (runtime/start! db-file {:config-file (.getPath bad-code-config) :world world})))
       (is (nil? @runtime/current-runtime))
-      (is (nil? (metadata/read-metadata canonical)))
+      (is (nil? (metadata/read-metadata world)))
       (finally
         (runtime/stop! @runtime/current-runtime)
-        (metadata/delete! canonical)
+        (metadata/delete! world)
         (db-test/delete-sqlite-family! db-file)
         (delete-tree! (.toFile dir))))))

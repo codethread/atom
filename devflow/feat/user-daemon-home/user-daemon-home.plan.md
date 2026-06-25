@@ -115,3 +115,7 @@ Marked the plan Reviewed and generated AFK task slices. Task sequencing is verti
 ### UDH-PLAN-001.DN6 Task 1 implementation notes — 2026-06-25
 
 Implemented the first-slice world/config contract while keeping socket discovery DB-keyed until the fixed-socket slice. The Go CLI now resolves `--config-dir` worlds and rejects old `db` client config; Clojure has matching world path helpers and the internal CLI resolves `--config-dir` through the same `config.json` `source`/`format` shape for transition. Deep review found and we fixed relative `--config-dir` normalization before launching Clojure. Root spec promotion remains deferred to Task 7 as planned.
+
+### UDH-PLAN-001.DN7 Task 2 implementation notes — 2026-06-25
+
+Moved daemon runtime discovery to fixed selected-world artifacts (`daemon.sock`, `daemon.json`, `daemon.edn`) and removed `database_path` from the JSON request envelope. Metadata now carries config/state/data/database/socket/nREPL fields for status and debugging. Go socket clients discover by state dir and fail loudly on malformed, stale, unreachable, or mismatched fixed socket metadata. Clojure metadata helpers now read/write/delete fixed world files; legacy DB-path public discovery is no longer on the socket path. Integration/smoke tests were adjusted to use disposable `--config-dir` worlds; trusted `init.clj` loading remains deferred to the startup slice.

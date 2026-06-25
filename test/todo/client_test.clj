@@ -3,6 +3,7 @@
   (:require [clojure.test :refer [deftest is]]
             [todo.client :as client]
             [todo.daemon.api :as api]
+            [todo.daemon.config :as daemon-config]
             [todo.daemon.metadata :as metadata]
             [todo.daemon.runtime :as runtime]
             [todo.db-test :as db-test]))
@@ -65,12 +66,12 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"metadata is missing or stale"
                             (client/list db-file)))
-      (metadata/publish! {:pid 1 :canonical-db-path canonical})
+      (metadata/publish! {:pid 1 :canonical-db-path canonical :state-dir (:state-dir (daemon-config/world))})
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"metadata is missing or stale"
                             (client/list db-file)))
       (finally
-        (metadata/delete! canonical)
+        (metadata/delete! (daemon-config/world))
         (db-test/delete-sqlite-family! db-file)))))
 
 (deftest client-fails-loudly-for-unreachable-and-non-local-endpoints
@@ -80,7 +81,8 @@
                                        :host "127.0.0.1"
                                        :port 1
                                        :canonical-db-path canonical
-                                       :nonce "unreachable"})]
+                                       :nonce "unreachable"
+                                       :world (daemon-config/world)})]
     (try
       (metadata/publish! meta)
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -91,7 +93,7 @@
                             #"not loopback"
                             (client/list db-file {:timeout-ms 100})))
       (finally
-        (metadata/delete! canonical)
+        (metadata/delete! (daemon-config/world))
         (db-test/delete-sqlite-family! db-file)))))
 
 (deftest client-fails-loudly-for-wrong-daemon-identity

@@ -4,52 +4,52 @@
             [clojure.java.io :as io]
             [clojure.pprint :as pprint])
   (:import [java.lang ProcessHandle]
-           [java.nio.charset StandardCharsets]
            [java.nio.file Files StandardCopyOption]
-           [java.security MessageDigest]
            [java.util UUID]))
 
-(def runtime-dir-name "todo-daemon")
+(def protocol-version 1)
+(def json-file-name "daemon.json")
+(def edn-file-name "daemon.edn")
+(def socket-file-name "daemon.sock")
 
 (defn canonical-db-path [db-file]
   (.getPath (.getCanonicalFile (io/file db-file))))
 
-(defn stable-path-hash [canonical-path]
-  (let [digest (.digest (MessageDigest/getInstance "SHA-256")
-                        (.getBytes canonical-path StandardCharsets/UTF_8))]
-    (apply str (map #(format "%02x" (bit-and % 0xff)) digest))))
+(defn metadata-file [world]
+  (io/file (:state-dir world) edn-file-name))
 
-(defn runtime-dir []
-  (io/file (System/getProperty "java.io.tmpdir") runtime-dir-name))
+(defn json-metadata-file [world]
+  (io/file (:state-dir world) json-file-name))
 
-(defn metadata-file [canonical-path]
-  (io/file (runtime-dir) (str (stable-path-hash canonical-path) ".edn")))
-
-(defn json-metadata-file [canonical-path]
-  (io/file (runtime-dir) (str (stable-path-hash canonical-path) ".json")))
-
-(defn socket-file [canonical-path]
-  (io/file (runtime-dir) (str (subs (stable-path-hash canonical-path) 0 16) ".sock")))
+(defn socket-file [world]
+  (io/file (:state-dir world) socket-file-name))
 
 (defn new-nonce []
   (str (UUID/randomUUID)))
 
-(defn metadata-shape [{:keys [pid host port canonical-db-path nonce started-at]}]
-  {:pid pid
-   :transport :nrepl
-   :endpoint {:host host :port port}
-   :canonical-db-path canonical-db-path
-   :nonce nonce
-   :started-at started-at
-   :json {:protocol-version 1
-          :socket-path (.getPath (socket-file canonical-db-path))}})
+(defn metadata-shape [{:keys [pid host port canonical-db-path nonce started-at world]}]
+  (let [socket-path (.getPath (socket-file world))]
+    {:pid pid
+     :transport :nrepl
+     :protocol-version protocol-version
+     :endpoint {:host host :port port}
+     :config-dir (:config-dir world)
+     :state-dir (:state-dir world)
+     :data-dir (:data-dir world)
+     :canonical-db-path canonical-db-path
+     :nonce nonce
+     :socket-path socket-path
+     :started-at started-at}))
 
 (defn json-metadata-shape [metadata]
-  {"protocol_version" 1
+  {"protocol_version" protocol-version
    "pid" (:pid metadata)
-   "database_path" (:canonical-db-path metadata)
    "daemon_id" (:nonce metadata)
-   "socket_path" (get-in metadata [:json :socket-path])
+   "config_dir" (:config-dir metadata)
+   "state_dir" (:state-dir metadata)
+   "data_dir" (:data-dir metadata)
+   "database_path" (:canonical-db-path metadata)
+   "socket_path" (:socket-path metadata)
    "started_at" (:started-at metadata)
    "nrepl" {"host" (get-in metadata [:endpoint :host])
              "port" (get-in metadata [:endpoint :port])}})
@@ -75,22 +75,22 @@
     file))
 
 (defn publish! [metadata]
-  (let [file (metadata-file (:canonical-db-path metadata))]
+  (let [world {:state-dir (:state-dir metadata)}
+        file (metadata-file world)]
     (write-atomic! file metadata)
-    (write-raw-atomic! (json-metadata-file (:canonical-db-path metadata))
+    (write-raw-atomic! (json-metadata-file world)
                        (json/write-str (json-metadata-shape metadata)))
     file))
 
-(defn read-metadata [canonical-path]
-  (let [file (metadata-file canonical-path)]
+(defn read-metadata [world]
+  (let [file (metadata-file world)]
     (when (.exists file)
       (edn/read-string (slurp file)))))
 
-(defn delete! [canonical-path]
-  (.delete (metadata-file canonical-path))
-  (.delete (json-metadata-file canonical-path))
-  (.delete (socket-file canonical-path)))
-
+(defn delete! [world]
+  (.delete (metadata-file world))
+  (.delete (json-metadata-file world))
+  (.delete (socket-file world)))
 
 (defn pid-alive? [pid]
   (boolean (some-> (ProcessHandle/of pid) (.orElse nil) .isAlive)))
@@ -100,8 +100,11 @@
             (int? (:pid metadata))
             (pid-alive? (:pid metadata))
             (= :nrepl (:transport metadata))
+            (= protocol-version (:protocol-version metadata))
+            (string? (:config-dir metadata))
+            (string? (:data-dir metadata))
+            (string? (:socket-path metadata))
             (string? (get-in metadata [:endpoint :host]))
             (int? (get-in metadata [:endpoint :port]))
             (string? (:canonical-db-path metadata))
             (string? (:nonce metadata)))))
-

@@ -2,6 +2,7 @@
   (:refer-clojure :exclude [list update])
   (:require [clojure.edn :as edn]
             [nrepl.core :as nrepl]
+            [todo.daemon.config :as config]
             [todo.daemon.metadata :as metadata])
   (:import [java.net InetAddress]))
 
@@ -27,21 +28,32 @@
 (defn loopback-host? [host]
   (.isLoopbackAddress (InetAddress/getByName host)))
 
+(defn metadata-for-world
+  ([] (metadata-for-world nil))
+  ([config-dir]
+   (let [world (config/world config-dir)
+         meta (metadata/read-metadata world)]
+     (when (metadata/stale-or-missing? meta)
+       (fail "Daemon metadata is missing or stale" {:type :todo.client/missing-or-stale-metadata
+                                                     :config-dir (:config-dir world)
+                                                     :metadata meta}))
+     (when-not (= (:config-dir world) (:config-dir meta))
+       (fail "Daemon metadata config dir does not match requested world" {:type :todo.client/metadata-config-mismatch
+                                                                           :expected (:config-dir world)
+                                                                           :actual (:config-dir meta)
+                                                                           :metadata meta}))
+     (when-not (loopback-host? (get-in meta [:endpoint :host]))
+       (fail "Daemon metadata endpoint is not loopback" {:type :todo.client/non-local-endpoint
+                                                          :endpoint (:endpoint meta)}))
+     meta)))
+
 (defn metadata-for [db-file]
-  (let [canonical-path (metadata/canonical-db-path db-file)
-        meta (metadata/read-metadata canonical-path)]
-    (when (metadata/stale-or-missing? meta)
+  (let [meta (metadata-for-world nil)
+        canonical-path (metadata/canonical-db-path db-file)]
+    (when-not (= canonical-path (:canonical-db-path meta))
       (fail "Daemon metadata is missing or stale" {:type :todo.client/missing-or-stale-metadata
                                                     :canonical-db-path canonical-path
                                                     :metadata meta}))
-    (when-not (= canonical-path (:canonical-db-path meta))
-      (fail "Daemon metadata database path does not match requested database" {:type :todo.client/metadata-db-mismatch
-                                                                                :expected canonical-path
-                                                                                :actual (:canonical-db-path meta)
-                                                                                :metadata meta}))
-    (when-not (loopback-host? (get-in meta [:endpoint :host]))
-      (fail "Daemon metadata endpoint is not loopback" {:type :todo.client/non-local-endpoint
-                                                         :endpoint (:endpoint meta)}))
     meta))
 
 (defn fixed-form [op args]
@@ -107,10 +119,10 @@
 
 (defn verify-identity! [conn expected timeout-ms]
   (let [actual (eval-form conn (identity-form) timeout-ms {:operation :identity})]
-    (when-not (= (:canonical-db-path expected) (:canonical-db-path actual))
-      (fail "Connected daemon serves a different database" {:type :todo.client/db-mismatch
-                                                            :expected (:canonical-db-path expected)
-                                                            :actual (:canonical-db-path actual)}))
+    (when-not (= (:config-dir expected) (:config-dir actual))
+      (fail "Connected daemon serves a different config dir" {:type :todo.client/config-mismatch
+                                                               :expected (:config-dir expected)
+                                                               :actual (:config-dir actual)}))
     (when-not (= (:nonce expected) (:nonce actual))
       (fail "Connected daemon identity does not match runtime metadata" {:type :todo.client/identity-mismatch
                                                                          :expected (:nonce expected)
@@ -124,11 +136,25 @@
       (eval-form conn (fixed-form op args) timeout-ms {:operation op
                                                        :canonical-db-path (:canonical-db-path meta)}))))
 
+(defn status-world [config-dir & [opts]]
+  (let [timeout-ms (:timeout-ms (or opts {}) default-timeout-ms)
+        meta (metadata-for-world config-dir)]
+    (with-open [conn (connect meta timeout-ms)]
+      (verify-identity! conn meta timeout-ms))))
+
 (defn status [db-file & [opts]]
   (let [timeout-ms (:timeout-ms (or opts {}) default-timeout-ms)
         meta (metadata-for db-file)]
     (with-open [conn (connect meta timeout-ms)]
       (verify-identity! conn meta timeout-ms))))
+
+(defn stop-world [config-dir & [opts]]
+  (let [timeout-ms (:timeout-ms (or opts {}) default-timeout-ms)
+        meta (metadata-for-world config-dir)]
+    (with-open [conn (connect meta timeout-ms)]
+      (verify-identity! conn meta timeout-ms)
+      (eval-form conn (stop-form) timeout-ms {:operation :stop
+                                              :config-dir (:config-dir meta)}))))
 
 (defn stop [db-file & [opts]]
   (let [timeout-ms (:timeout-ms (or opts {}) default-timeout-ms)

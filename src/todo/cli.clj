@@ -209,27 +209,32 @@
     "ready" (run-query-command db-file (parse-query-options args summary)
                                client/ready client/ready-query client/ready)))
 
-(defn daemon-status [db-file]
-  (let [meta (client/status db-file)]
-    {:health "ok"
-     :canonical-db-path (:canonical-db-path meta)
+(defn daemon-status [world]
+  (let [meta (client/status-world (:config-dir world))]
+    {:healthy true
      :pid (:pid meta)
-     :endpoint (:endpoint meta)
-     :identity {:nonce (:nonce meta)}}))
+     :protocol-version (:protocol-version meta)
+     :config-dir (:config-dir meta)
+     :data-dir (:data-dir meta)
+     :database-path (:canonical-db-path meta)
+     :daemon-id (:nonce meta)
+     :socket-path (:socket-path meta)
+     :started-at (:started-at meta)
+     :nrepl (:endpoint meta)}))
 
-(defn run-daemon-command! [db-file args summary]
+(defn run-daemon-command! [db-file world args summary]
   (let [subcommand (first args)
         subargs (vec (rest args))]
     (case subcommand
       "start" (do (parse-daemon-start-options subargs summary)
-                 (runtime/start! db-file)
-                 (println "daemon started")
-                 (while @runtime/current-runtime
-                   (Thread/sleep 100)))
+                  (runtime/start! db-file {:world world})
+                  (println "daemon started")
+                  (while @runtime/current-runtime
+                    (Thread/sleep 100)))
       "stop" (do (require-conform ::specs/empty-command subargs "daemon stop" summary)
-                  (client/stop db-file))
+                 (client/stop-world (:config-dir world)))
       "status" (do (require-conform ::specs/empty-command subargs "daemon status" summary)
-                    (daemon-status db-file))
+                   (daemon-status world))
       (fail! (str "Unknown daemon command: " (or subcommand "")) summary))))
 
 (defn -main [& args]
@@ -238,7 +243,7 @@
     (when-not (commands command) (fail! (str "Unknown command: " command) summary))
     (try
       (let [result (if (= command "daemon")
-                     (run-daemon-command! (:db opts) command-args summary)
+                     (run-daemon-command! (:db opts) (:world opts) command-args summary)
                      (run-command! (:db opts) command command-args summary))]
         (cond
           (and (= command "add") (= "human" (:format opts))) (println (:id result))

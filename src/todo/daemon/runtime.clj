@@ -18,14 +18,15 @@
 
 (defn start!
   ([db-file] (start! db-file {}))
-  ([db-file {:keys [config-file]}]
+  ([db-file {:keys [config-file world]}]
    (when @current-runtime
      (throw (ex-info "A daemon runtime is already active in this process" {:metadata (:metadata @current-runtime)})))
-   (let [canonical-path (metadata/canonical-db-path db-file)
-         existing (metadata/read-metadata canonical-path)]
+   (let [world (or world (config/world))
+         canonical-path (metadata/canonical-db-path db-file)
+         existing (metadata/read-metadata world)]
      (when-not (metadata/stale-or-missing? existing)
-       (throw (ex-info "Daemon metadata already exists for database" {:canonical-db-path canonical-path
-                                                                       :metadata existing})))
+       (throw (ex-info "Daemon metadata already exists for daemon world" {:config-dir (:config-dir world)
+                                                                           :metadata existing})))
      (let [ds (db/datasource canonical-path)
            server (nrepl/start-server :bind loopback-host :port 0)
            port (:port server)
@@ -35,6 +36,7 @@
                                           :port port
                                           :canonical-db-path canonical-path
                                           :nonce nonce
+                                          :world world
                                           :started-at (str (Instant/now))})
            runtime-base {:datasource ds
                          :query-registry (atom {})
@@ -42,7 +44,7 @@
                          :metadata meta}
            runtime-state (atom runtime-base)]
        (try
-         (let [socket-runtime (socket/start! runtime-state (get-in meta [:json :socket-path]) #(stop! @runtime-state))
+         (let [socket-runtime (socket/start! runtime-state (:socket-path meta) #(stop! @runtime-state))
                runtime (assoc runtime-base :socket-runtime socket-runtime)]
            (reset! runtime-state runtime)
            (reset! current-runtime runtime)
@@ -57,7 +59,7 @@
            (when-let [socket-runtime (:socket-runtime @runtime-state)]
              (socket/stop! socket-runtime))
            (nrepl/stop-server server)
-           (metadata/delete! canonical-path)
+           (metadata/delete! world)
            (throw t)))))))
 
 (defn status [runtime]
@@ -70,6 +72,6 @@
     (nrepl/stop-server server))
   (when (= runtime @current-runtime)
     (reset! current-runtime nil))
-  (when-let [canonical-path (get-in runtime [:metadata :canonical-db-path])]
-    (metadata/delete! canonical-path))
+  (when-let [state-dir (get-in runtime [:metadata :state-dir])]
+    (metadata/delete! {:state-dir state-dir}))
   {:stopped true})

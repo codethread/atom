@@ -3,8 +3,6 @@ package client
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,8 +17,9 @@ import (
 const protocolVersion = 1
 
 type Config struct {
-	DB     string
-	Format string
+	ConfigDir string
+	StateDir  string
+	Format    string
 }
 
 type Metadata struct {
@@ -28,7 +27,14 @@ type Metadata struct {
 	PID             int    `json:"pid"`
 	DatabasePath    string `json:"database_path"`
 	DaemonID        string `json:"daemon_id"`
+	ConfigDir       string `json:"config_dir"`
+	DataDir         string `json:"data_dir"`
 	SocketPath      string `json:"socket_path"`
+	StartedAt       string `json:"started_at"`
+	NREPL           struct {
+		Host string `json:"host"`
+		Port int    `json:"port"`
+	} `json:"nrepl"`
 }
 
 type SocketClient struct {
@@ -65,7 +71,7 @@ func (e *ResponseError) Error() string {
 		message = fmt.Sprintf("%s: %s", message, query)
 	}
 	if available, ok := e.Details["available"].([]any); ok && len(available) > 0 {
-		names := make([]string, 0, len(available))
+		names := []string{}
 		for _, v := range available {
 			if s, ok := v.(string); ok {
 				names = append(names, s)
@@ -97,30 +103,20 @@ func validResponseError(e *ResponseError) bool {
 }
 
 func (c *SocketClient) Call(operation string, arguments map[string]any) (any, error) {
-	meta, canonical, metadataFile, err := c.metadata()
+	meta, metadataFile, err := c.metadata()
 	if err != nil {
 		return nil, err
 	}
 	requestID := fmt.Sprintf("%d", time.Now().UnixNano())
-	req := map[string]any{
-		"protocol_version": protocolVersion,
-		"request_id":       requestID,
-		"daemon_id":        meta.DaemonID,
-		"database_path":    canonical,
-		"operation":        operation,
-		"arguments":        arguments,
-		"options":          map[string]any{"format": c.Config.Format},
-	}
+	req := map[string]any{"protocol_version": protocolVersion, "request_id": requestID, "daemon_id": meta.DaemonID, "operation": operation, "arguments": arguments, "options": map[string]any{"format": c.Config.Format}}
 	ctx, cancel := context.WithTimeout(context.Background(), c.DialTimeout)
 	defer cancel()
-	dialer := net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "unix", meta.SocketPath)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", meta.SocketPath)
 	if err != nil {
-		return nil, fmt.Errorf("daemon socket unreachable: %w", err)
+		return nil, fmt.Errorf("daemon socket unreachable for state dir %s: %w", c.Config.StateDir, err)
 	}
 	defer conn.Close()
-	deadline := time.Now().Add(c.RequestDeadline)
-	_ = conn.SetDeadline(deadline)
+	_ = conn.SetDeadline(time.Now().Add(c.RequestDeadline))
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return nil, fmt.Errorf("daemon socket write failed: %w", err)
 	}
@@ -140,7 +136,7 @@ func (c *SocketClient) Call(operation string, arguments map[string]any) (any, er
 	if resp.Error != nil {
 		return nil, errors.New("malformed daemon response: success envelope includes error")
 	}
-	if err := validateLifecycleResult(operation, resp.Result, meta, canonical); err != nil {
+	if err := validateLifecycleResult(operation, resp.Result, meta); err != nil {
 		return nil, err
 	}
 	if operation == "stop" {
@@ -151,49 +147,64 @@ func (c *SocketClient) Call(operation string, arguments map[string]any) (any, er
 	return resp.Result, nil
 }
 
-func (c *SocketClient) metadata() (Metadata, string, string, error) {
-	canonical, err := canonicalPath(c.Config.DB)
-	if err != nil {
-		return Metadata{}, "", "", err
+func (c *SocketClient) metadata() (Metadata, string, error) {
+	if c.Config.StateDir == "" {
+		return Metadata{}, "", errors.New("state dir is required")
 	}
-	file := filepath.Join(os.TempDir(), "todo-daemon", stableHash(canonical)+".json")
+	file := filepath.Join(c.Config.StateDir, "daemon.json")
 	b, err := os.ReadFile(file)
 	if os.IsNotExist(err) {
-		return Metadata{}, "", "", fmt.Errorf("no running daemon for %s (start one with: todo daemon start, using the same --config-path if set)", canonical)
+		return Metadata{}, "", fmt.Errorf("no running daemon for state dir %s (start one with: todo daemon start)", c.Config.StateDir)
 	}
 	if err != nil {
-		return Metadata{}, "", "", err
+		return Metadata{}, "", err
 	}
 	var m Metadata
 	if err := json.Unmarshal(b, &m); err != nil {
-		return Metadata{}, "", "", fmt.Errorf("malformed daemon metadata: %w", err)
+		return Metadata{}, "", fmt.Errorf("malformed daemon metadata: %w", err)
 	}
-	if m.ProtocolVersion != protocolVersion || m.PID == 0 || m.DatabasePath == "" || m.DaemonID == "" || m.SocketPath == "" {
-		return Metadata{}, "", "", errors.New("malformed daemon metadata: missing required fields")
+	if m.ProtocolVersion != protocolVersion || m.PID == 0 || m.DatabasePath == "" || m.DaemonID == "" || m.ConfigDir == "" || m.DataDir == "" || m.SocketPath == "" || m.StartedAt == "" || m.NREPL.Host == "" || m.NREPL.Port == 0 {
+		return Metadata{}, "", errors.New("malformed daemon metadata: missing required fields")
 	}
-	if m.DatabasePath != canonical {
-		return Metadata{}, "", "", fmt.Errorf("daemon metadata database mismatch: %s", m.DatabasePath)
+	if c.Config.ConfigDir != "" && filepath.Clean(m.ConfigDir) != filepath.Clean(c.Config.ConfigDir) {
+		return Metadata{}, "", fmt.Errorf("daemon metadata config dir mismatch: %s", m.ConfigDir)
+	}
+	if filepath.Clean(m.SocketPath) != filepath.Join(c.Config.StateDir, "daemon.sock") {
+		return Metadata{}, "", fmt.Errorf("daemon metadata socket mismatch: %s", m.SocketPath)
 	}
 	if !pidAlive(m.PID) {
-		return Metadata{}, "", "", fmt.Errorf("stale daemon metadata: pid %d is not alive", m.PID)
+		return Metadata{}, "", fmt.Errorf("stale daemon metadata: pid %d is not alive", m.PID)
 	}
-	return m, canonical, file, nil
+	return m, file, nil
 }
 
-func validateLifecycleResult(operation string, result any, meta Metadata, canonical string) error {
+func validateLifecycleResult(operation string, result any, meta Metadata) error {
 	switch operation {
 	case "status":
 		m, ok := result.(map[string]any)
-		if !ok || m["healthy"] != true || !samePositivePID(m["pid"], meta.PID) || m["database_path"] != canonical || m["daemon_id"] != meta.DaemonID || m["socket_path"] != meta.SocketPath {
+		if !ok || m["healthy"] != true || m["protocol_version"] != float64(protocolVersion) || !samePositivePID(m["pid"], meta.PID) || m["database_path"] != meta.DatabasePath || m["daemon_id"] != meta.DaemonID || m["socket_path"] != meta.SocketPath || m["config_dir"] != meta.ConfigDir || m["data_dir"] != meta.DataDir || m["started_at"] != meta.StartedAt || !validNREPL(m["nrepl"]) {
 			return errors.New("malformed daemon response: invalid status result")
 		}
 	case "stop":
 		m, ok := result.(map[string]any)
-		if !ok || m["stopping"] != true || !samePositivePID(m["pid"], meta.PID) || m["database_path"] != canonical || m["daemon_id"] != meta.DaemonID {
+		if !ok || m["stopping"] != true || !samePositivePID(m["pid"], meta.PID) || m["daemon_id"] != meta.DaemonID {
 			return errors.New("malformed daemon response: invalid stop result")
 		}
 	}
 	return nil
+}
+
+func validNREPL(v any) bool {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	host, ok := m["host"].(string)
+	if !ok || host == "" {
+		return false
+	}
+	port, ok := m["port"].(float64)
+	return ok && port > 0
 }
 
 func samePositivePID(v any, expected int) bool {
@@ -208,25 +219,19 @@ func samePositivePID(v any, expected int) bool {
 }
 
 func waitForCleanup(metadataFile, socketPath string) error {
-	ednFile := strings.TrimSuffix(metadataFile, filepath.Ext(metadataFile)) + ".edn"
+	ednFile := filepath.Join(filepath.Dir(metadataFile), "daemon.edn")
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		metadataGone := false
-		if _, err := os.Stat(metadataFile); os.IsNotExist(err) {
-			metadataGone = true
-		} else if err != nil {
+		metadataGone, err := missing(metadataFile)
+		if err != nil {
 			return err
 		}
-		socketGone := false
-		if _, err := os.Stat(socketPath); os.IsNotExist(err) {
-			socketGone = true
-		} else if err != nil {
+		socketGone, err := missing(socketPath)
+		if err != nil {
 			return err
 		}
-		ednGone := false
-		if _, err := os.Stat(ednFile); os.IsNotExist(err) {
-			ednGone = true
-		} else if err != nil {
+		ednGone, err := missing(ednFile)
+		if err != nil {
 			return err
 		}
 		if metadataGone && ednGone && socketGone {
@@ -236,28 +241,14 @@ func waitForCleanup(metadataFile, socketPath string) error {
 	}
 	return errors.New("daemon stop did not clean up runtime metadata/socket")
 }
-
-func canonicalPath(p string) (string, error) {
-	if p == "" {
-		return "", errors.New("db path is required")
+func missing(path string) (bool, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return true, nil
+	} else if err != nil {
+		return false, err
 	}
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return "", err
-	}
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		return filepath.Clean(real), nil
-	}
-	parent := filepath.Dir(abs)
-	realParent, err := filepath.EvalSymlinks(parent)
-	if err != nil {
-		return filepath.Clean(abs), nil
-	}
-	return filepath.Clean(filepath.Join(realParent, filepath.Base(abs))), nil
+	return false, nil
 }
-
-func stableHash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
-
 func pidAlive(pid int) bool {
 	p, err := os.FindProcess(pid)
 	if err != nil {

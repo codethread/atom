@@ -15,7 +15,7 @@ import (
 )
 
 type App struct{ Stdout, Stderr io.Writer }
-type Options struct{ DB, Format, ConfigDir, Source string }
+type Options struct{ DB, Format, ConfigDir, StateDir, Source string }
 type ExitError struct {
 	Code int
 	Err  error
@@ -28,7 +28,9 @@ type Caller interface {
 	Call(string, map[string]any) (any, error)
 }
 
-var newClient = func(o Options) Caller { return client.New(client.Config{DB: o.DB, Format: o.Format}) }
+var newClient = func(o Options) Caller {
+	return client.New(client.Config{ConfigDir: o.ConfigDir, StateDir: o.StateDir, Format: o.Format})
+}
 
 func New(out, err io.Writer) *App { return &App{Stdout: out, Stderr: err} }
 
@@ -222,6 +224,7 @@ func resolveOptions(o Options) (Options, error) {
 	o.DB = world.DBPath
 	o.Source = cfg.Source
 	o.ConfigDir = world.ConfigDir
+	o.StateDir = world.StateDir
 	if o.Format == "" {
 		o.Format = cfg.Format
 	}
