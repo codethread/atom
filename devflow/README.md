@@ -15,7 +15,6 @@ Root specs are canonical for shipped behavior:
 
 ## Active features
 
-- `daemon-query-registry` — in-memory daemon query registry managed through REPL/config workflows and consumed by CLI named queries.
 - `go-cli-migration` — planned migration of the thin scripted CLI to a Go client over the daemon's JSON Unix socket; plan deferred until active query registry deltas `SPEC-002-D002` and `SPEC-004-D001` are promoted or otherwise stabilized.
 
 ## Archived features
@@ -26,4 +25,5 @@ Archived feature folders preserve historical planning context. Current shipped c
 - `26-06-24__db-owned-task-ids` — shipped generated task ids and creation-time `--link` edges.
 - `26-06-24__batch-task-refs` — shipped stdin EDN batch task creation with batch-local refs.
 - `26-06-25__daemon-runtime` — shipped local daemon runtime with nREPL transport, daemon-backed CLI/REPL clients, and trusted startup config.
+- `26-06-25__daemon-query-registry` — shipped in-memory daemon query registry managed through REPL/config workflows and consumed by CLI named queries.
 - `26-06-24__stripped-task-api` — shipped smaller CLI/REPL surface with first-class task lifecycle fields.

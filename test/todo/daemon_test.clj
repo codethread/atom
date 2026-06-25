@@ -50,6 +50,25 @@
                 "open" open-query}
                (api/queries rt)))))))
 
+(deftest daemon-query-registry-accepts-parameterized-in-queries
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (let [agent (api/add rt {:title "Agent" :attributes {:owner "agent"}})
+            human (api/add rt {:title "Human" :attributes {:owner "human"}})
+            owners-query {:params [:owners]
+                          :where [:in [:attr :owner] [:param :owners]]}]
+        (is (= {"owners" owners-query} (api/register-query rt 'owners owners-query)))
+        (is (= [(:id agent)] (mapv :id (api/list-query rt :owners {:owners ["agent"]}))))
+        (is (= #{(:id agent) (:id human)}
+               (set (map :id (api/list-query rt :owners {:owners ["agent" "human"]})))))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":in values must be a non-empty collection"
+                              (api/list-query rt :owners {:owners "agent"})))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":in values must be a non-empty collection"
+                              (api/list-query rt :owners {:owners []})))))))
+
 (deftest daemon-query-registry-fails-clearly
   (with-runtime
     (fn [rt _]

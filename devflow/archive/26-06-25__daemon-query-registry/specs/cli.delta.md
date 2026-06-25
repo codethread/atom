@@ -1,7 +1,7 @@
 # CLI Surface Delta: Daemon Query Registry
 
 **Document ID:** `SPEC-002-D002`
-**Status:** Draft
+**Status:** Merged
 **Base Spec:** [CLI Surface](../../../specs/cli.md)
 **Last Updated:** 2026-06-25
 

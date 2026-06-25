@@ -161,7 +161,7 @@
 
 (defn validate-query-def! [query-def]
   (let [params (if (map? query-def)
-                 (zipmap (:params query-def) (repeat "__atom_query_param__"))
+                 (zipmap (:params query-def) (repeat ["__atom_query_param__"]))
                  {})]
     (compile-query query-def params))
   query-def)

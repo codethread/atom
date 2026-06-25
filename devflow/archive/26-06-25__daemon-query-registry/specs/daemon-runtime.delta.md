@@ -1,7 +1,7 @@
 # Daemon Runtime Delta: In-memory Query Registry
 
 **Document ID:** `SPEC-004-D001`
-**Status:** Draft
+**Status:** Merged
 **Base Spec:** [Daemon Runtime](../../../specs/daemon-runtime.md)
 **Last Updated:** 2026-06-25
 

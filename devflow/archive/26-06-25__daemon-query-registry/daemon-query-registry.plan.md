@@ -1,7 +1,7 @@
 # Daemon Query Registry Plan
 
 **Document ID:** `PLAN-001`
-**Status:** Reviewed
+**Status:** Shipped
 **Last Updated:** 2026-06-25
 **Proposal:** [proposal.md](./proposal.md)
 **Specs:** [CLI delta](./specs/cli.delta.md), [REPL delta](./specs/repl-api.delta.md), [Daemon delta](./specs/daemon-runtime.delta.md)
@@ -65,3 +65,5 @@
 - **PLAN-001.DN5:** TASK-002 routes CLI `list --query` / `ready --query` through daemon API calls that resolve names at execution time; `--query-file` is now an unknown CLI option and CLI error output surfaces daemon domain messages such as missing query names.
 - **PLAN-001.DN6:** TASK-003 removes the REPL-local query registry from product behavior. REPL registry helpers now call the daemon client, named `query`/`tasks`/`ready` dispatch through daemon named-query operations, and REPL-facing daemon domain errors are rethrown with the daemon message for clear interactive failures. `load-queries!` checks for an active daemon before file I/O and query EDN files now fail loudly when they contain trailing forms.
 - **PLAN-001.DN7:** TASK-004 smoke validation now proves a query registered through trusted startup config and a query registered through `todo.repl/defquery!` are consumed by separate CLI subprocesses during the same daemon lifetime. Runtime startup now creates daemon memory state before loading trusted config but still publishes metadata only after config succeeds, preserving fail-loud startup behavior; trusted files can use `todo.daemon.api/register-query!` / `load-queries!` startup helpers instead of reaching into runtime internals. Root docs/specs explicitly state that named queries are in-memory daemon state, must be loaded through trusted config or REPL helpers, and disappear when the daemon stops; CLI `--query-file` remains rejected by parser coverage from TASK-002.
+- **PLAN-001.DN8:** Final review found parameterized `:in` named queries were rejected at registration because validation used scalar dummy params. Shipped fix keeps runtime `:in` value validation strict while allowing valid parameterized `:in` definitions to register, with daemon API regression coverage. Final validation: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test` passed with 44 tests / 184 assertions.
+- **PLAN-001.DN9:** Feature shipped. Root specs already describe the daemon-memory registry, REPL/config-owned loading, thin CLI consumption, and no CLI `--query-file`. No scope was cut beyond the intentionally dropped CLI registry mutation/listing/file-loading surface recorded above.
