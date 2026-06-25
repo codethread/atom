@@ -1,5 +1,5 @@
 (ns todo.daemon.api
-  (:refer-clojure :exclude [list update])
+  (:refer-clojure :exclude [list update use])
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.repl.deps :as repl-deps]
@@ -31,6 +31,9 @@
 
 (defn- approved-lib-sync-state [runtime]
   (:approved-lib-sync-state runtime))
+
+(defn- module-use-state [runtime]
+  (:module-use-state runtime))
 
 (defn- with-library-classloader [runtime f]
   (let [thread (Thread/currentThread)
@@ -141,6 +144,117 @@
 
 (defn approved-lib-syncs [runtime]
   {:libs (into (sorted-map) @(approved-lib-sync-state runtime))})
+
+(def allowed-use-keys #{:ns :file :libs :after :call :required?})
+
+(defn- validate-use-opts! [key opts]
+  (when-not (keyword? key)
+    (throw (ex-info "Module use key must be a keyword" {:key key})))
+  (when-not (map? opts)
+    (throw (ex-info "Module use opts must be a map" {:key key :opts opts})))
+  (when-let [unknown (seq (remove allowed-use-keys (keys opts)))]
+    (throw (ex-info "Module use opts contain unknown keys" {:key key :keys (vec unknown)})))
+  (when (= (contains? opts :ns) (contains? opts :file))
+    (throw (ex-info "Module use opts require exactly one of :ns or :file" {:key key :opts opts})))
+  (when (and (contains? opts :ns) (not (symbol? (:ns opts))))
+    (throw (ex-info "Module use :ns must be a symbol" {:key key :ns (:ns opts)})))
+  (when (and (contains? opts :file) (not (and (string? (:file opts)) (not (str/blank? (:file opts))))))
+    (throw (ex-info "Module use :file must be a non-blank string" {:key key :file (:file opts)})))
+  (when (and (contains? opts :file) (.isAbsolute (io/file (:file opts))))
+    (throw (ex-info "Module use :file must be relative to selected config-dir" {:key key :file (:file opts)})))
+  (when (and (contains? opts :libs)
+             (not (or (vector? (:libs opts)) (set? (:libs opts)))))
+    (throw (ex-info "Module use :libs must be a vector or set of symbols" {:key key :libs (:libs opts)})))
+  (doseq [lib (:libs opts)]
+    (when-not (symbol? lib)
+      (throw (ex-info "Module use :libs entries must be symbols" {:key key :lib lib}))))
+  (when (and (contains? opts :after) (not (vector? (:after opts))))
+    (throw (ex-info "Module use :after must be a vector" {:key key :after (:after opts)})))
+  (doseq [after (:after opts)]
+    (when-not (keyword? after)
+      (throw (ex-info "Module use :after entries must be keywords" {:key key :after after}))))
+  (when (and (contains? opts :call) (not (symbol? (:call opts))))
+    (throw (ex-info "Module use :call must be a fully qualified symbol" {:key key :call (:call opts)})))
+  (when (and (symbol? (:call opts)) (nil? (namespace (:call opts))))
+    (throw (ex-info "Module use :call must be a fully qualified symbol" {:key key :call (:call opts)})))
+  (when (and (contains? opts :required?) (not (boolean? (:required? opts))))
+    (throw (ex-info "Module use :required? must be boolean" {:key key :required? (:required? opts)}))))
+
+(defn- record-use! [runtime key result]
+  (swap! (module-use-state runtime) assoc key result)
+  result)
+
+(defn- skip-use [runtime key opts reason data]
+  (record-use! runtime key (merge {:key key :opts opts :status :skipped :reason reason} data)))
+
+(defn- use-lib-skip [runtime opts]
+  (let [approved (approved-libs runtime)
+        syncs @(approved-lib-sync-state runtime)]
+    (some (fn [lib]
+            (cond
+              (not (contains? (:libs approved) lib))
+              [:not-approved {:lib lib}]
+
+              (not (contains? syncs lib))
+              [:not-synced {:lib lib}]
+
+              (= :failed (:status (get syncs lib)))
+              [:sync-failed {:lib lib :sync (get syncs lib)}]))
+          (:libs opts))))
+
+(defn- use-after-skip [runtime opts]
+  (let [uses @(module-use-state runtime)]
+    (some (fn [after]
+            (when-not (= :loaded (:status (get uses after)))
+              [:missing-after {:after after :use (get uses after)}]))
+          (:after opts))))
+
+(defn- module-file [runtime path]
+  (.getCanonicalPath (io/file (config-dir runtime) path)))
+
+(defn- exception-data [t]
+  {:message (ex-message t)
+   :class (str (class t))
+   :data (ex-data t)})
+
+(defn use! [runtime key opts]
+  (validate-use-opts! key opts)
+  (if-let [[reason data] (use-lib-skip runtime opts)]
+    (skip-use runtime key opts reason data)
+    (if-let [[reason data] (use-after-skip runtime opts)]
+      (skip-use runtime key opts reason data)
+      (try
+        (let [load-result (with-library-classloader
+                            runtime
+                            #(if-let [ns-sym (:ns opts)]
+                               (do (require ns-sym) {:ns ns-sym})
+                               (let [file (module-file runtime (:file opts))]
+                                 (load-file file)
+                                 {:file file})))
+              call-result (when-let [call-sym (:call opts)]
+                            (with-library-classloader
+                              runtime
+                              #((requiring-resolve call-sym))))]
+          (record-use! runtime key (cond-> {:key key
+                                            :opts opts
+                                            :status :loaded
+                                            :loaded load-result}
+                                     (contains? opts :call) (assoc :call {:fn (:call opts)
+                                                                          :return call-result}))))
+        (catch Exception t
+          (let [result (record-use! runtime key {:key key
+                                                 :opts opts
+                                                 :status :failed
+                                                 :error (exception-data t)})]
+            (when (:required? opts)
+              (throw t))
+            result))))))
+
+(defn uses [runtime]
+  (into (sorted-map) @(module-use-state runtime)))
+
+(defn use [runtime key]
+  (get @(module-use-state runtime) key))
 
 (def supported-plugin-format-version 1)
 (def plugin-authored-keys #{:format-version :name :version :requires-atom :provides})

@@ -1,5 +1,5 @@
 (ns atom.libs.alpha
-  (:refer-clojure :exclude [sync])
+  (:refer-clojure :exclude [sync use])
   (:require [todo.client :as client]
             [todo.daemon.runtime :as runtime]
             [todo.repl :as repl]))
@@ -23,3 +23,18 @@
   "Return daemon-lifetime approved library sync state."
   []
   (call-daemon :approved-lib-syncs))
+
+(defn use!
+  "Activate a daemon-side module and record its use state."
+  [key opts]
+  (call-daemon :use! key opts))
+
+(defn uses
+  "Return daemon-lifetime module-use state."
+  []
+  (call-daemon :uses))
+
+(defn use
+  "Return one daemon-lifetime module-use entry by key."
+  [key]
+  (call-daemon :use key))

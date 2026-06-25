@@ -135,3 +135,11 @@ Added `atom.libs.alpha/approved` and daemon API support for selected-config-dir 
 ### RLW-PLAN-001.DN7 Approved local-root sync implementation — 2026-06-25
 
 Added daemon-lifetime approved-lib sync state plus `atom.libs.alpha/sync!` and `syncs` helpers routed through daemon API calls. Sync records `:loaded`, `:already-available`, and structured `:failed` outcomes; missing roots, non-directory roots, unreadable roots, and runtime add failures are per-library results while malformed `libs.edn` still throws structurally. Direct in-process sync and `init.clj` loading use a daemon-owned dynamic classloader/repl binding. Tests keep runtime-added local roots on disk for the process lifetime because tools.deps basis entries are global and later dependency resolution can fail if a previously added local root is deleted.
+
+### RLW-PLAN-001.DN8 Daemon use registry implementation — 2026-06-25
+
+Added daemon-lifetime module-use state plus `atom.libs.alpha/use!`, `uses`, and `use` helpers routed through daemon API calls. `use!` validates malformed options loudly, gates approved/synced libs and prior loaded module uses before activation, performs daemon-side require/load-file and optional zero-arity calls with the daemon library classloader, records loaded/skipped/failed results, rethrows recorded failures for `:required? true`, and replaces duplicate keys for reload workflows.
+
+### RLW-PLAN-001.DN9 Task 4 review revisions — 2026-06-25
+
+Deep review tightened `use!` around the published workspace contract: `:file` now rejects absolute paths and always resolves relative to selected config-dir, module-use keys are keyword-only for the MVP to keep registry ordering and `:after` lookup simple, fatal JVM `Error`s are no longer downgraded to optional module failures, and tests now cover daemon nREPL execution plus gating-before-side-effects.

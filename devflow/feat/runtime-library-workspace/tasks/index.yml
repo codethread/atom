@@ -17,7 +17,7 @@ tasks:
   - id: 4
     description: Implement daemon use registry
     task_file: tasks/004-implement-daemon-use-registry.md
-    status: pending
+    status: complete
     blocked_by: [3]
   - id: 5
     description: Remove plugin public surface

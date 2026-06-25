@@ -64,6 +64,7 @@
                          :query-registry (atom {})
                          :plugin-registry (atom {})
                          :approved-lib-sync-state (atom {})
+                         :module-use-state (atom {})
                          :library-classloader (clojure.lang.DynamicClassLoader.
                                                (.getContextClassLoader (Thread/currentThread)))
                          :server server
