@@ -23,7 +23,8 @@
    :ready-query 'todo.daemon.api/ready-query
    :register-plugin 'todo.daemon.api/register-plugin
    :plugins 'todo.daemon.api/plugins
-   :plugin 'todo.daemon.api/plugin})
+   :plugin 'todo.daemon.api/plugin
+   :load-plugin 'todo.daemon.api/load-plugin})
 
 (defn fail [message data]
   (throw (ex-info message data)))

@@ -128,3 +128,7 @@ Tightened feature-local deltas without implementation changes: clarified blessed
 ### RPS-PLAN-001.DN8 Plugin metadata registry implementation — 2026-06-25
 
 Implemented daemon-lifetime plugin metadata state as an in-memory runtime registry exposed through `atom.plugin.alpha`. Registration validates required `:format-version 1` and symbol/keyword names, canonicalizes plugin names and `:provides` entries to symbols, rejects unknown or malformed metadata loudly, replaces duplicate registrations, and leaves the JSON socket CLI allowlist unchanged. `atom.plugin.alpha` works both in the daemon JVM and from the connected helper REPL by routing trusted calls over the existing nREPL client path. Loader-owned metadata keys are accepted for the upcoming local loader slice without adding premature type policy beyond the current spec.
+
+### RPS-PLAN-001.DN9 Local plugin loader implementation — 2026-06-25
+
+Implemented `atom.plugin.alpha/load-plugin!` via the trusted daemon API path so plugin `init.clj` executes in the daemon JVM. Relative plugin paths resolve against the daemon metadata config-dir, metadata is read and validated before entry execution, loader-owned source facts are added after successful `load-file`, and thrown entry errors do not register plugin metadata. Tests cover absolute and config-dir-relative paths plus loud failure modes for missing files, malformed metadata, unknown keys, unsupported format versions, and thrown plugin code.

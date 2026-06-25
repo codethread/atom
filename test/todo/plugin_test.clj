@@ -23,20 +23,12 @@
               :name 'demo/plugin
               :version "0.1.0"
               :requires-atom "0.0.1"
-              :provides ['demo/feature]
-              :source "local"
-              :dir "/tmp/plugin"
-              :init-file "/tmp/plugin/init.clj"
-              :loaded-at "2026-06-25T00:00:00Z"}
+              :provides ['demo/feature]}
              (plugin/register! {:format-version 1
                                 :name :demo/plugin
                                 :version "0.1.0"
                                 :requires-atom "0.0.1"
-                                :provides [:demo/feature]
-                                :source "local"
-                                :dir "/tmp/plugin"
-                                :init-file "/tmp/plugin/init.clj"
-                                :loaded-at "2026-06-25T00:00:00Z"}))))))
+                                :provides [:demo/feature]}))))))
 
 (deftest plugin-registration-replaces-by-canonical-name
   (with-runtime
@@ -97,4 +89,71 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #":requires-atom must be a string"
                               (plugin/register! {:format-version 1 :name :demo/plugin :requires-atom 1})))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #":provides must be a vector"
-                              (plugin/register! {:format-version 1 :name :demo/plugin :provides :demo/feature})))))))
+                              (plugin/register! {:format-version 1 :name :demo/plugin :provides :demo/feature})))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown keys"
+                              (plugin/register! {:format-version 1 :name :demo/plugin :source :local})))))))
+
+(defn write-plugin! [dir metadata init-body]
+  (.mkdirs (java.io.File. dir))
+  (spit (java.io.File. dir "atom-plugin.edn") metadata)
+  (spit (java.io.File. dir "init.clj") init-body))
+
+(deftest load-plugin-loads-local-directory-and-registers-metadata
+  (with-runtime
+    (fn [rt]
+      (let [config-dir (get-in rt [:metadata :config-dir])
+            plugin-dir (str config-dir "/plugins/demo")
+            marker (str config-dir "/loaded.txt")]
+        (write-plugin! plugin-dir
+                       "{:format-version 1 :name :demo/plugin :version \"0.1.0\" :provides [:demo/feature]}"
+                       (str "(spit " (pr-str marker) " \"loaded\")"))
+        (let [recorded (plugin/load-plugin! "plugins/demo")]
+          (is (= 'demo/plugin (:name recorded)))
+          (is (= "0.1.0" (:version recorded)))
+          (is (= ['demo/feature] (:provides recorded)))
+          (is (= :local (:source recorded)))
+          (is (= (.getCanonicalPath (java.io.File. plugin-dir)) (:dir recorded)))
+          (is (= (.getCanonicalPath (java.io.File. plugin-dir "init.clj")) (:init-file recorded)))
+          (is (string? (:loaded-at recorded)))
+          (is (= "loaded" (slurp marker)))
+          (is (= recorded (plugin/plugin :demo/plugin))))))))
+
+(deftest load-plugin-accepts-absolute-plugin-path
+  (with-runtime
+    (fn [rt]
+      (let [config-dir (get-in rt [:metadata :config-dir])
+            plugin-dir (str config-dir "/absolute-demo")]
+        (write-plugin! plugin-dir "{:format-version 1 :name :demo/absolute}" "nil")
+        (is (= 'demo/absolute (:name (plugin/load-plugin! (.getAbsolutePath (java.io.File. plugin-dir))))))))))
+
+(deftest load-plugin-fails-loudly-before-registration
+  (with-runtime
+    (fn [rt]
+      (let [config-dir (get-in rt [:metadata :config-dir])
+            missing-dir "missing-plugin"
+            no-metadata (str config-dir "/no-metadata")
+            no-init (str config-dir "/no-init")
+            malformed (str config-dir "/malformed")
+            unknown (str config-dir "/unknown")
+            loader-owned (str config-dir "/loader-owned")
+            bad-version (str config-dir "/bad-version")
+            throwing (str config-dir "/throwing")
+            invalid-marker (str config-dir "/invalid-loaded.txt")]
+        (.mkdirs (java.io.File. no-metadata))
+        (.mkdirs (java.io.File. no-init))
+        (spit (java.io.File. no-init "atom-plugin.edn") "{:format-version 1 :name :demo/no-init}")
+        (write-plugin! malformed "{:format-version" "nil")
+        (write-plugin! unknown "{:format-version 1 :name :demo/unknown :extra true}" (str "(spit " (pr-str invalid-marker) " \"loaded\")"))
+        (write-plugin! loader-owned "{:format-version 1 :name :demo/loader-owned :source :local}" (str "(spit " (pr-str invalid-marker) " \"loaded\")"))
+        (write-plugin! bad-version "{:format-version 2 :name :demo/bad-version}" (str "(spit " (pr-str invalid-marker) " \"loaded\")"))
+        (write-plugin! throwing "{:format-version 1 :name :demo/throwing}" "(throw (ex-info \"boom\" {}))")
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"directory" (plugin/load-plugin! missing-dir)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata file is missing" (plugin/load-plugin! no-metadata)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"init.clj is missing" (plugin/load-plugin! no-init)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata is malformed" (plugin/load-plugin! malformed)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown keys" (plugin/load-plugin! unknown)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown keys" (plugin/load-plugin! loader-owned)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"format version" (plugin/load-plugin! bad-version)))
+        (is (not (.exists (java.io.File. invalid-marker))))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"load failed" (plugin/load-plugin! throwing)))
+        (is (nil? (plugin/plugin :demo/throwing)))))))
