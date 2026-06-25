@@ -146,7 +146,7 @@ Deep review tightened `use!` around the published workspace contract: `:file` no
 
 ### RLW-PLAN-001.DN10 Remove plugin public surface — 2026-06-25
 
-Removed the public `atom.plugin.alpha` namespace, daemon API plugin metadata/loader operations, connected-client plugin operation routing, and daemon plugin registry state. A later YAGNI pass removed the now-empty `atom.bootstrap.alpha/use-defaults!` surface entirely and kept `atom.prelude.alpha` as a thin `atom.libs.alpha` convenience namespace. Root docs/specs and smoke coverage now present `libs.edn`, `sync!`, and `use!` as the public extension path.
+Removed the public `atom.plugin.alpha` namespace, daemon API plugin metadata/loader operations, connected-client plugin operation routing, and daemon plugin registry state. A later YAGNI pass removed the now-empty `atom.bootstrap.alpha/use-defaults!` surface entirely. Root docs/specs and smoke coverage now present `libs.edn`, `sync!`, and `use!` as the public extension path.
 
 ### RLW-PLAN-001.DN11 Docs and smoke workflow — 2026-06-25
 
@@ -155,3 +155,7 @@ Expanded README guidance around config-dir as a Git/submodule/manual-copy librar
 ### RLW-PLAN-001.DN12 Spec promotion validation — 2026-06-25
 
 Promoted runtime library workspace contracts into root daemon runtime and REPL API specs, confirmed the CLI spec already preserves the thin no-library-command boundary, and marked feature-local deltas as merged. Full validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`. `git status --short` showed only source/spec/task edits and no generated SQLite/runtime artifacts after smoke.
+
+### RLW-PLAN-001.DN13 MVP simplification pass — 2026-06-25
+
+Removed the thin `atom.prelude.alpha` alias namespace and its tests/docs references after a YAGNI review. It duplicated `atom.libs.alpha` without adding MVP behavior, so the shipped public library-workspace surface is now a single explicit namespace.

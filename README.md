@@ -133,7 +133,7 @@ printf '(require '\''[atom.libs.alpha :as libs])\n(libs/approved)\n(libs/sync!)\
 
 REPL process boundaries matter: `libs/sync!` mutates the daemon JVM classpath, and `libs/use!` runs daemon-side activation. A direct `require` typed into a connected helper REPL uses that helper JVM's classpath, not newly synced daemon libraries. Use daemon-routed helpers for daemon-side activation, or put required daemon startup code in `init.clj`.
 
-Coupling tiers are explicit. Blessed `atom.*.alpha` namespaces are the documented, tested path for startup and REPL workflows. Supported lower-level libraries are available to trusted code when the coupling cost is worth it. Internal implementation namespaces are inspectable and callable, but may change freely. Raw SQLite/schema access is also allowed for trusted code, with the caller owning compatibility risk when persistence details change.
+Coupling tiers are explicit. `atom.libs.alpha` is the documented, tested path for library-workspace startup and REPL workflows. Supported lower-level libraries are available to trusted code when the coupling cost is worth it. Internal implementation namespaces are inspectable and callable, but may change freely. Raw SQLite/schema access is also allowed for trusted code, with the caller owning compatibility risk when persistence details change.
 
 ## Data model
 

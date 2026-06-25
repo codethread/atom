@@ -21,6 +21,7 @@
 (deftest old-plugin-and-bootstrap-surfaces-are-not-available
   (is (thrown? java.io.FileNotFoundException (require 'atom.plugin.alpha)))
   (is (thrown? java.io.FileNotFoundException (require 'atom.bootstrap.alpha)))
+  (is (thrown? java.io.FileNotFoundException (require 'atom.prelude.alpha)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown daemon API operation"
                         (client/fixed-form :load-plugin ["plugins/demo"])))
   (is (nil? (ns-resolve 'todo.daemon.api 'load-plugin)))
@@ -34,22 +35,3 @@
       (is (= {:libs {}} (libs/syncs)))
       (is (= {} (libs/uses))))))
 
-(deftest prelude-is-opt-in-and-exposes-library-workspace-conveniences
-  (with-runtime
-    (fn []
-      (require 'atom.prelude.alpha)
-      (let [prelude-approved (requiring-resolve 'atom.prelude.alpha/approved)
-            prelude-syncs (requiring-resolve 'atom.prelude.alpha/syncs)
-            prelude-uses (requiring-resolve 'atom.prelude.alpha/uses)
-            prelude-use! (requiring-resolve 'atom.prelude.alpha/use!)]
-        (is (ifn? prelude-approved))
-        (is (ifn? prelude-syncs))
-        (is (ifn? prelude-uses))
-        (is (ifn? prelude-use!))
-        (is (= {:libs {}} (prelude-approved)))
-        (is (= {:libs {}} (prelude-syncs)))
-        (is (= {} (prelude-uses)))
-        (is (nil? (ns-resolve 'atom.prelude.alpha 'use-defaults!)))
-        (is (nil? (ns-resolve 'atom.prelude.alpha 'load-plugin!)))
-        (is (nil? (ns-resolve 'atom.prelude.alpha 'plugins)))
-        (is (nil? (ns-resolve 'atom.prelude.alpha 'plugin)))))))

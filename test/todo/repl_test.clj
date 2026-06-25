@@ -106,21 +106,6 @@
           (is (= {:libs {}} (read-string (nth lines 2))))
           (is (= {} (read-string (nth lines 3)))))))))
 
-(deftest prelude-loads-from-connected-stdin-repl
-  (with-runtime
-    (fn [rt _]
-      (let [out (java.io.StringWriter.)]
-        (binding [*in* (java.io.StringReader. "(require '[atom.prelude.alpha :as prelude])\n(prelude/approved)\n(prelude/syncs)\n(prelude/uses)\n")
-                  *out* out
-                  *err* (java.io.StringWriter.)
-                  *ns* (the-ns 'user)]
-          (repl/-main "--stdin" (:config-dir (:metadata rt))))
-        (let [lines (str/split-lines (str out))]
-          (is (= 4 (count lines)))
-          (is (= {:libs {}} (read-string (second lines))))
-          (is (= {:libs {}} (read-string (nth lines 2))))
-          (is (= {} (read-string (nth lines 3)))))))))
-
 (deftest query-helpers-use-daemon-backed-task-flow
   (with-runtime
     (fn [rt db-file]

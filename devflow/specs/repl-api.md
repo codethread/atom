@@ -44,10 +44,10 @@ ready
 - **SPEC-003.C13:** `query` returns tasks matching an ad hoc query definition or daemon-registered query name, with optional runtime parameters.
 - **SPEC-003.C14:** `task`, `tasks`, `query`, and `ready` return rows with JSON-bearing columns normalized to Clojure values.
 - **SPEC-003.C15:** `ready` returns non-final tasks whose direct `depends-on` dependencies are all final and may be further filtered by an ad hoc or registered query.
-- **SPEC-003.C16:** Blessed library-workspace helpers live in explicit `atom.*.alpha` namespaces, not in the preloaded `todo.repl` helper namespace.
+- **SPEC-003.C16:** Blessed library-workspace helpers live in explicit `atom.libs.alpha`, not in the preloaded `todo.repl` helper namespace.
 - **SPEC-003.C17:** `atom.libs.alpha` exposes approved library config helpers, approved-local-root sync helpers, resilient module activation with `use!`, and daemon-lifetime sync/use introspection.
 - **SPEC-003.C18:** `atom.libs.alpha` helpers route to the selected daemon world when called from connected REPL clients. Direct `require` in a connected helper REPL remains local to the helper JVM.
-- **SPEC-003.C19:** `atom.prelude.alpha` is opt-in and favors `atom.libs.alpha` conveniences. Blessed alpha namespaces are the documented path, but trusted users may require lower-level namespaces or read raw SQLite when they accept compatibility cost.
+- **SPEC-003.C19:** `atom.libs.alpha` is the documented library-workspace path, but trusted users may require lower-level namespaces or read raw SQLite when they accept compatibility cost.
 
 ## SPEC-003.P4 Runtime library workspace helpers
 

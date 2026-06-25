@@ -71,7 +71,7 @@ The daemon runtime is the long-lived local Clojure process that owns task storag
 
 - **SPEC-004.C37:** Runtime extensions are normal trusted Clojure libraries/modules made available to the daemon through selected config-dir startup (`init.clj`) or connected REPL workflows.
 - **SPEC-004.C38:** Extension code runs with daemon process authority. Sandboxing, untrusted execution, remote authorization, and capability restriction are outside this contract.
-- **SPEC-004.C39:** Atom ships blessed source-visible alpha runtime libraries. Maintained namespaces include `atom.libs.alpha` and `atom.prelude.alpha`.
+- **SPEC-004.C39:** Atom ships the blessed source-visible `atom.libs.alpha` runtime library for library-workspace workflows.
 - **SPEC-004.C40:** Blessed alpha libraries are documented, tested, and used by examples. They are recommended maintenance paths, not enforcement boundaries; trusted code may require lower-level namespaces or use raw SQLite schema when it accepts compatibility cost.
 - **SPEC-004.C41:** The selected config-dir is a trusted library workspace root. User-owned config may include `init.clj`, `libs.edn`, local source directories, and user code.
 - **SPEC-004.C42:** `libs.edn`, when present, declares approved daemon-wide local roots. Relative `:local/root` entries resolve against the selected config-dir; absolute roots are accepted as explicit user-approved paths. Malformed config fails loudly.
