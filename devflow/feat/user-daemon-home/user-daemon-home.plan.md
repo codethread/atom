@@ -131,3 +131,7 @@ Normal Go task/query/status/stop commands now resolve only the selected daemon w
 ### UDH-PLAN-001.DN10 Task 5 implementation notes — 2026-06-25
 
 Replaced public REPL database-path `open!` with daemon-world `connect!`, added the plain `todo.repl` entrypoint for connected interactive and stdin evaluation, and wired `todo daemon repl [--stdin]` in the Go CLI after source validation and daemon reachability checks. Local REPL tests now use disposable config-dir worlds. Broader README/spec promotion remains deferred to Tasks 6 and 7.
+
+### UDH-PLAN-001.DN11 Task 6 implementation notes — 2026-06-25
+
+Updated smoke validation to build an absolute `todo` binary, write disposable `--config-dir` `config.json` files with an absolute checkout `source`, start the daemon and run task/status/REPL-stdin commands from outside the repo, and verify `daemon repl --stdin` prints direct Clojure results without a CLI response envelope. Root README and AGENTS examples now present config-dir daemon worlds, connected `todo daemon repl`, and `--stdin` as the blessed workflow. Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.

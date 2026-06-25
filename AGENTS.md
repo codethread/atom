@@ -26,12 +26,12 @@ Common commands:
 ```sh
 # Build the public Go CLI and create/edit ~/.config/atom/config.json.
 go build -o ./cli/bin/todo ./cli/cmd/todo
-make open-config
+mkdir -p ~/.config/atom
+printf '{"source":"%s","format":"human"}\n' "$PWD" > ~/.config/atom/config.json
 
 # Run in a dedicated terminal; daemon start stays in the foreground.
 ./cli/bin/todo daemon start
-# Optional trusted startup config:
-# ./cli/bin/todo daemon start --config /path/to/daemon.edn
+# Optional trusted startup code lives at ~/.config/atom/init.clj.
 
 # Run from another terminal while the daemon is alive.
 ./cli/bin/todo init
@@ -46,33 +46,32 @@ clojure -M:run
 
 ## Agent operation quick reference
 
-Agents should prefer the CLI for scripted work. Use `--config-path <path>` when you need a disposable or feature-local client config.
+Agents should prefer the CLI for scripted work. Use `--config-dir <dir>` when you need a disposable or feature-local daemon world.
 
 ```sh
 go build -o ./cli/bin/todo ./cli/cmd/todo
-make open-config
+world=$(mktemp -d)
+printf '{"source":"%s","format":"human"}\n' "$PWD" > "$world/config.json"
 # Run in a dedicated terminal; daemon start stays in the foreground.
-./cli/bin/todo daemon start
-# Optional: daemon.edn may contain {:load-files ["trusted.clj"]}
+./cli/bin/todo --config-dir "$world" daemon start
+# Optional trusted startup code lives at "$world/init.clj".
 
 # Run from another terminal while the daemon is alive.
-./cli/bin/todo init
-design=$(./cli/bin/todo add "Sketch model" --status done --attr priority=high)
-docs=$(./cli/bin/todo add "Write docs" --attr owner=agent)
-./cli/bin/todo update "$docs" --edge depends-on:$design
-./cli/bin/todo --format json ready
-./cli/bin/todo daemon stop
+./cli/bin/todo --config-dir "$world" init
+design=$(./cli/bin/todo --config-dir "$world" add "Sketch model" --status done --attr priority=high)
+docs=$(./cli/bin/todo --config-dir "$world" add "Write docs" --attr owner=agent)
+./cli/bin/todo --config-dir "$world" update "$docs" --edge depends-on:$design
+./cli/bin/todo --config-dir "$world" --format json ready
+./cli/bin/todo --config-dir "$world" daemon stop
 ```
 
-Use `todo.repl` for interactive exploration when a daemon is already running for the same database in another terminal:
+Use `todo daemon repl` for interactive exploration when a daemon is already running for the selected config-dir world:
 
 ```sh
-./cli/bin/todo daemon start
+./cli/bin/todo --config-dir "$world" daemon repl
 ```
 
 ```clojure
-(require '[todo.repl :refer :all])
-(open! "agent.sqlite")
 (init!)
 (def design (:id (task! "Sketch model" "done" {:priority "high"})))
 (def docs (:id (task! "Write docs" {:owner "agent"})))
@@ -81,11 +80,17 @@ Use `todo.repl` for interactive exploration when a daemon is already running for
 (ready)
 ```
 
+For non-interactive trusted forms, use stdin. It prints direct Clojure results without a CLI response envelope:
+
+```sh
+printf '(ready)\n' | ./cli/bin/todo --config-dir "$world" daemon repl --stdin
+```
+
 Named queries are daemon-lifetime runtime state: register or load them through trusted daemon config or REPL helpers (`defquery!`, `load-queries!`), inspect them with `queries`, then consume them from either REPL helpers or CLI commands such as `list --query agent-owned`. They disappear when the daemon stops; the CLI does not accept `--query-file` because runtime customization belongs in daemon/REPL workflows rather than the low-privilege CLI.
 
 ```sh
-./cli/bin/todo daemon status
-./cli/bin/todo daemon stop
+./cli/bin/todo --config-dir "$world" daemon status
+./cli/bin/todo --config-dir "$world" daemon stop
 ```
 
 For the full CLI and REPL contracts, read the root specs linked above instead of duplicating details here.
@@ -100,7 +105,7 @@ PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test
 PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke
 ```
 
-The unit test suite covers parser, database, daemon, client, and REPL behavior. Go tests cover the native `todo` command, config, socket client, and integration paths. The smoke demo builds `./cli/bin/todo`, starts disposable daemon runtimes, exercises Go CLI subprocess commands through the JSON socket, exercises REPL helpers through a real daemon connection, then removes generated SQLite, runtime metadata, socket, and built CLI artifacts.
+The unit test suite covers parser, database, daemon, client, and REPL behavior. Go tests cover the native `todo` command, config, socket client, and integration paths. The smoke demo builds `./cli/bin/todo`, creates disposable `--config-dir` worlds with `config.json` pointing at this checkout, starts disposable daemon runtimes, exercises Go CLI subprocess commands and `daemon repl --stdin` through the selected world from outside the repo, exercises REPL helpers through a real daemon connection, then removes generated state, data, config, socket, and built CLI artifacts.
 
 After validation, `git status --short` should not show generated SQLite or runtime metadata artifacts.
 
@@ -111,9 +116,9 @@ Useful inspection commands:
 ```sh
 # The default smoke run cleans these files after success; pass a custom smoke path
 # or inspect during a stopped failure before cleanup.
-sqlite3 smoke-cli.sqlite '.schema'
-sqlite3 smoke-cli.sqlite 'select id, title, attributes from tasks;'
-sqlite3 smoke-cli.sqlite 'select from_task_id, to_task_id, edge_type, attributes from task_edges;'
+sqlite3 smoke-cli.sqlite.config-dir/data/tasks.sqlite '.schema'
+sqlite3 smoke-cli.sqlite.config-dir/data/tasks.sqlite 'select id, title, attributes from tasks;'
+sqlite3 smoke-cli.sqlite.config-dir/data/tasks.sqlite 'select from_task_id, to_task_id, edge_type, attributes from task_edges;'
 ```
 
 ## Implementation boundaries

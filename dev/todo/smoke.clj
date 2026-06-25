@@ -7,7 +7,8 @@
 
 (def cli-smoke-db "smoke-cli.sqlite")
 (def repl-smoke-db "smoke-repl.sqlite")
-(def todo-bin "cli/bin/todo")
+(def todo-bin (.getAbsolutePath (java.io.File. "cli/bin/todo")))
+(def checkout-root (.getAbsolutePath (java.io.File. ".")))
 
 (defn titles [rows]
   (mapv :title rows))
@@ -46,15 +47,22 @@
 (defn delete-built-cli! []
   (delete-tree! (java.nio.file.Paths/get "cli/bin" (make-array String 0))))
 
-(defn run-process! [message command]
-  (let [process (-> (ProcessBuilder. command)
-                    (.redirectErrorStream true)
-                    (.start))
-        output (slurp (.getInputStream process))
-        exit-code (.waitFor process)]
-    (assert (= 0 exit-code)
-            (str message ": " (pr-str command) "\n" output))
-    output))
+(defn run-process!
+  ([message command]
+   (run-process! message nil nil command))
+  ([message cwd stdin command]
+   (let [builder (doto (ProcessBuilder. command)
+                   (.redirectErrorStream true))
+         _ (when cwd (.directory builder cwd))
+         process (.start builder)]
+     (when stdin
+       (with-open [writer (java.io.OutputStreamWriter. (.getOutputStream process))]
+         (.write writer stdin)))
+     (let [output (slurp (.getInputStream process))
+           exit-code (.waitFor process)]
+       (assert (= 0 exit-code)
+               (str message ": " (pr-str command) "\n" output))
+       output))))
 
 (defn build-cli! []
   (run-process! "Go CLI build succeeds" ["go" "build" "-o" "./cli/bin/todo" "./cli/cmd/todo"])
@@ -63,16 +71,24 @@
 (defn write-client-config! [db-file]
   (let [dir (.toFile (smoke-config-dir db-file))]
     (.mkdirs dir)
-    (spit (java.io.File. dir "config.json") (json/write-str {:source (.getAbsolutePath (java.io.File. ".")) :format "human"}))
-    (.getPath dir)))
+    (spit (java.io.File. dir "config.json") (json/write-str {:source checkout-root :format "human"}))
+    (.getCanonicalPath dir)))
+
+(defn outside-repo-dir []
+  (doto (java.io.File. (System/getProperty "java.io.tmpdir") "atom-smoke-outside-repo")
+    (.mkdirs)))
 
 (defn run-cli! [db-file & args]
-  (run-process! "Go CLI command succeeds" (into [todo-bin "--config-dir" (write-client-config! db-file)] args)))
+  (run-process! "Go CLI command succeeds" (outside-repo-dir) nil (into [todo-bin "--config-dir" (write-client-config! db-file)] args)))
+
+(defn run-cli-stdin! [db-file stdin & args]
+  (run-process! "Go CLI stdin command succeeds" (outside-repo-dir) stdin (into [todo-bin "--config-dir" (write-client-config! db-file)] args)))
 
 (defn start-cli-daemon!
   ([db-file] (start-cli-daemon! db-file []))
   ([db-file daemon-args]
    (let [process (-> (ProcessBuilder. (into [todo-bin "--config-dir" (write-client-config! db-file) "daemon" "start"] daemon-args))
+                     (.directory (outside-repo-dir))
                      (.redirectErrorStream true)
                      (.start))]
      (loop [attempts 50]
@@ -151,7 +167,16 @@
                          "Go CLI daemon status checks socket health")
                 (assert= (.getPath (metadata/socket-file (smoke-world db-file)))
                          (:socket_path status)
-                         "Go CLI daemon status reports socket metadata")))
+                         "Go CLI daemon status reports socket metadata")
+                (let [stdin-output (run-cli-stdin! db-file "(defquery! 'agent-owned '[:= [:attr :owner] \"agent\"])\n(count (tasks))\n(mapv :title (ready))\n" "daemon" "repl" "--stdin")]
+                  (assert-contains stdin-output "agent-owned" "Go CLI daemon repl --stdin registers daemon query state")
+                  (assert-contains stdin-output "3\n" "Go CLI daemon repl --stdin prints direct form result")
+                  (assert-contains stdin-output "[\"Write usage notes\"]" "Go CLI daemon repl --stdin has connected helper context")
+                  (assert (not (clojure.string/includes? stdin-output "\"result\""))
+                          (str "Go CLI daemon repl --stdin must not wrap output in a CLI response envelope\n" stdin-output))
+                  (assert= ["Write usage notes"]
+                           (titles (parse-json (run-cli! db-file "--format" "json" "list" "--query" "agent-owned")))
+                           "Go CLI list --query consumes daemon query state from outside the repo"))))
         (finally
           (stop-cli-daemon! db-file daemon))))
     (finally

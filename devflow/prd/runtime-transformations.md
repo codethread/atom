@@ -9,7 +9,7 @@
 
 Atom should treat persisted tasks and edges as durable facts, and treat almost everything else as runtime transformation over those facts.
 
-SQLite remains the long-term persistence layer for the task graph. The daemon is the live application core. Trusted Clojure config and REPL workflows define runtime behavior. The CLI remains a small convenience and low-privilege invocation surface for common operations and known daemon behavior. Runtime transformations require a running daemon; CLI examples in this document are daemon-mediated calls selected by `--db`, not direct SQLite access.
+SQLite remains the long-term persistence layer for the task graph. The daemon is the live application core. Trusted Clojure config and REPL workflows define runtime behavior. The CLI remains a small convenience and low-privilege invocation surface for common operations and known daemon behavior. Runtime transformations require a running daemon; CLI examples in this document are daemon-mediated calls against the selected config-dir world, not direct SQLite access.
 
 This should feel closer to Emacs than to a stateless command-line utility: start the daemon, load trusted runtime behavior, explore and refine in the REPL, and let constrained workers invoke named behavior without needing broad REPL access.
 
@@ -84,7 +84,7 @@ Trusted config or REPL registers a named query:
 CLI invokes known daemon behavior:
 
 ```sh
-clojure -M:todo --db agent.sqlite ready \
+todo ready \
   --query ready-for-repo \
   --param repo=atom
 ```
@@ -199,18 +199,20 @@ Performance should come from pushing the right work to SQLite without forcing al
 
 ## PRD-001.P10 CLI model
 
-The CLI should consume named daemon behavior rather than define it. All examples assume a matching daemon is already running for the selected `--db`; task/view commands fail loudly if daemon metadata is missing, stale, or does not match.
+The CLI should consume named daemon behavior rather than define it. All examples assume a matching daemon is already running for the selected config-dir world; task/view commands fail loudly if daemon metadata is missing, stale, or does not match.
 
 Good CLI shape:
 
 ```sh
-clojure -M:todo --db agent.sqlite ready --query ready-for-repo --param repo=atom
+todo ready --query ready-for-repo --param repo=atom
 ```
+
+Use `todo --config-dir <dir> ...` to select an explicit disposable or alternate world.
 
 Potential future CLI shape, only after view output contracts are designed:
 
 ```sh
-clojure -M:todo --db agent.sqlite view active-feature-dags --param repo=atom --param since=2026-06-01
+todo view active-feature-dags --param repo=atom --param since=2026-06-01
 ```
 
 The CLI should not become the place users load views, define functions, submit raw SQL, or persist runtime behavior.

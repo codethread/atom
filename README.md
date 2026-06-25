@@ -36,37 +36,37 @@ clojure -M:smoke
 
 The smoke path builds and removes `./cli/bin/todo` while exercising the Go CLI against the daemon JSON socket.
 
-Build and use the daemon-backed Go CLI. Start the daemon in one terminal; it stays in the foreground:
+Build and use the daemon-backed Go CLI. The default daemon world reads `~/.config/atom/config.json`; create it with an absolute `source` path to this checkout:
 
 ```sh
 go build -o ./cli/bin/todo ./cli/cmd/todo
-make open-config
-./cli/bin/todo daemon start
+TODO="$PWD/cli/bin/todo"
+mkdir -p ~/.config/atom
+printf '{"source":"%s","format":"human"}\n' "$PWD" > ~/.config/atom/config.json
+"$TODO" daemon start
 ```
 
-Run task commands from another terminal:
+Run task commands from another terminal and any working directory:
 
 ```sh
-./cli/bin/todo daemon status
-./cli/bin/todo init
-design=$(./cli/bin/todo add "Sketch model" --status done --attr priority=high)
-docs=$(./cli/bin/todo add "Write docs" --attr owner=agent)
-./cli/bin/todo update "$docs" --edge depends-on:$design
-./cli/bin/todo --format json ready
-./cli/bin/todo daemon stop
+"$TODO" daemon status
+"$TODO" init
+design=$("$TODO" add "Sketch model" --status done --attr priority=high)
+docs=$("$TODO" add "Write docs" --attr owner=agent)
+"$TODO" update "$docs" --edge depends-on:$design
+"$TODO" --format json ready
+"$TODO" daemon stop
 ```
 
-Task commands connect to the matching daemon selected by client config; start the daemon first and stop it when finished.
+Use `--config-dir <dir>` for a disposable alternate daemon world; its config lives in `<dir>/config.json`, runtime state in `<dir>/state`, and data in `<dir>/data`.
 
-Use the REPL helpers against a running daemon (started in another terminal):
+Use the connected helper REPL against a running daemon:
 
 ```sh
-./cli/bin/todo daemon start
+"$TODO" daemon repl
 ```
 
 ```clojure
-(require '[todo.repl :refer :all])
-(open! "agent.sqlite")
 (init!)
 (def design (:id (task! "Sketch model" "done" {:priority "high"})))
 (def docs (:id (task! "Write docs" {:owner "agent"})))
@@ -75,11 +75,17 @@ Use the REPL helpers against a running daemon (started in another terminal):
 (ready)
 ```
 
-Named queries live in daemon memory for the current daemon lifetime. Load them from trusted daemon config or REPL helpers such as `defquery!` / `load-queries!`, then consume them from either REPL helpers or the small CLI surface:
+Agents can run trusted non-interactive forms through the same connected context. `--stdin` prints direct Clojure results, one per top-level form, with no CLI response envelope:
 
 ```sh
-./cli/bin/todo --format json list --query agent-owned
-./cli/bin/todo daemon stop
+printf '(ready)\n' | "$TODO" daemon repl --stdin
+```
+
+Named queries live in daemon memory for the current daemon lifetime. Load them from trusted `init.clj` in the selected config-dir or REPL helpers such as `defquery!` / `load-queries!`, then consume them from either REPL helpers or the small CLI surface:
+
+```sh
+"$TODO" --format json list --query agent-owned
+"$TODO" daemon stop
 ```
 
 The registry is not saved to SQLite; restart the daemon and reload trusted config/REPL query definitions when needed. The CLI intentionally has no `--query-file` loader so runtime customization stays daemon/REPL-owned, matching the daemon-core design described in [Devflow Philosophy](./devflow/PHILOSOPHY.md).

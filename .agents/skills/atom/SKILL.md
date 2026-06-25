@@ -9,28 +9,38 @@ Atom supports a small EDN query DSL for filtering tasks. Use it with `list` and 
 
 ## CLI
 
-Ad hoc query:
+The public CLI consumes named queries already loaded into daemon memory. Start the daemon for the selected config-dir world before running task/query commands.
 
 ```sh
-clojure -M:todo --db todo.sqlite --format edn list --where '[:= [:attr :owner] "agent"]'
-```
-
-Named parameterized query already loaded into daemon memory:
-
-```sh
-clojure -M:todo --db todo.sqlite --format edn ready \
+todo --format json ready \
   --query owned-open \
   --param owner=agent
 ```
 
+Use `--config-dir <dir>` for a disposable or feature-local daemon world:
+
+```sh
+todo --config-dir "$world" --format json list --query owned-open --param owner=agent
+```
+
 ## REPL
 
+Use the connected helper REPL to load or define queries in the selected daemon world:
+
+```sh
+todo daemon repl
+```
+
 ```clojure
-(require '[todo.repl :refer :all])
-(open! "todo.sqlite")
 (load-queries! "queries.edn")
 (query 'owned-open {:owner "agent"})
 (ready 'owned-open {:owner "agent"})
+```
+
+Agents can do the same non-interactively through direct Clojure stdin output:
+
+```sh
+printf '(load-queries! "queries.edn")\n(ready '\''owned-open {:owner "agent"})\n' | todo daemon repl --stdin
 ```
 
 Define a query at runtime:
