@@ -120,3 +120,7 @@ Audited root specs and the archived `user-daemon-home` plan after shipment. `CLI
 ### RPS-PLAN-001.DN6 Final plugin API council adjustments — 2026-06-25
 
 Final council supported the MVP and recommended tightening the API before implementation. Updated the plan/specs/tasks so `load-plugin!` returns recorded metadata, `atom-plugin.edn` requires `:format-version 1`, plugin metadata uses explicit unqualified keys with unknown keys rejected, loader-owned source facts are recorded separately, relative paths resolve against the daemon's selected config-dir, plugin init should not self-register loader-owned metadata, `use-defaults!` must document and return useful MVP state, and prelude should expose at least the plugin helper conveniences if shipped.
+
+### RPS-PLAN-001.DN7 Plugin contract spec finalization — 2026-06-25
+
+Tightened feature-local deltas without implementation changes: clarified blessed alpha namespaces as maintained recommendations rather than restrictions, made user autonomy and compatibility costs explicit, pinned `atom.*.alpha` namespace names, specified relative plugin path resolution against selected config-dir rather than shell cwd, and kept git/package/dependency/classpath work deferred.

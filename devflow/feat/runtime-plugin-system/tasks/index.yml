@@ -7,7 +7,7 @@ tasks:
   - id: 2
     description: Plugin contract specs
     task_file: tasks/002-plugin-contract-specs.md
-    status: pending
+    status: complete
     blocked_by: [1]
   - id: 3
     description: Plugin metadata registry
