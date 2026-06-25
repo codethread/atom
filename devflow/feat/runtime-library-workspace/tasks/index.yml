@@ -27,7 +27,7 @@ tasks:
   - id: 6
     description: Docs and smoke workflow
     task_file: tasks/006-docs-and-smoke-workflow.md
-    status: pending
+    status: complete
     blocked_by: [5]
   - id: 7
     description: Promote specs and validate

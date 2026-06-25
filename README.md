@@ -92,31 +92,46 @@ The registry is not saved to SQLite; restart the daemon and reload trusted confi
 
 ## Runtime libraries and startup config
 
-Atom is not core-only: trusted runtime customization belongs in the selected daemon world's `init.clj` and connected REPL workflows. The blessed extension path is a normal Clojure library workspace: approve local roots in `libs.edn`, sync them into the daemon, then activate optional modules with `atom.libs.alpha/use!`.
+Atom is not core-only: trusted runtime customization belongs in the selected daemon world's `init.clj` and connected REPL workflows. The selected `--config-dir` is also a user-owned library workspace. Keep the Atom checkout wherever `config.json` `source` points, then keep user/community source under the config-dir by Git repo, Git submodule, or manual copy. Atom does not clone source, install packages, or expose plugin/package/library activation commands in the public CLI.
+
+The blessed extension path is normal Clojure libraries: approve local roots in `libs.edn`, sync them into the daemon, then activate optional modules with `atom.libs.alpha/use!`.
+
+```clojure
+;; <config-dir>/libs.edn
+{:libs {community/graph {:local/root "libs/community-graph"}
+        my/config       {:local/root "/absolute/path/to/my-config-lib"}}}
+```
+
+Relative roots resolve against the selected config-dir; absolute roots are explicit user-approved paths. Roots are canonicalized, so symlinks and relative segments normalize before sync. Each local root should be a tools.deps project root, for example with its own `deps.edn` and `src` directory.
+
+A resilient `init.clj` can be mostly layered `use!` calls:
 
 ```clojure
 (require '[atom.libs.alpha :as libs])
 
 (libs/sync!)
-(libs/use! :my/module
-  {:ns 'my.module.alpha
-   :libs #{'my/module}
-   :call 'my.module.alpha/install!})
+
+(libs/use! :graph
+  {:ns 'community.graph.alpha
+   :libs #{'community/graph}
+   :call 'community.graph.alpha/install!})
+
+(libs/use! :my/config
+  {:ns 'my.config.alpha
+   :libs #{'my/config}
+   :after [:graph]
+   :call 'my.config.alpha/install!})
 ```
 
-A minimal `libs.edn` lives in the selected config-dir:
-
-```clojure
-{:libs {my/module {:local/root "libs/my-module"}}}
-```
-
-Relative roots resolve against the selected config-dir. Source acquisition is user-owned: clone, copy, or use Git submodules before daemon startup. Atom does not install packages, fetch source, or expose package commands in the public CLI.
+`use!` records loaded, skipped, and failed attempts for fix-forward inspection. Optional modules with missing roots or unmet `:after` gates skip without bricking daemon startup; malformed options and strict raw `require` still fail loudly when that is what you want.
 
 Inspect approved libraries, sync outcomes, and module-use state through the connected REPL or non-interactive stdin:
 
 ```sh
-printf '(require '\''[atom.libs.alpha :as libs])\n(libs/approved)\n(libs/syncs)\n(libs/uses)\n' | "$TODO" daemon repl --stdin
+printf '(require '\''[atom.libs.alpha :as libs])\n(libs/approved)\n(libs/sync!)\n(libs/syncs)\n(libs/uses)\n' | "$TODO" daemon repl --stdin
 ```
+
+REPL process boundaries matter: `libs/sync!` mutates the daemon JVM classpath, and `libs/use!` runs daemon-side activation. A direct `require` typed into a connected helper REPL uses that helper JVM's classpath, not newly synced daemon libraries. Use daemon-routed helpers for daemon-side activation, or put required daemon startup code in `init.clj`.
 
 Coupling tiers are explicit. Blessed `atom.*.alpha` namespaces are the documented, tested path for startup and REPL workflows. Supported lower-level libraries are available to trusted code when the coupling cost is worth it. Internal implementation namespaces are inspectable and callable, but may change freely. Raw SQLite/schema access is also allowed for trusted code, with the caller owning compatibility risk when persistence details change.
 

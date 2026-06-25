@@ -88,6 +88,8 @@ printf '(ready)\n' | ./cli/bin/todo --config-dir "$world" daemon repl --stdin
 
 Named queries are daemon-lifetime runtime state: register or load them through trusted daemon config or REPL helpers (`defquery!`, `load-queries!`), inspect them with `queries`, then consume them from either REPL helpers or CLI commands such as `list --query agent-owned`. They disappear when the daemon stops; the CLI does not accept `--query-file` because runtime customization belongs in daemon/REPL workflows rather than the low-privilege CLI.
 
+For config-dir library workspace workflows (`libs.edn`, `atom.libs.alpha/sync!`, layered `use!`, and helper-REPL classpath boundaries), follow [README.md](./README.md#runtime-libraries-and-startup-config). There are intentionally no plugin/package CLI commands.
+
 ```sh
 ./cli/bin/todo --config-dir "$world" daemon status
 ./cli/bin/todo --config-dir "$world" daemon stop

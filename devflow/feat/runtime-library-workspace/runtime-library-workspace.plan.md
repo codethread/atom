@@ -147,3 +147,7 @@ Deep review tightened `use!` around the published workspace contract: `:file` no
 ### RLW-PLAN-001.DN10 Remove plugin public surface — 2026-06-25
 
 Removed the public `atom.plugin.alpha` namespace, daemon API plugin metadata/loader operations, connected-client plugin operation routing, and daemon plugin registry state. A later YAGNI pass removed the now-empty `atom.bootstrap.alpha/use-defaults!` surface entirely and kept `atom.prelude.alpha` as a thin `atom.libs.alpha` convenience namespace. Root docs/specs and smoke coverage now present `libs.edn`, `sync!`, and `use!` as the public extension path.
+
+### RLW-PLAN-001.DN11 Docs and smoke workflow — 2026-06-25
+
+Expanded README guidance around config-dir as a Git/submodule/manual-copy library workspace, `libs.edn` local-root approval, canonicalized relative/absolute roots, layered `use!`, fix-forward introspection, and the connected-helper-REPL classpath boundary; AGENTS now links to that single narrative to avoid drift. Smoke now boots a disposable world with a local tools.deps root, layered daemon-side module activation, connected REPL sync/use introspection, and an optional missing local root that records failed sync/skipped use state without preventing daemon startup.

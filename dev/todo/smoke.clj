@@ -1,5 +1,6 @@
 (ns todo.smoke
   (:require [clojure.data.json :as json]
+            [clojure.edn :as edn]
             [clojure.string]
             [todo.daemon.metadata :as metadata]
             [todo.daemon.runtime :as runtime]
@@ -82,11 +83,14 @@
     (.mkdirs src-dir)
     (spit (java.io.File. lib-dir "deps.edn") "{:paths [\"src\"]}\n")
     (spit (java.io.File. src-dir "lib.clj")
-          (str "(ns smoke.lib)\n(defn install! [] (spit " (pr-str (.getCanonicalPath marker)) " \"loaded\") :ok)\n"))
+          "(ns smoke.lib)\n(defn value [] :base)\n")
+    (spit (java.io.File. src-dir "layer.clj")
+          (str "(ns smoke.layer\n  (:require [smoke.lib :as base]))\n"
+               "(defn install! [] (spit " (pr-str (.getCanonicalPath marker)) " (str (name (base/value)) \" layered\")) :layered)\n"))
     (spit (java.io.File. config-dir "libs.edn")
-          "{:libs {smoke/lib {:local/root \"libs/smoke-lib\"}}}\n")
+          "{:libs {smoke/lib {:local/root \"libs/smoke-lib\"}\n        smoke/missing {:local/root \"libs/missing-lib\"}}}\n")
     (spit (java.io.File. config-dir "init.clj")
-          "(require '[atom.libs.alpha :as libs])\n(libs/sync!)\n(libs/use! :smoke/lib {:ns 'smoke.lib :libs #{'smoke/lib} :call 'smoke.lib/install!})\n")
+          "(require '[atom.libs.alpha :as libs])\n(libs/sync!)\n(libs/use! :smoke/lib {:ns 'smoke.lib :libs #{'smoke/lib}})\n(libs/use! :smoke/layer {:ns 'smoke.layer :libs #{'smoke/lib} :after [:smoke/lib] :call 'smoke.layer/install!})\n(libs/use! :smoke/optional-missing {:ns 'smoke.missing :libs #{'smoke/missing}})\n")
     (.getCanonicalPath marker)))
 
 (defn outside-repo-dir []
@@ -161,7 +165,7 @@
     (let [marker (write-library-startup-config! db-file)
           daemon (start-cli-daemon! db-file)]
       (try
-        (assert= "loaded" (slurp marker) "selected config-dir init.clj activates local library during daemon startup")
+        (assert= "base layered" (slurp marker) "selected config-dir init.clj activates layered local library during daemon startup")
         (run-cli! db-file "init")
             (let [design (cli-add! db-file "Sketch task graph model" "--status" "done" "--attr" "priority=high")
                   schema (cli-add! db-file "Create SQLite schema" "--attr" "priority=high")
@@ -185,12 +189,16 @@
                 (assert= (.getPath (metadata/socket-file (smoke-world db-file)))
                          (:socket_path status)
                          "Go CLI daemon status reports socket metadata")
-                (let [stdin-output (run-cli-stdin! db-file "(require '[atom.libs.alpha :as libs])\n(defquery! 'agent-owned '[:= [:attr :owner] \"agent\"])\n(count (tasks))\n(mapv :title (ready))\n(libs/syncs)\n(libs/use :smoke/lib)\n" "daemon" "repl" "--stdin")]
-                  (assert-contains stdin-output "agent-owned" "Go CLI daemon repl --stdin registers daemon query state")
-                  (assert-contains stdin-output "3\n" "Go CLI daemon repl --stdin prints direct form result")
-                  (assert-contains stdin-output "[\"Write usage notes\"]" "Go CLI daemon repl --stdin has connected helper context")
-                  (assert-contains stdin-output "smoke/lib" "Go CLI daemon repl --stdin introspects library sync and use state")
-                  (assert-contains stdin-output ":status :loaded" "Go CLI daemon repl --stdin sees loaded module use state")
+                (let [stdin-output (run-cli-stdin! db-file "(do\n  (require '[atom.libs.alpha :as libs])\n  (defquery! 'agent-owned '[:= [:attr :owner] \"agent\"])\n  {:task-count (count (tasks))\n   :ready-titles (mapv :title (ready))\n   :syncs (libs/syncs)\n   :base (libs/use :smoke/lib)\n   :layer (libs/use :smoke/layer)\n   :optional (libs/use :smoke/optional-missing)})\n" "daemon" "repl" "--stdin")
+                      payload (edn/read-string stdin-output)]
+                  (assert= 3 (:task-count payload) "Go CLI daemon repl --stdin prints direct form result")
+                  (assert= ["Write usage notes"] (:ready-titles payload) "Go CLI daemon repl --stdin has connected helper context")
+                  (assert= :loaded (get-in payload [:syncs :libs 'smoke/lib :status]) "Go CLI daemon repl --stdin introspects loaded library sync state")
+                  (assert= :failed (get-in payload [:syncs :libs 'smoke/missing :status]) "Go CLI daemon repl --stdin introspects missing library sync failure")
+                  (assert= :loaded (get-in payload [:base :status]) "Go CLI daemon repl --stdin sees base module use state")
+                  (assert= :loaded (get-in payload [:layer :status]) "Go CLI daemon repl --stdin sees layered module use state")
+                  (assert= :layered (get-in payload [:layer :call :return]) "Go CLI daemon repl --stdin sees layered module call result")
+                  (assert= :skipped (get-in payload [:optional :status]) "Go CLI daemon repl --stdin sees optional missing module skipped without bricking startup")
                   (assert (not (clojure.string/includes? stdin-output "\"result\""))
                           (str "Go CLI daemon repl --stdin must not wrap output in a CLI response envelope\n" stdin-output))
                   (assert= ["Write usage notes"]
