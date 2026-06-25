@@ -10,7 +10,7 @@ It exists to give coding agents and humans a lightweight local task graph:
 - `task_edges` stores acyclic graph relationships used by task updates, including `depends-on` for readiness;
 - agents can use a stripped scriptable CLI or compact REPL API.
 
-For contributor, debugging, and implementation guidance, see [AGENTS.md](./AGENTS.md). For durable behavior contracts, see the [Devflow spec index](./devflow/README.md#root-specs).
+For contributor, debugging, and implementation guidance, see [AGENTS.md](./AGENTS.md). For durable behavior contracts, see the [Devflow spec index](./devflow/README.md#root-specs); for the daemon/REPL/CLI design mental model, see [Devflow Philosophy](./devflow/PHILOSOPHY.md).
 
 ## Requirements
 

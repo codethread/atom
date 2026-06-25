@@ -2,6 +2,8 @@
 
 This file is for coding agents and contributors who are building, debugging, or extending the project.
 
+Design philosophy: this tool is daemon-core-first, closer to Emacs than a stateless CLI. Runtime customization belongs in trusted daemon config and REPL workflows; the CLI stays small for common/scripted operations and low-privilege workers. See [Devflow Philosophy](./devflow/PHILOSOPHY.md).
+
 Canonical shipped contracts live in root specs:
 
 - [Task Model](./devflow/specs/task-model.md): task records, JSON attributes, edge semantics, and readiness rules.

@@ -1,0 +1,21 @@
+tasks:
+  - id: 1
+    description: daemon query registry API
+    task_file: tasks/001-daemon-query-registry-api.md
+    status: pending
+    blocked_by: []
+  - id: 2
+    description: cli named query consumption
+    task_file: tasks/002-cli-query-registry-workflow.md
+    status: pending
+    blocked_by: [1]
+  - id: 3
+    description: repl daemon query registry
+    task_file: tasks/003-repl-daemon-query-registry.md
+    status: pending
+    blocked_by: [1]
+  - id: 4
+    description: cross surface validation docs
+    task_file: tasks/004-cross-surface-validation-docs.md
+    status: pending
+    blocked_by: [2, 3]

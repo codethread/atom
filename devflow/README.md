@@ -2,7 +2,7 @@
 
 Active feature work lives under `devflow/feat/`. Root specs in `devflow/specs/` become canonical only when feature work ships.
 
-Always study [TENETS](./TENETS.md). No code, spec or idea can violate these unless explicitly stated and cited in an agreed RFC first.
+Always study [TENETS](./TENETS.md) and [PHILOSOPHY](./PHILOSOPHY.md). No code, spec or idea can violate these unless explicitly stated and cited in an agreed RFC first.
 
 ## Root specs
 
@@ -15,7 +15,7 @@ Root specs are canonical for shipped behavior:
 
 ## Active features
 
-None.
+- `daemon-query-registry` — in-memory daemon query registry managed through REPL/config workflows and consumed by CLI named queries.
 
 ## Archived features
 
