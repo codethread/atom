@@ -2,13 +2,13 @@
 
 **Document ID:** `SPEC-002`
 **Status:** Implemented
-**Last Updated:** 2026-06-24
+**Last Updated:** 2026-06-25
 **Related RFCs:** [RFC-002 Task Query DSL](../rfcs/2026-06-24-task-query-dsl.md)
 **Code:** `src/todo/cli.clj`
 
 ## SPEC-002.P1 Purpose
 
-The CLI is the primary scripted interface for coding agents. It exposes a deliberately small task surface: initialize storage, create tasks, update tasks, inspect tasks, list tasks, and ask for ready work.
+The CLI is the primary scripted interface for coding agents. It exposes a deliberately small task surface: initialize storage, create tasks, update tasks, inspect tasks, list tasks, ask for ready work, and manage the local daemon runtime.
 
 ## SPEC-002.P2 Interface
 
@@ -27,11 +27,14 @@ update <id> [--title title] [--status todo|done|failed|cancelled] [--attr key=va
 show <id>
 list [--where EDN | --query name --query-file path] [--param key=value ...]
 ready [--where EDN | --query name --query-file path] [--param key=value ...]
+daemon start [--config <path>]
+daemon stop
+daemon status
 ```
 
 ## SPEC-002.P3 Contracts
 
-- **SPEC-002.C1:** `--db` selects the SQLite database path and defaults to `todo.sqlite`.
+- **SPEC-002.C1:** `--db` selects the daemon/database runtime identity and defaults to `todo.sqlite`; task commands require a matching reachable daemon and do not silently open SQLite directly.
 - **SPEC-002.C2:** `--format` accepts `human`, `edn`, or `json` and defaults to `human`.
 - **SPEC-002.C3:** `add` creates a task with generated id, first-class status, timestamps, and string-valued CLI attributes.
 - **SPEC-002.C4:** `update` patches title, status, attributes, and task edges for one existing task.
@@ -41,7 +44,8 @@ ready [--where EDN | --query name --query-file path] [--param key=value ...]
 - **SPEC-002.C8:** `list` and `ready` accept an optional EDN query expression with `--where`.
 - **SPEC-002.C9:** `list` and `ready` accept an optional named query from an EDN query file with `--query-file`, `--query`, and repeated string-valued `--param key=value` runtime parameters.
 - **SPEC-002.C10:** `--where` and `--query` are mutually exclusive; `--query` requires `--query-file`; malformed query expressions or missing parameters fail non-zero.
-- **SPEC-002.C11:** Malformed options, invalid statuses, invalid edge targets, unknown commands, and database/domain errors fail non-zero.
+- **SPEC-002.C11:** Malformed options, invalid statuses, invalid edge targets, unknown commands, daemon transport/identity failures, and database/domain errors fail non-zero.
+- **SPEC-002.C12:** `daemon start`, `daemon stop`, and `daemon status` manage the local daemon lifecycle for the selected database; `daemon status` respects `--format` and reports health, canonical database path, pid, endpoint, and daemon identity. `daemon start --config <path>` loads a trusted startup EDN config supporting only `{:load-files ["trusted.clj"]}` and fails before publishing runtime metadata if config or trusted code loading fails.
 
 ## SPEC-002.P4 Deferred
 

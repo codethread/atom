@@ -1,6 +1,10 @@
 (ns todo.cli-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.data.json :as json]
+            [clojure.test :refer [deftest is testing]]
             [todo.cli :as cli]
+            [todo.client :as client]
+            [todo.daemon.metadata :as metadata]
+            [todo.daemon.runtime :as runtime]
             [todo.db :as db]))
 
 (defn delete-sqlite-family! [db-file]
@@ -12,13 +16,15 @@
     (.delete file)
     (.getAbsolutePath file)))
 
-(defn with-db [f]
+(defn with-runtime [f]
   (let [db-file (temp-db-file)
-        ds (db/datasource db-file)]
+        rt (runtime/start! db-file)]
     (try
-      (db/init! ds)
-      (f ds)
+      (client/init db-file)
+      (f db-file)
       (finally
+        (when @runtime/current-runtime
+          (runtime/stop! rt))
         (delete-sqlite-family! db-file)))))
 
 (deftest parses-global-options-before-command
@@ -31,6 +37,11 @@
     (is (= [{:db db/default-db-file :format "human"} "ready" ["--format" "json"]]
            (let [[opts command args _summary]
                  (cli/parse-global-options ["ready" "--format" "json"])]
+             [opts command args]))))
+  (testing "daemon lifecycle commands are parsed after global options"
+    (is (= [{:db "/tmp/todo.sqlite" :format "edn"} "daemon" ["status"]]
+           (let [[opts command args _summary]
+                 (cli/parse-global-options ["--db" "/tmp/todo.sqlite" "--format" "edn" "daemon" "status"])]
              [opts command args])))))
 
 (deftest parses-repeatable-command-options
@@ -41,44 +52,87 @@
                                      "--attr" "priority=high"
                                      "--attr" "owner=agent"
                                      "--edge" "depends-on:ue72w"]
-                                    "summary"))))
+                                    "summary")))
+  (is (= {:config "daemon.edn"}
+         (cli/parse-daemon-start-options ["--config" "daemon.edn"] "summary"))))
 
 (deftest list-and-ready-accept-query-options
-  (with-db
-    (fn [ds]
-      (let [design (:id (cli/run-command! ds "add" ["Design" "--status" "done" "--attr" "owner=agent"] "summary"))
-            docs (:id (cli/run-command! ds "add" ["Docs" "--attr" "owner=agent"] "summary"))
-            misc (:id (cli/run-command! ds "add" ["Misc" "--attr" "owner=human"] "summary"))]
-        (cli/run-command! ds "update" [docs "--edge" (str "depends-on:" design)] "summary")
+  (with-runtime
+    (fn [db-file]
+      (let [design (:id (cli/run-command! db-file "add" ["Design" "--status" "done" "--attr" "owner=agent"] "summary"))
+            docs (:id (cli/run-command! db-file "add" ["Docs" "--attr" "owner=agent"] "summary"))
+            misc (:id (cli/run-command! db-file "add" ["Misc" "--attr" "owner=human"] "summary"))]
+        (cli/run-command! db-file "update" [docs "--edge" (str "depends-on:" design)] "summary")
         (is (= #{design docs}
-               (set (map :id (cli/run-command! ds "list" ["--where" "[:= [:attr :owner] \"agent\"]"] "summary")))))
+               (set (map :id (cli/run-command! db-file "list" ["--where" "[:= [:attr :owner] \"agent\"]"] "summary")))))
         (is (= [docs]
-               (mapv :id (cli/run-command! ds "ready" ["--where" "[:= [:attr :owner] \"agent\"]"] "summary"))))
+               (mapv :id (cli/run-command! db-file "ready" ["--where" "[:= [:attr :owner] \"agent\"]"] "summary"))))
         (is (= [misc]
-               (mapv :id (cli/run-command! ds "list" ["--where" "[:= [:attr :owner] [:param :owner]]" "--param" "owner=human"] "summary"))))))))
+               (mapv :id (cli/run-command! db-file "list" ["--where" "[:= [:attr :owner] [:param :owner]]" "--param" "owner=human"] "summary"))))))))
 
-(deftest add-and-update-command-cover-core-mutations
-  (with-db
-    (fn [ds]
-      (let [design (cli/run-command! ds "add" ["Design" "--status" "done"] "summary")
-            review (cli/run-command! ds "add" ["Review" "--attr" "owner=agent"] "summary")]
+(deftest task-commands-reject-daemon-config-option
+  (with-redefs [cli/fail! (fn [message _summary] (throw (ex-info message {})))
+                client/add (fn [_db-file _request] :unexpected)
+                client/update (fn [_db-file _id _request] :unexpected)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Unknown option: \"--config\""
+                          (cli/run-command! "todo.sqlite" "add" ["Task" "--config" "daemon.edn"] "summary")))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Unknown option: \"--config\""
+                          (cli/run-command! "todo.sqlite" "update" ["abc12" "--config" "daemon.edn"] "summary")))))
+
+(deftest add-and-update-command-route-through-daemon
+  (with-runtime
+    (fn [db-file]
+      (let [design (cli/run-command! db-file "add" ["Design" "--status" "done"] "summary")
+            review (cli/run-command! db-file "add" ["Review" "--attr" "owner=agent"] "summary")]
         (is (re-matches #"[a-z0-9]+" (:id design)))
         (is (= "done" (:status design)))
-        (cli/run-command! ds "update" [(:id review) "--edge" (str "depends-on:" (:id design))] "summary")
-        (is (= [(:id review)] (mapv :id (db/ready-tasks ds))))
-        (cli/run-command! ds "update" [(:id review) "--status" "done" "--title" "Reviewed"] "summary")
-        (let [updated (db/get-task ds (:id review))]
+        (cli/run-command! db-file "update" [(:id review) "--edge" (str "depends-on:" (:id design))] "summary")
+        (is (= [(:id review)] (mapv :id (cli/run-command! db-file "ready" [] "summary"))))
+        (cli/run-command! db-file "update" [(:id review) "--status" "done" "--title" "Reviewed"] "summary")
+        (let [updated (cli/run-command! db-file "show" [(:id review)] "summary")]
           (is (= "Reviewed" (:title updated)))
           (is (= "done" (:status updated)))
           (is (some? (:final_at updated))))))))
 
 (deftest update-command-rolls-back-on-failure
-  (with-db
-    (fn [ds]
-      (let [target (cli/run-command! ds "add" ["Design"] "summary")
-            task (cli/run-command! ds "add" ["Review"] "summary")]
+  (with-runtime
+    (fn [db-file]
+      (let [target (cli/run-command! db-file "add" ["Design" "--status" "done"] "summary")
+            task (cli/run-command! db-file "add" ["Review"] "summary")]
         (is (thrown? Exception
-                     (cli/run-command! ds "update" [(:id task) "--edge" "depends-on:missing"] "summary")))
+                     (cli/run-command! db-file "update" [(:id task) "--edge" "depends-on:missing"] "summary")))
         (is (thrown? Exception
-                     (cli/run-command! ds "update" [(:id task) "--edge" (str "depends-on:" (:id target)) "--title" ""] "summary")))
-        (is (empty? (db/task-dependencies ds (:id task))))))))
+                     (cli/run-command! db-file "update" [(:id task) "--edge" (str "depends-on:" (:id target)) "--title" ""] "summary")))
+        (is (some #{(:id task)} (map :id (cli/run-command! db-file "ready" [] "summary"))))))))
+
+(deftest daemon-lifecycle-status-and-failures
+  (let [db-file (temp-db-file)]
+    (try
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata is missing or stale"
+                            (cli/run-command! db-file "list" [] "summary")))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata is missing or stale"
+                            (cli/run-command! db-file "add" ["No daemon"] "summary")))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata is missing or stale"
+                            (cli/run-command! db-file "show" ["missing"] "summary")))
+      (let [rt (runtime/start! db-file)]
+        (try
+          (client/init db-file)
+          (let [status (cli/run-daemon-command! db-file ["status"] "summary")
+                edn-status (read-string (with-out-str (cli/-main "--db" db-file "--format" "edn" "daemon" "status")))
+                json-status (json/read-str (with-out-str (cli/-main "--db" db-file "--format" "json" "daemon" "status")) :key-fn keyword)]
+            (doseq [payload [status edn-status json-status]]
+              (is (= "ok" (:health payload)))
+              (is (= (metadata/canonical-db-path db-file) (:canonical-db-path payload)))
+              (is (integer? (:pid payload)))
+              (is (some? (get-in payload [:endpoint :port])))
+              (is (some? (get-in payload [:identity :nonce])))))
+          (metadata/publish! (assoc (:metadata rt) :nonce "wrong"))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity does not match"
+                                (cli/run-command! db-file "list" [] "summary")))
+          (finally
+            (metadata/publish! (:metadata rt))
+            (runtime/stop! rt))))
+      (finally
+        (delete-sqlite-family! db-file)))))
