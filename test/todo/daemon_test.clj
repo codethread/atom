@@ -7,6 +7,7 @@
             [todo.daemon.config :as daemon-config]
             [todo.daemon.metadata :as metadata]
             [todo.daemon.runtime :as runtime]
+            [todo.daemon.socket :as socket]
             [todo.db :as db]
             [todo.db-test :as db-test])
   (:import [java.io BufferedReader BufferedWriter InputStreamReader OutputStreamWriter]
@@ -35,6 +36,24 @@
          (runtime/stop! rt)
          (db-test/delete-sqlite-family! db-file)
          (delete-tree! (io/file (:config-dir world))))))))
+
+(defn test-view [{:keys [params]}]
+  {:view :test :params params})
+
+(defn replacement-view [{:keys [params]}]
+  {:view :replacement :params params})
+
+(defn write-view-lib! [config-dir lib ns-sym]
+  (let [root (io/file config-dir "libs" (name lib))
+        ns-path (-> (str ns-sym)
+                    (.replace \- \_)
+                    (.replace \. java.io.File/separatorChar))
+        src-file (io/file root "src" (str ns-path ".clj"))]
+    (.mkdirs (.getParentFile src-file))
+    (spit src-file (str "(ns " ns-sym ")\n"
+                        "(defn render [{:keys [params]}] {:lib-view params})\n"))
+    (spit (io/file root "deps.edn") "{:paths [\"src\"]}\n")
+    root))
 
 (defn socket-request [rt operation arguments]
   (let [m (:metadata rt)
@@ -117,6 +136,63 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #":in values must be a non-empty collection"
                               (api/list-query rt :owners {:owners []})))))))
+
+(deftest json-socket-public-operation-allowlist-stays-thin
+  (is (= #{"init" "add" "update" "show" "list" "ready" "list-query" "ready-query" "status" "stop"}
+         socket/allowed-operations)))
+
+(deftest daemon-runtime-transformation-primitives
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (let [agent (api/add rt {:title "Agent" :attributes {:owner "agent"}})
+            human (api/add rt {:title "Human" :attributes {:owner "human"}})
+            feature (api/add rt {:title "Feature" :attributes {:kind "feature"}})]
+        (api/update rt (:id feature) {:edges [{:type "parent-of" :to (:id agent)}
+                                              {:type "parent-of" :to (:id human)}]})
+        (api/register-query rt 'agent-owned {:params [:owner]
+                                             :where [:= [:attr :owner] [:param :owner]]})
+        (is (= [(:id agent)] (api/query-ids rt 'agent-owned {:owner "agent"})))
+        (is (= [(:id human)] (api/query-ids rt [:= [:attr :owner] "human"] {})))
+        (is (= [(:id human) (:id agent)]
+               (mapv :id (api/tasks-by-ids rt [(:id human) (:id agent) (:id human)]))))
+        (is (= [(:id feature)] (api/ancestor-root-ids rt [(:id agent)])))
+        (is (= #{(:id feature) (:id agent) (:id human)}
+               (set (map :id (:tasks (api/subgraph rt [(:id feature)]))))))))))
+
+(deftest daemon-view-registry-operations
+  (with-runtime
+    (fn [rt _]
+      (is (= {:name "daily" :fn 'todo.daemon-test/test-view}
+             (api/register-view! rt 'daily 'todo.daemon-test/test-view)))
+      (is (= [{:name "daily" :fn 'todo.daemon-test/test-view}]
+             (api/views rt)))
+      (is (= {:view :test :params {:owner "agent"}}
+             (api/view! rt :daily {:owner "agent"})))
+      (is (= {:name "daily" :fn 'todo.daemon-test/replacement-view}
+             (api/register-view! rt :daily 'todo.daemon-test/replacement-view)))
+      (is (= [{:name "daily" :fn 'todo.daemon-test/replacement-view}]
+             (api/views rt)))
+      (is (= {:view :replacement :params {}}
+             (api/view! rt 'daily {})))
+      (let [suffix (.replace (str (java.util.UUID/randomUUID)) "-" "")
+            lib (symbol (str "view-" suffix))
+            ns-sym (symbol (str "demo.view-" suffix))
+            root (write-view-lib! (get-in rt [:metadata :config-dir]) lib ns-sym)]
+        (.addURL ^clojure.lang.DynamicClassLoader (:library-classloader rt)
+                 (.toURL (.toURI (io/file root "src"))))
+        (api/register-view! rt 'synced-lib (symbol (str ns-sym) "render"))
+        (is (= {:lib-view {:from :synced}}
+               (api/view! rt 'synced-lib {:from :synced}))))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"View not found"
+                            (api/view! rt 'missing {})))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"fully qualified"
+                            (api/register-view! rt 'bad 'unqualified)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"simple symbols or keywords"
+                            (api/register-view! rt 'user/daily 'todo.daemon-test/test-view))))))
 
 (deftest daemon-query-registry-fails-clearly
   (with-runtime

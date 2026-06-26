@@ -21,6 +21,13 @@
    :resolve-query 'todo.daemon.api/resolve-query
    :list-query 'todo.daemon.api/list-query
    :ready-query 'todo.daemon.api/ready-query
+   :query-ids 'todo.daemon.api/query-ids
+   :tasks-by-ids 'todo.daemon.api/tasks-by-ids
+   :ancestor-root-ids 'todo.daemon.api/ancestor-root-ids
+   :subgraph 'todo.daemon.api/subgraph
+   :register-view! 'todo.daemon.api/register-view!
+   :view! 'todo.daemon.api/view!
+   :views 'todo.daemon.api/views
    :approved-libs 'todo.daemon.api/approved-libs
    :sync-approved-libs 'todo.daemon.api/sync-approved-libs
    :approved-lib-syncs 'todo.daemon.api/approved-lib-syncs

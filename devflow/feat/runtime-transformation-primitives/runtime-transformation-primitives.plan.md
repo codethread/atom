@@ -167,3 +167,7 @@ Finalized the MVP alpha split as two namespaces: `atom.graph.alpha` owns `query-
 ### RTP-PLAN-001.DN3 TASK-002 DB primitives — 2026-06-26
 
 Added DB-layer primitives for ad hoc query id selection, ordered duplicate-collapsing task hydration, `parent-of` ancestor root discovery, and `parent-of` subgraph expansion. Missing ids fail loudly before graph/hydration work. Graph tests cover multi-parent DAG roots and scoped internal subgraph edges. Registered query name resolution remains deferred to the daemon/helper slice as planned. After YAGNI review, ancestor traversal was kept SQL-backed rather than adding an in-memory graph walker.
+
+### RTP-PLAN-001.DN4 TASK-003 daemon registry ops — 2026-06-26
+
+Added daemon/client routing for the frozen primitive op names and a daemon-lifetime view registry. The view registry intentionally stores only serializable `{ :name string :fn symbol }` entries and resolves functions at invocation time, which supports reload workflows without holding stale function objects. JSON socket public operations remain unchanged.

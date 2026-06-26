@@ -26,6 +26,9 @@
                                         ([config-dir] (real-world config-dir)))]
       (f))))
 
+(defn client-test-view [{:keys [params]}]
+  {:client-view params})
+
 (defn with-runtime [f]
   (let [db-file (db-test/temp-db-file)
         world (temp-world)]
@@ -63,6 +66,25 @@
         (is (= {"done" [:= :status "done"]
                 "mine" query-def}
                (client/queries db-file)))))))
+
+(deftest client-routes-runtime-transformation-operations
+  (with-runtime
+    (fn [_ db-file]
+      (client/init db-file)
+      (let [agent (client/add db-file {:title "Agent" :attributes {:owner "agent"}})]
+        (is (= {"mine" [:= [:attr :owner] "agent"]}
+               (client/register-query db-file 'mine [:= [:attr :owner] "agent"])))
+        (is (= [(:id agent)] (client/call db-file {} :query-ids 'mine {})))
+        (is (= [agent] (client/call db-file {} :tasks-by-ids [(:id agent)])))
+        (is (= [] (client/call db-file {} :ancestor-root-ids [(:id agent)] {:where [:= [:attr :kind] "feature"]})))
+        (is (= {:root-ids [(:id agent)] :tasks [agent] :edges []}
+               (client/call db-file {} :subgraph [(:id agent)])))
+        (is (= {:name "client" :fn 'todo.client-test/client-test-view}
+               (client/call db-file {} :register-view! 'client 'todo.client-test/client-test-view)))
+        (is (= [{:name "client" :fn 'todo.client-test/client-test-view}]
+               (client/call db-file {} :views)))
+        (is (= {:client-view {:ok true}}
+               (client/call db-file {} :view! 'client {:ok true})))))))
 
 (deftest client-query-registry-preserves-domain-errors
   (with-runtime

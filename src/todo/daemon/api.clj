@@ -25,6 +25,8 @@
 (defn- query-registry [runtime]
   (:query-registry runtime))
 
+(defn- view-registry [runtime]
+  (:view-registry runtime))
 
 (defn- approved-lib-sync-state [runtime]
   (:approved-lib-sync-state runtime))
@@ -404,3 +406,54 @@
 
 (defn ready-query [runtime query-name params]
   (ready runtime (resolve-query runtime query-name) params))
+
+(defn query-ids [runtime query-or-name params]
+  (let [query-def (if (or (vector? query-or-name) (map? query-or-name))
+                    query-or-name
+                    (resolve-query runtime query-or-name))]
+    (db/query-task-ids (ds runtime) query-def params)))
+
+(defn tasks-by-ids [runtime ids]
+  (normalize (db/tasks-by-ids (ds runtime) ids)))
+
+(defn ancestor-root-ids
+  ([runtime seed-ids]
+   (ancestor-root-ids runtime seed-ids {}))
+  ([runtime seed-ids opts]
+   (db/ancestor-root-ids (ds runtime) seed-ids opts)))
+
+(defn subgraph [runtime root-ids]
+  (let [{:keys [tasks edges] :as result} (db/subgraph (ds runtime) root-ids)]
+    (assoc result
+           :tasks (normalize tasks)
+           :edges (normalize edges))))
+
+(defn- canonical-view-name [view-name]
+  (query/canonical-query-name view-name))
+
+(defn- validate-view-fn-symbol! [fn-sym]
+  (when-not (and (symbol? fn-sym) (namespace fn-sym))
+    (throw (ex-info "View function must be a fully qualified symbol" {:fn fn-sym})))
+  fn-sym)
+
+(defn register-view! [runtime view-name fn-sym]
+  (let [name (canonical-view-name view-name)
+        entry {:name name :fn (validate-view-fn-symbol! fn-sym)}]
+    (swap! (view-registry runtime) assoc name entry)
+    entry))
+
+(defn views [runtime]
+  (mapv val (sort-by key @(view-registry runtime))))
+
+(defn- resolve-view [runtime view-name]
+  (let [canonical-name (canonical-view-name view-name)]
+    (or (get @(view-registry runtime) canonical-name)
+        (throw (ex-info "View not found" {:view view-name
+                                           :canonical-view canonical-name
+                                           :available (sort (keys @(view-registry runtime)))})))))
+
+(defn view! [runtime view-name params]
+  (let [{fn-sym :fn} (resolve-view runtime view-name)]
+    (with-library-classloader
+      runtime
+      #((requiring-resolve fn-sym) {:params params}))))
