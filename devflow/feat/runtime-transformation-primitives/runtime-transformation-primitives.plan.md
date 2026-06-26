@@ -163,3 +163,7 @@ Started from the Runtime Transformations PRD after runtime library workspace shi
 ### RTP-PLAN-001.DN2 TASK-001 API finalization — 2026-06-26
 
 Finalized the MVP alpha split as two namespaces: `atom.graph.alpha` owns `query-ids!`, `tasks-by-ids`, `ancestor-root-ids`, and `subgraph`; `atom.views.alpha` owns `register-view!`, `view!`, and `views`. The implementation should follow the existing `atom.libs.alpha` daemon-routing style so helpers work daemon-side during trusted startup and from connected helper REPLs. The daemon operation names are frozen as `:query-ids`, `:tasks-by-ids`, `:ancestor-root-ids`, `:subgraph`, `:register-view!`, `:view!`, and `:views`. No `atom.queries.alpha` namespace is planned for the MVP; `query-ids!` remains in `atom.graph.alpha` because it is primarily an id pipeline primitive for graph expansion. `ancestor-root-ids` and `subgraph` are parent-of primitives with no `:edge-type` option; future edge types require a later explicit contract.
+
+### RTP-PLAN-001.DN3 TASK-002 DB primitives — 2026-06-26
+
+Added DB-layer primitives for ad hoc query id selection, ordered duplicate-collapsing task hydration, `parent-of` ancestor root discovery, and `parent-of` subgraph expansion. Missing ids fail loudly before graph/hydration work. Graph tests cover multi-parent DAG roots and scoped internal subgraph edges. Registered query name resolution remains deferred to the daemon/helper slice as planned. After YAGNI review, ancestor traversal was kept SQL-backed rather than adding an in-memory graph walker.

@@ -107,6 +107,87 @@
         (is (= [schema] (mapv :id (db/blocking-tasks ds design))))
         (is (= #{design schema} (set (mapv :id (db/transitive-dependencies ds docs)))))))))
 
+(deftest set-oriented-query-and-hydration-primitives
+  (with-db
+    (fn [ds]
+      (let [agent (:id (db/add-task! ds {:title "Agent" :attributes {:owner "agent"}}))
+            human (:id (db/add-task! ds {:title "Human" :attributes {:owner "human"}}))
+            other (:id (db/add-task! ds {:title "Other" :attributes {:owner "agent"}}))]
+        (testing "query-task-ids shares query compilation and stable id ordering"
+          (is (= (sort [agent other])
+                 (db/query-task-ids ds [:= [:attr :owner] "agent"])))
+          (is (= [human]
+                 (db/query-task-ids ds {:params [:owner]
+                                        :where [:= [:attr :owner] [:param :owner]]}
+                                    {:owner "human"}))))
+        (testing "tasks-by-ids preserves first occurrence order and collapses duplicates"
+          (is (= [other agent human]
+                 (mapv :id (db/tasks-by-ids ds [other agent other human agent])))))
+        (testing "tasks-by-ids handles empty input"
+          (is (= [] (db/tasks-by-ids ds []))))
+        (testing "tasks-by-ids fails loudly for missing ids"
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #"Task ids not found"
+                                (db/tasks-by-ids ds [agent "missing-task"]))))))))
+
+(deftest parent-of-ancestor-root-primitives
+  (with-db
+    (fn [ds]
+      (let [feature-a (:id (db/add-task! ds {:title "Feature A" :attributes {:kind "feature"}}))
+            feature-b (:id (db/add-task! ds {:title "Feature B" :attributes {:kind "epic"}}))
+            epic (:id (db/add-task! ds {:title "Epic" :attributes {:kind "epic"}}))
+            branch (:id (db/add-task! ds {:title "Branch" :attributes {:kind "feature"}}))
+            leaf (:id (db/add-task! ds {:title "Leaf" :attributes {:kind "task"}}))]
+        (db/add-edge! ds {:from epic :to feature-a :type "parent-of" :attributes {}})
+        (db/add-edge! ds {:from feature-a :to branch :type "parent-of" :attributes {}})
+        (db/add-edge! ds {:from feature-b :to branch :type "parent-of" :attributes {}})
+        (db/add-edge! ds {:from branch :to leaf :type "parent-of" :attributes {}})
+
+        (testing "without :where ancestor-root-ids returns graph roots across multi-parent paths"
+          (is (= (sort [epic feature-b])
+                 (db/ancestor-root-ids ds [leaf leaf]))))
+        (testing "with :where it returns topmost matching ancestors per path"
+          (is (= (sort [branch feature-a])
+                 (db/ancestor-root-ids ds [leaf]
+                                       {:where [:= [:attr :kind] "feature"]}))))
+        (testing "seed ids are depth-zero candidates"
+          (is (= [feature-a]
+                 (db/ancestor-root-ids ds [feature-a]
+                                       {:where [:= [:attr :kind] "feature"]}))))
+        (testing "ancestor-root-ids handles empty input and missing seeds"
+          (is (= [] (db/ancestor-root-ids ds [])))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #"Task ids not found"
+                                (db/ancestor-root-ids ds ["missing-seed"]))))))))
+
+(deftest parent-of-subgraph-primitive
+  (with-db
+    (fn [ds]
+      (let [root (:id (db/add-task! ds {:title "Root" :attributes {}}))
+            child-a (:id (db/add-task! ds {:title "Child A" :attributes {}}))
+            child-b (:id (db/add-task! ds {:title "Child B" :attributes {}}))
+            grandchild (:id (db/add-task! ds {:title "Grandchild" :attributes {}}))
+            outside (:id (db/add-task! ds {:title "Outside" :attributes {}}))]
+        (db/add-edge! ds {:from root :to child-a :type "parent-of" :attributes {:order "a"}})
+        (db/add-edge! ds {:from root :to child-b :type "parent-of" :attributes {:order "b"}})
+        (db/add-edge! ds {:from child-a :to grandchild :type "parent-of" :attributes {}})
+        (db/add-edge! ds {:from outside :to root :type "parent-of" :attributes {}})
+
+        (testing "subgraph includes roots, descendants, and only internal parent-of edges"
+          (let [result (db/subgraph ds [root root child-b])]
+            (is (= [root child-b] (:root-ids result)))
+            (is (= (sort [root child-a child-b grandchild])
+                   (mapv :id (:tasks result))))
+            (is (= (sort-by identity [[root child-a "parent-of"]
+                                        [root child-b "parent-of"]
+                                        [child-a grandchild "parent-of"]])
+                   (mapv (juxt :from_task_id :to_task_id :edge_type) (:edges result))))))
+        (testing "subgraph handles empty roots and missing roots"
+          (is (= {:root-ids [] :tasks [] :edges []} (db/subgraph ds [])))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #"Task ids not found"
+                                (db/subgraph ds ["missing-root"]))))))))
+
 (deftest edge-schema-validation
   (with-db
     (fn [ds]

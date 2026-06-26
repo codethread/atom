@@ -320,6 +320,129 @@
      (execute! ds (into [(str "SELECT " task-columns " FROM tasks t WHERE " sql " ORDER BY t.id")]
                        params)))))
 
+(defn query-task-ids
+  ([ds query-def]
+   (query-task-ids ds query-def {}))
+  ([ds query-def params]
+   (let [{:keys [sql params]} (query/compile-query query-def params)]
+     (mapv :id (execute! ds (into [(str "SELECT t.id FROM tasks t WHERE " sql " ORDER BY t.id")]
+                                  params))))))
+
+(defn- ordered-distinct [xs]
+  (loop [remaining xs
+         seen #{}
+         result []]
+    (if-let [items (seq remaining)]
+      (let [x (first items)]
+        (if (contains? seen x)
+          (recur (rest items) seen result)
+          (recur (rest items) (conj seen x) (conj result x))))
+      result)))
+
+(defn- placeholders [xs]
+  (str/join ", " (repeat (count xs) "?")))
+
+(defn- require-existing-task-ids! [ds ids context]
+  (let [ids (ordered-distinct ids)]
+    (when (seq ids)
+      (let [found (set (map :id (execute! ds (into [(str "SELECT id FROM tasks WHERE id IN (" (placeholders ids) ")")]
+                                                ids))))
+            missing (vec (remove found ids))]
+        (when (seq missing)
+          (throw (ex-info "Task ids not found" {:context context :missing missing})))))
+    ids))
+
+(defn tasks-by-ids [ds ids]
+  (let [ids (require-existing-task-ids! ds ids :tasks-by-ids)]
+    (if (empty? ids)
+      []
+      (let [rows-by-id (into {}
+                             (map (juxt :id identity))
+                             (execute! ds (into [(str "SELECT " task-columns " FROM tasks WHERE id IN (" (placeholders ids) ")")]
+                                                ids)))]
+        (mapv rows-by-id ids)))))
+
+(defn ancestor-root-ids
+  ([ds seed-ids]
+   (ancestor-root-ids ds seed-ids {}))
+  ([ds seed-ids {:keys [where params]}]
+   (let [seed-ids (require-existing-task-ids! ds seed-ids :ancestor-root-ids)]
+     (if (empty? seed-ids)
+       []
+       (if where
+         (let [{where-sql :sql where-params :params} (query/compile-query where (or params {}))]
+           (mapv :id
+                 (execute! ds (into [(str "WITH RECURSIVE paths(id, candidate_id) AS (
+                                           SELECT t.id,
+                                                  CASE WHEN " where-sql " THEN t.id ELSE NULL END
+                                           FROM tasks t
+                                           WHERE t.id IN (" (placeholders seed-ids) ")
+                                         UNION ALL
+                                           SELECT t.id,
+                                                  CASE WHEN " where-sql " THEN t.id ELSE paths.candidate_id END
+                                           FROM paths
+                                           JOIN task_edges e ON e.to_task_id = paths.id
+                                           JOIN tasks t ON t.id = e.from_task_id
+                                           WHERE e.edge_type = 'parent-of'
+                                         )
+                                         SELECT DISTINCT candidate_id AS id
+                                         FROM paths
+                                         WHERE candidate_id IS NOT NULL
+                                           AND NOT EXISTS (
+                                             SELECT 1
+                                             FROM task_edges e
+                                             WHERE e.to_task_id = paths.id
+                                               AND e.edge_type = 'parent-of'
+                                           )
+                                         ORDER BY id")]
+                                    (concat where-params seed-ids where-params)))))
+         (mapv :id
+               (execute! ds (into [(str "WITH RECURSIVE ancestors(id) AS (
+                                         SELECT id FROM tasks WHERE id IN (" (placeholders seed-ids) ")
+                                       UNION
+                                         SELECT e.from_task_id
+                                         FROM ancestors a
+                                         JOIN task_edges e ON e.to_task_id = a.id
+                                         WHERE e.edge_type = 'parent-of'
+                                       )
+                                       SELECT a.id
+                                       FROM ancestors a
+                                       WHERE NOT EXISTS (
+                                         SELECT 1
+                                         FROM task_edges e
+                                         WHERE e.to_task_id = a.id AND e.edge_type = 'parent-of'
+                                       )
+                                       ORDER BY a.id")]
+                                  seed-ids))))))))
+
+(defn subgraph [ds root-ids]
+  (let [root-ids (require-existing-task-ids! ds root-ids :subgraph)]
+    (if (empty? root-ids)
+      {:root-ids [] :tasks [] :edges []}
+      (let [cte (str "WITH RECURSIVE nodes(id) AS (
+                       SELECT id FROM tasks WHERE id IN (" (placeholders root-ids) ")
+                     UNION
+                       SELECT e.to_task_id
+                       FROM nodes n
+                       JOIN task_edges e ON e.from_task_id = n.id
+                       WHERE e.edge_type = 'parent-of'
+                     )")]
+        {:root-ids root-ids
+         :tasks (execute! ds (into [(str cte "
+                                      SELECT " task-columns "
+                                      FROM tasks
+                                      WHERE id IN (SELECT id FROM nodes)
+                                      ORDER BY id")]
+                                  root-ids))
+         :edges (execute! ds (into [(str cte "
+                                      SELECT e.from_task_id, e.to_task_id, e.edge_type, e.attributes
+                                      FROM task_edges e
+                                      WHERE e.edge_type = 'parent-of'
+                                        AND e.from_task_id IN (SELECT id FROM nodes)
+                                        AND e.to_task_id IN (SELECT id FROM nodes)
+                                      ORDER BY e.from_task_id, e.to_task_id, e.edge_type")]
+                                  root-ids))}))))
+
 (defn all-tasks
   ([ds]
    (execute! ds [(str "SELECT " task-columns " FROM tasks ORDER BY id")]))
