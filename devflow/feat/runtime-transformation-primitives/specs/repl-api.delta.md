@@ -1,7 +1,7 @@
 # REPL API Delta: Runtime Transformation Primitives
 
 **Document ID:** `SPEC-003-D002`
-**Status:** Draft
+**Status:** Merged into root spec
 **Base Spec:** [REPL API](../../../specs/repl-api.md)
 **Last Updated:** 2026-06-26
 

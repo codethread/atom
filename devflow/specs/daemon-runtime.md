@@ -2,7 +2,7 @@
 
 **Document ID:** `SPEC-004`
 **Status:** Implemented
-**Last Updated:** 2026-06-25
+**Last Updated:** 2026-06-26
 **Related RFCs:** [RFC-002 Task Query DSL](../rfcs/2026-06-24-task-query-dsl.md), [RFC-003 Fast JSON Socket CLI](../archive/26-06-25__go-cli-migration/rfcs/2026-06-25-fast-json-socket-cli.md), [RFC-004 Go CLI Migration](../archive/26-06-25__go-cli-migration/rfcs/2026-06-25-go-cli-migration.md)
 **Code:** `src/todo/daemon`, `src/todo/client`, `cli/`
 
@@ -12,7 +12,7 @@ The daemon runtime is the long-lived local Clojure process that owns task storag
 
 ## SPEC-004.P2 Runtime model
 
-- **SPEC-004.C1:** A daemon owns exactly one active SQLite datasource, one in-memory named-query registry, one in-memory approved-library sync state, and one in-memory module-use registry for its lifetime.
+- **SPEC-004.C1:** A daemon owns exactly one active SQLite datasource, one in-memory named-query registry, one in-memory read-only view registry, one in-memory approved-library sync state, and one in-memory module-use registry for its lifetime.
 - **SPEC-004.C2:** A daemon exposes two local transports: nREPL for Clojure REPL/client workflows and a JSON Unix domain socket for the public Go CLI.
 - **SPEC-004.C3:** Transports are local-only by default: nREPL binds to loopback, and the JSON CLI transport uses a Unix domain socket under the selected runtime state directory.
 - **SPEC-004.C4:** A daemon world is selected by config-dir. The default config-dir is `$XDG_CONFIG_HOME/atom` or `~/.config/atom`; an explicit config-dir override selects a separate world.
@@ -33,7 +33,7 @@ The daemon runtime is the long-lived local Clojure process that owns task storag
 ## SPEC-004.P4 API boundary
 
 - **SPEC-004.C15:** `todo.daemon.api` is the semantic boundary used by clients. Transport-specific eval strings, JSON envelopes, nREPL messages, and wire details are not the durable product API.
-- **SPEC-004.C16:** Daemon API operations cover the current stripped task surface and trusted runtime state helpers: initialize storage, add task, update task, show task, list tasks, ready tasks, register one named query, load named queries, list registered query definitions, resolve a named query, execute list/ready through a named query, read approved library config, sync approved libraries, inspect approved-library sync state, activate one module with `use!`, and inspect module-use state.
+- **SPEC-004.C16:** Daemon API operations cover the current stripped task surface and trusted runtime state helpers: initialize storage, add task, update task, show task, list tasks, ready tasks, register one named query, load named queries, list registered query definitions, resolve a named query, execute list/ready through a named query, read approved library config, sync approved libraries, inspect approved-library sync state, activate one module with `use!`, inspect module-use state, execute set-oriented runtime transformation primitives (`query-ids`, `tasks-by-ids`, `ancestor-root-ids`, and `subgraph`), and register/list/invoke daemon-memory views.
 - **SPEC-004.C17:** Daemon API return values are Clojure data with JSON-bearing database columns normalized before transport-specific formatting.
 - **SPEC-004.C18:** Daemon API failures preserve domain error information well enough for clients to exit non-zero with useful messages.
 
@@ -50,7 +50,7 @@ The daemon runtime is the long-lived local Clojure process that owns task storag
 - **SPEC-004.C24:** JSON socket responses include protocol version, request id, success flag, result on success, and a structured error envelope on failure. Error types distinguish domain, protocol, and transport failures.
 - **SPEC-004.C25:** The JSON transport dispatches to daemon semantic operations rather than duplicating SQL or query logic in transport handlers.
 - **SPEC-004.C26:** The JSON socket operation allowlist is limited to public CLI behavior: `init`, `add`, `update`, `show`, `list`, `ready`, `list-query`, `ready-query`, `status`, and `stop`.
-- **SPEC-004.C27:** Query registry mutation/listing/inspection operations are intentionally excluded from the JSON socket allowlist; those remain REPL/trusted config workflows.
+- **SPEC-004.C27:** Query registry mutation/listing/inspection and view registry operations are intentionally excluded from the JSON socket allowlist; those remain REPL/trusted config workflows.
 - **SPEC-004.C28:** `status` validates the matched daemon over the socket and reports daemon health, pid, selected config/state/data paths, daemon-owned database path, daemon identity, socket path, and nREPL endpoint. `stop` stops only the matched daemon and removes EDN metadata, JSON metadata, and socket artifacts.
 
 ## SPEC-004.P7 Configuration and user code
@@ -83,3 +83,15 @@ The daemon runtime is the long-lived local Clojure process that owns task storag
 - **SPEC-004.C48:** Runtime source acquisition is outside normal daemon boot. Atom must not silently clone repositories, add Git submodules, or fetch source as part of module activation.
 - **SPEC-004.C49:** The MVP supports approved local roots first. Maven/remote dependency downloads, package registries, git fetching, dependency solving, lockfiles, and CLI package commands are outside this contract.
 - **SPEC-004.C50:** Blessed `atom.*.alpha` namespaces are loaded from the selected world's configured Atom source checkout/classpath. Startup or REPL use fails loudly if those namespaces are unavailable.
+
+## SPEC-004.P10 Runtime transformation primitives
+
+- **SPEC-004.C51:** Atom ships blessed source-visible `atom.graph.alpha` and `atom.views.alpha` namespaces for trusted runtime transformation workflows. They build on the runtime library workspace model but are built-in namespaces, not user/community libraries requiring `libs.edn` approval.
+- **SPEC-004.C52:** `query-ids` returns a vector of task ids for an ad hoc query definition or registered query name, ordered by the same stable task ordering as `list` query results.
+- **SPEC-004.C53:** `tasks-by-ids` accepts a collection of task ids, collapses duplicate ids by first occurrence, returns normalized task rows in that first-occurrence input order, returns `[]` for empty input, and fails loudly if any requested id is missing.
+- **SPEC-004.C54:** `ancestor-root-ids` traverses upward over `parent-of` edges where parent `from_task_id` points to child `to_task_id`. Seed ids are depth-zero candidates. With `:where`, it returns topmost matching ancestors on every path; without `:where`, it returns graph roots with no `parent-of` parent. Results are deduplicated and stable-sorted by id. Empty seed input returns `[]`; any missing seed id fails loudly. The MVP has no edge-type option.
+- **SPEC-004.C55:** `subgraph` expands downward over `parent-of` from root ids and returns `{:root-ids [...] :tasks [...] :edges [...]}`. `:root-ids` preserves first-occurrence input order with duplicates collapsed. `:tasks` contains normalized rows for roots and descendants, ordered by stable task id. `:edges` contains only internal `parent-of` edges connecting included tasks, ordered by `from_task_id`, `to_task_id`, then edge type. Empty root input returns `{:root-ids [] :tasks [] :edges []}`; any missing root id fails loudly. The MVP has no edge-type option.
+- **SPEC-004.C56:** View registry entries are named by simple unqualified names and point to fully qualified Clojure function symbols resolvable in the daemon JVM. Duplicate registration replaces the prior entry for reload workflows.
+- **SPEC-004.C57:** View invocation resolves the registered function symbol in the daemon JVM and calls it with one context map containing at least `:params`. View functions are read-only transformations in this feature; mutating workflows require a separate contract.
+- **SPEC-004.C58:** View registry contents are daemon-lifetime runtime state and are not durable across daemon restarts. Registry introspection returns serializable entries, not function objects.
+- **SPEC-004.C59:** View registry daemon operation names are `:register-view!`, `:view!`, and `:views`.

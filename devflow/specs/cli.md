@@ -2,7 +2,7 @@
 
 **Document ID:** `SPEC-002`
 **Status:** Implemented
-**Last Updated:** 2026-06-25
+**Last Updated:** 2026-06-26
 **Related RFCs:** [RFC-002 Task Query DSL](../rfcs/2026-06-24-task-query-dsl.md), [RFC-003 Fast JSON Socket CLI](../archive/26-06-25__go-cli-migration/rfcs/2026-06-25-fast-json-socket-cli.md), [RFC-004 Go CLI Migration](../archive/26-06-25__go-cli-migration/rfcs/2026-06-25-go-cli-migration.md)
 **Code:** `cli/`, `src/todo/daemon`
 
@@ -51,17 +51,17 @@ daemon status
 - **SPEC-002.C12:** `--where` and `--format edn` are not part of the public Go CLI. Rich EDN query authoring belongs in trusted daemon config and REPL workflows.
 - **SPEC-002.C13:** The CLI has no query registry mutation/listing commands and does not accept `--query-file`; query loading is a trusted daemon config or REPL workflow, and registry contents last only for the daemon lifetime.
 - **SPEC-002.C14:** Malformed options, invalid statuses, invalid edge targets, unknown commands, stale/missing metadata, socket transport/identity failures, malformed daemon responses, and database/domain errors fail non-zero. Task commands against a reachable but uninitialized daemon store fail clearly with instructions to run `todo init`.
-- **SPEC-002.C14a:** `todo init` is also the selected config-dir bootstrap command. Before initializing task storage, it creates only missing alpha workspace files/directories: selected config-dir, `config.json`, `libs/`, `libs.edn`, `init.clj`, and a Git repository with `git init` when `.git` is missing. It never overwrites existing files. When it creates `config.json`, `source` is the current working directory and must be an Atom checkout containing `deps.edn`; created config uses `"configFormat":"alpha"` and default human format. If `config.json` already exists, `todo init` validates it but does not add missing keys or rewrite it.
+- **SPEC-002.C14a:** `todo init` is also the selected config-dir bootstrap command. Before initializing task storage, it creates only missing alpha workspace files/directories: selected config-dir, `config.json`, `libs/`, `libs.edn`, `init.clj`, and a Git repository with `git init` when `.git` is missing. It never overwrites existing files. When it creates `config.json`, `source` is the current working directory and must be an Atom checkout containing `deps.edn`; created config uses `"configFormat":"alpha"` and default human format. If `config.json` already exists, `todo init` validates it but does not add missing keys or rewrite it. When it creates `init.clj`, the editable template requires `atom.libs.alpha`, `atom.graph.alpha`, and `atom.views.alpha`, then calls `(libs/sync!)`. Built-in shipped `atom.*.alpha` namespaces load from the configured Atom checkout/classpath and do not require `libs.edn` approval or `libs/use!`.
 - **SPEC-002.C15:** The Go CLI implementation uses Cobra rather than hand-rolled command dispatch or flag parsing. Root, command, subcommand, and flag help must clearly describe the supported command tree and accepted flags.
 - **SPEC-002.C16:** `daemon start` resolves the selected config-dir, reads `config.json`, requires valid `source`, launches the Clojure daemon from that source in the foreground, and passes the selected config-dir into the daemon. The daemon owns storage selection and loads selected config-dir `init.clj` when present.
 - **SPEC-002.C17:** `daemon repl` resolves the selected config-dir, reads `config.json`, requires valid `source`, verifies a reachable daemon for that world, and launches a local plain Clojure helper REPL from the source checkout already connected to the daemon.
 - **SPEC-002.C18:** `daemon repl --stdin` reads Clojure forms from stdin, evaluates them in the same connected helper context as the interactive REPL, prints one direct normal Clojure result per top-level form, and exits non-zero on read/eval errors. It does not impose a JSON or EDN response envelope; callers that want one machine-readable payload should send one top-level `do` or `let` form.
 - **SPEC-002.C19:** `daemon repl` and `daemon repl --stdin` are the public CLI paths for users and agents that need to run trusted library-workspace Clojure code against a running daemon world.
 - **SPEC-002.C20:** `daemon status` validates metadata and socket identity and reports health, selected config/state/data paths, daemon-owned database path, pid, daemon identity, socket endpoint, and nREPL endpoint. `daemon stop` stops only the matched daemon over the socket and waits for runtime metadata/socket cleanup.
-- **SPEC-002.C21:** Runtime library workspace operations happen through selected config-dir `init.clj`, `atom.libs.alpha`, and trusted REPL workflows, not through task/query CLI commands. Runtime library support does not change the JSON socket allowlist or add package/library activation commands.
+- **SPEC-002.C21:** Runtime library workspace and runtime transformation operations happen through selected config-dir `init.clj`, blessed `atom.*.alpha` namespaces, and trusted REPL workflows, not through task/query CLI commands. Runtime library and view support do not change the JSON socket allowlist or add package/library/view activation commands.
 
 ## SPEC-002.P4 Deferred
 
-`by-attr`, bespoke dependency inspection commands, `link`, `done`, `batch`, public CLI EDN query expressions, query registry mutation commands, and plugin/package commands are not part of the stripped public CLI.
+`by-attr`, bespoke dependency inspection commands, `link`, `done`, `batch`, public CLI EDN query expressions, query registry mutation commands, view commands, and plugin/package commands are not part of the stripped public CLI.
 
 The legacy `clojure -M:todo` entrypoint may remain available as an internal Clojure/dev support path, but it is not the public scripted CLI contract.

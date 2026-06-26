@@ -179,3 +179,7 @@ Added `atom.graph.alpha` and `atom.views.alpha` as source-visible helper namespa
 ### RTP-PLAN-001.DN6 TASK-005 init docs smoke workflow — 2026-06-26
 
 Updated fresh `todo init` startup config to require `atom.graph.alpha` and `atom.views.alpha` alongside `atom.libs.alpha` while preserving create-only behavior for existing config files. Smoke now covers generated helper imports plus an equivalent startup workflow that registers a named query and view, then invokes both through `todo daemon repl --stdin`. Docs clarify that shipped `atom.*.alpha` namespaces are built in and distinct from user/community libraries approved through `libs.edn`.
+
+### RTP-PLAN-001.DN7 TASK-006 promote specs validate — 2026-06-26
+
+Promoted runtime transformation primitive contracts into root CLI, REPL API, and Daemon Runtime specs, and marked feature-local spec deltas merged into root specs. Full validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`. `git status --short` after validation showed no generated SQLite, socket, runtime metadata, or temp config artifacts.

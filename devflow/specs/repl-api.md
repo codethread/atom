@@ -2,7 +2,7 @@
 
 **Document ID:** `SPEC-003`
 **Status:** Implemented
-**Last Updated:** 2026-06-25
+**Last Updated:** 2026-06-26
 **Code:** `src/todo/repl.clj`
 
 ## SPEC-003.P1 Purpose
@@ -49,7 +49,18 @@ ready
 - **SPEC-003.C18:** `atom.libs.alpha` helpers route to the selected daemon world when called from connected REPL clients. Direct `require` in a connected helper REPL remains local to the helper JVM.
 - **SPEC-003.C19:** `atom.libs.alpha` is the documented library-workspace path, but trusted users may require lower-level namespaces or read raw SQLite when they accept compatibility cost.
 
-## SPEC-003.P4 Runtime library workspace helpers
+## SPEC-003.P4 Runtime transformation helpers
+
+Atom ships blessed source-visible runtime transformation namespaces for trusted config and connected REPL workflows:
+
+- `atom.graph.alpha` exposes `(query-ids! query params)`, `(tasks-by-ids ids)`, `(ancestor-root-ids seed-ids opts)`, and `(subgraph root-ids)`. These helpers route to daemon operations for set-oriented query id selection, task hydration by ids, parent-of feature-root traversal, and parent-of DAG/subgraph expansion.
+- `atom.views.alpha` exposes `(register-view! name fn-sym)`, `(view! name params)`, and `(views)`. View registration accepts a simple view name and a fully qualified function symbol, not an arbitrary client-side function value.
+
+Helpers execute daemon-side when called from `init.clj` or activated runtime libraries, and route to the selected daemon world when called from connected REPL clients. Connected helper REPL users who want to register new view functions should place them in daemon-loadable config/library code and register their symbols. View registrations are daemon-lifetime runtime state unless user config reloads them on startup.
+
+Fresh `todo init` config may require `atom.graph.alpha` and `atom.views.alpha` so users can inspect and extend the blessed path immediately. These built-in namespaces come from the Atom checkout on the daemon classpath; they do not require `libs.edn` approval.
+
+## SPEC-003.P5 Runtime library workspace helpers
 
 `atom.libs.alpha` is the blessed alpha namespace for trusted config and connected REPL library workspace workflows. It is explicit and is not preloaded into `todo.repl`.
 
@@ -71,7 +82,7 @@ Malformed `use!` options always throw. Unmet `:libs` requirements record and ret
 
 Maven/remote dependency coordinates, version-range matching, alternate approved-library config files, source fetching, and direct connected-helper-REPL `require` of newly synced daemon libraries are outside the MVP contract.
 
-## SPEC-003.P5 Example library init
+## SPEC-003.P6 Example library init
 
 A selected config-dir `init.clj` may sync approved local roots and activate optional modules:
 
@@ -91,7 +102,7 @@ A selected config-dir `libs.edn` approves local roots:
 {:libs {my/module {:local/root "libs/my-module"}}}
 ```
 
-## SPEC-003.P6 Non-goals
+## SPEC-003.P7 Non-goals
 
 The REPL API does not expose bespoke helpers such as `depends!`, `edge!`, `done!`, `by-attr`, `deps`, `blocking`, or `graph`. Those are either covered by `update!` or the generic query API.
 
