@@ -1,4 +1,4 @@
-# Skein
+# Skein 🧶
 
 Skein is a small weaver-backed strand graph for coding agents and humans. It stores strands locally in SQLite, exposes a thin `strand` CLI for scripts, and keeps richer customization in trusted weaver config and Clojure REPL workflows.
 
@@ -20,6 +20,36 @@ mkdir -p "$SKEIN_CONFIG"
 printf '{"configFormat":"alpha","source":"%s","format":"human"}\n' "$PWD" | jq . > "$SKEIN_CONFIG/config.json"
 ```
 
+Start the weaver in one terminal:
+
+```sh
+strand weaver start
+```
+
+Then use it from another terminal:
+
+```sh
+strand init
+strand add "Sketch strand model" --active false --attr example_outcome=sketched
+strand add "Write docs" --attr owner=agent
+strand --format json list
+strand --format json ready
+```
+
+However the `repl` is where skein really shines (see [docs](./docs/getting-started.md) for more)
+
+```sh
+strand weaver repl
+```
+
+When finished
+
+```sh
+strand weaver stop
+```
+
+### Isolated weavers
+
 For agent/testing work, prefer an explicit disposable world:
 
 ```sh
@@ -38,10 +68,6 @@ Then use it from another terminal:
 ```sh
 strand --config-dir "$world" init
 strand --config-dir "$world" add "Sketch strand model" --active false --attr example_outcome=sketched
-strand --config-dir "$world" add "Write docs" --attr owner=agent
-strand --config-dir "$world" --format json list
-strand --config-dir "$world" --format json ready
-strand --config-dir "$world" weaver stop
 ```
 
 Explicit `--config-dir <dir>` worlds keep config in `<dir>/config.json`, runtime state in `<dir>/state`, and strand data in `<dir>/data/skein.sqlite`.
