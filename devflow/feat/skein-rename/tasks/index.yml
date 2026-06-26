@@ -17,7 +17,7 @@ tasks:
   - id: 4
     description: "Wire strand go cli"
     task_file: "tasks/004-wire-strand-go-cli.md"
-    status: pending
+    status: complete
     blocked_by: [1, 2, 3]
   - id: 5
     description: "Refresh smoke and docs"

@@ -1,7 +1,8 @@
 (ns skein.weaver.socket
   (:require [clojure.data.json :as json]
             [clojure.java.io :as io]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [skein.query :as query])
   (:import [java.io BufferedReader BufferedWriter InputStreamReader OutputStreamWriter]
            [java.net StandardProtocolFamily UnixDomainSocketAddress]
            [java.nio.channels Channels ClosedChannelException ServerSocketChannel]
@@ -35,7 +36,7 @@
        (str/includes? (or (ex-message e) "") "no such table:")))
 
 (defn- uninitialized-db-exception []
-  (ex-info "Database is not initialized; run `todo init` first" {:code "database/not-initialized"}))
+  (ex-info "Database is not initialized; run `strand init` first" {:code "database/not-initialized"}))
 
 (defn- string-map? [m] (and (map? m) (every? string? (vals m))))
 (defn- valid-edge? [edge]
@@ -50,7 +51,8 @@
     (when-not
       (case op
         "init" (= {} args)
-        "list" (= {} args)
+        "list" (and (every? #{"active"} (keys args))
+                    (or (not (contains? args "active")) (boolean? (get args "active"))))
         "ready" (= {} args)
         "status" (= {} args)
         "stop" (= {} args)
@@ -70,9 +72,12 @@
                       (or (not (contains? args "attributes")) (nil? (get args "attributes") ) (map? (get args "attributes")))
                       (or (not (contains? args "edges")) (and (vector? (get args "edges")) (every? valid-edge? (get args "edges"))) ))
         "show" (and (= #{"id"} (set (keys args))) (string? (get args "id")))
-        "list-query" (and (= #{"query" "params"} (set (keys args)))
+        "list-query" (and (every? #{"query" "params" "active"} (keys args))
+                          (contains? args "query")
+                          (contains? args "params")
                           (string? (get args "query"))
-                          (string-map? (get args "params")))
+                          (string-map? (get args "params"))
+                          (or (not (contains? args "active")) (boolean? (get args "active"))))
         "ready-query" (and (= #{"query" "params"} (set (keys args)))
                            (string? (get args "query"))
                            (string-map? (get args "params")))
@@ -138,7 +143,10 @@
 
 (defn- dispatch-query [runtime op args]
   (let [qdef ((api 'resolve-query) runtime (query-name (get args "query")))
-        params (query-params qdef (get args "params"))]
+        params (query-params qdef (get args "params"))
+        qdef (if (contains? args "active")
+               [:and (query/query-expr qdef params) [:= :active (get args "active")]]
+               qdef)]
     ((api op) runtime qdef params)))
 
 (defn- dispatch [runtime op args]
@@ -158,7 +166,9 @@
                 (some? (get args "ephemeral")) (assoc :ephemeral (get args "ephemeral"))
                 (some? (get args "attributes")) (assoc :attributes (get args "attributes"))))
     "show" ((api 'show) runtime (get args "id"))
-    "list" ((api 'list) runtime)
+    "list" (if (contains? args "active")
+             ((api 'list) runtime [:= :active (get args "active")] {})
+             ((api 'list) runtime))
     "ready" ((api 'ready) runtime)
     "list-query" (dispatch-query runtime 'list args)
     "ready-query" (dispatch-query runtime 'ready args)

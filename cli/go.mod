@@ -1,4 +1,4 @@
-module atom-todo-cli
+module skein-strand-cli
 
 go 1.22
 

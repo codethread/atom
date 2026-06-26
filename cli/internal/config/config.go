@@ -117,7 +117,7 @@ func Load(configDir string) (Config, World, error) {
 
 func ResolveSource(source string) (string, error) {
 	if source == "" {
-		return "", fmt.Errorf("client config source is required for daemon lifecycle commands; set source in %s", ConfigFileName)
+		return "", fmt.Errorf("client config source is required for weaver lifecycle commands; set source in %s", ConfigFileName)
 	}
 	resolvedSource := source
 	if strings.HasPrefix(source, "~") {

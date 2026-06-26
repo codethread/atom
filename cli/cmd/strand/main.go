@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"atom-todo-cli/internal/command"
+	"skein-strand-cli/internal/command"
 )
 
 func main() {

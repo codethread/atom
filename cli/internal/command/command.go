@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"atom-todo-cli/internal/client"
-	"atom-todo-cli/internal/config"
 	"github.com/spf13/cobra"
+	"skein-strand-cli/internal/client"
+	"skein-strand-cli/internal/config"
 )
 
 type App struct{ Stdout, Stderr io.Writer }
@@ -57,28 +57,37 @@ func (a *App) Run(args []string) error {
 func (a *App) rootCommand() *cobra.Command {
 	o := Options{}
 	root := &cobra.Command{
-		Use:           "todo",
-		Short:         "Manage Skein strands through the local daemon",
+		Use:           "strand",
+		Short:         "Manage Skein strands through the local weaver",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
-	root.PersistentFlags().StringVar(&o.ConfigDir, "config-dir", "", "daemon world config directory")
+	root.PersistentFlags().StringVar(&o.ConfigDir, "config-dir", "", "weaver world config directory")
 	root.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		o.ConfigDirExplicit = cmd.Flags().Changed("config-dir")
 	}
 	root.PersistentFlags().StringVar(&o.Format, "format", "", "output format: human or json")
-	root.AddCommand(&cobra.Command{Use: "init", Short: "Bootstrap missing config-dir files; initialize strand storage via the running daemon", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	root.AddCommand(&cobra.Command{Use: "init", Short: "Bootstrap missing config-dir files; initialize strand storage via the running weaver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.initCommand(o)
 	}})
 
 	add := &cobra.Command{Use: "add <title>", Short: "Create a strand", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		active, _ := cmd.Flags().GetBool("active")
-		ephemeral, _ := cmd.Flags().GetBool("ephemeral")
+		active, err := boolFlag(cmd, "active")
+		if err != nil {
+			return err
+		}
+		ephemeral, err := boolFlag(cmd, "ephemeral")
+		if err != nil {
+			return err
+		}
 		attrs, _ := cmd.Flags().GetStringArray("attr")
 		am, err := parseKV(attrs, "--attr")
 		if err != nil {
 			return err
+		}
+		if cmd.Flags().Changed("active") && cmd.Flags().Changed("ephemeral") && !active && ephemeral {
+			return errors.New("invalid lifecycle flags: --active false cannot be combined with --ephemeral true")
 		}
 		payload := map[string]any{"title": args[0], "attributes": am}
 		if cmd.Flags().Changed("active") {
@@ -91,14 +100,20 @@ func (a *App) rootCommand() *cobra.Command {
 			return a.call(r, "add", payload)
 		})
 	}}
-	add.Flags().Bool("active", true, "strand active state")
-	add.Flags().Bool("ephemeral", false, "delete strand when deactivated")
+	add.Flags().String("active", "true", "strand active state: true or false")
+	add.Flags().String("ephemeral", "false", "delete strand when deactivated: true or false")
 	add.Flags().StringArray("attr", nil, "string attribute key=value (repeatable)")
 	root.AddCommand(add)
 
 	update := &cobra.Command{Use: "update <id>", Short: "Update a strand", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		active, _ := cmd.Flags().GetBool("active")
-		ephemeral, _ := cmd.Flags().GetBool("ephemeral")
+		active, err := boolFlag(cmd, "active")
+		if err != nil {
+			return err
+		}
+		ephemeral, err := boolFlag(cmd, "ephemeral")
+		if err != nil {
+			return err
+		}
 		title, _ := cmd.Flags().GetString("title")
 		attrs, _ := cmd.Flags().GetStringArray("attr")
 		edges, _ := cmd.Flags().GetStringArray("edge")
@@ -118,6 +133,9 @@ func (a *App) rootCommand() *cobra.Command {
 		if cmd.Flags().Changed("title") {
 			titleArg = title
 		}
+		if cmd.Flags().Changed("active") && cmd.Flags().Changed("ephemeral") {
+			return errors.New("invalid lifecycle flags: --active and --ephemeral cannot be changed in the same update command")
+		}
 		var activeArg any
 		if cmd.Flags().Changed("active") {
 			activeArg = active
@@ -135,8 +153,8 @@ func (a *App) rootCommand() *cobra.Command {
 		})
 	}}
 	update.Flags().String("title", "", "new strand title")
-	update.Flags().Bool("active", true, "strand active state")
-	update.Flags().Bool("ephemeral", false, "delete strand when deactivated")
+	update.Flags().String("active", "true", "strand active state: true or false")
+	update.Flags().String("ephemeral", "false", "delete strand when deactivated: true or false")
 	update.Flags().StringArray("attr", nil, "string attribute key=value (repeatable)")
 	update.Flags().StringArray("edge", nil, "outgoing edge edge-type:to-id (repeatable)")
 	root.AddCommand(update)
@@ -147,15 +165,15 @@ func (a *App) rootCommand() *cobra.Command {
 	root.AddCommand(a.queryCommand(&o, "list", "List strands"))
 	root.AddCommand(a.queryCommand(&o, "ready", "List ready strands"))
 
-	daemon := &cobra.Command{Use: "daemon", Short: "Manage the local daemon"}
-	start := &cobra.Command{Use: "start", Short: "Start the daemon in the foreground for the selected config-dir world", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return a.withConfig(o, func(r Options) error { return a.launchDaemon(r) })
+	weaver := &cobra.Command{Use: "weaver", Short: "Manage the local weaver"}
+	start := &cobra.Command{Use: "start", Short: "Start the weaver in the foreground for the selected config-dir world", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return a.withConfig(o, func(r Options) error { return a.launchWeaver(r) })
 	}}
-	daemon.AddCommand(start)
-	daemon.AddCommand(&cobra.Command{Use: "status", Short: "Show daemon status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	weaver.AddCommand(start)
+	weaver.AddCommand(&cobra.Command{Use: "status", Short: "Show weaver status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.withConfig(o, func(r Options) error { return a.call(r, "status", map[string]any{}) })
 	}})
-	daemon.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the daemon", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	weaver.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the weaver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.withConfig(o, func(r Options) error { return a.call(r, "stop", map[string]any{}) })
 	}})
 	repl := &cobra.Command{Use: "repl", Short: "Start a connected Clojure helper REPL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -163,8 +181,8 @@ func (a *App) rootCommand() *cobra.Command {
 		return a.withConfig(o, func(r Options) error { return a.launchRepl(r, stdin) })
 	}}
 	repl.Flags().Bool("stdin", false, "read Clojure forms from stdin, print one result per top-level form, then exit")
-	daemon.AddCommand(repl)
-	root.AddCommand(daemon)
+	weaver.AddCommand(repl)
+	root.AddCommand(weaver)
 	return root
 }
 
@@ -180,6 +198,14 @@ func (a *App) queryCommand(o *Options, name, short string) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		payload := map[string]any{}
+		if name == "list" && cmd.Flags().Changed("active") {
+			active, err := boolFlag(cmd, "active")
+			if err != nil {
+				return err
+			}
+			payload["active"] = active
+		}
 		if query == "" {
 			if cmd.Flags().Changed("query") {
 				return errors.New("--query requires a non-empty name")
@@ -187,13 +213,18 @@ func (a *App) queryCommand(o *Options, name, short string) *cobra.Command {
 			if len(params) > 0 {
 				return errors.New("--param requires --query")
 			}
-			return a.withConfig(*o, func(r Options) error { return a.call(r, name, map[string]any{}) })
+			return a.withConfig(*o, func(r Options) error { return a.call(r, name, payload) })
 		}
-		return a.withConfig(*o, func(r Options) error { return a.call(r, name+"-query", map[string]any{"query": query, "params": pm}) })
+		payload["query"] = query
+		payload["params"] = pm
+		return a.withConfig(*o, func(r Options) error { return a.call(r, name+"-query", payload) })
 	}}
-	cmd.Flags().String("query", "", "daemon-registered named query")
+	cmd.Flags().String("query", "", "weaver-registered named query")
 	cmd.Flags().StringArray("param", nil, "query parameter key=value (repeatable)")
 	cmd.Flags().String("where", "", "unsupported; use --query")
+	if name == "list" {
+		cmd.Flags().String("active", "true", "filter strands by active state: true or false")
+	}
 	_ = cmd.Flags().MarkHidden("where")
 	return cmd
 }
@@ -282,12 +313,12 @@ func (a *App) writeHumanRows(result any) error {
 	return nil
 }
 
-func daemonArgs(o Options) []string {
+func weaverArgs(o Options) []string {
 	args := []string{"-M:skein"}
 	if o.ConfigDirExplicit {
 		args = append(args, "--config-dir", o.ConfigDir)
 	}
-	return append(args, "daemon", "start")
+	return append(args, "weaver", "start")
 }
 
 func replArgs(o Options, stdin bool) []string {
@@ -316,8 +347,8 @@ func runProcess(source string, args []string, in io.Reader, out, errOut io.Write
 	return nil
 }
 
-var runDaemonProcess = func(o Options, out, errOut io.Writer) error {
-	return runProcess(o.Source, daemonArgs(o), os.Stdin, out, errOut)
+var runWeaverProcess = func(o Options, out, errOut io.Writer) error {
+	return runProcess(o.Source, weaverArgs(o), os.Stdin, out, errOut)
 }
 
 var runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
@@ -409,13 +440,13 @@ func (a *App) bootstrapConfigDir(o Options) error {
 	return nil
 }
 
-func (a *App) launchDaemon(o Options) error {
+func (a *App) launchWeaver(o Options) error {
 	source, err := config.ResolveSource(o.Source)
 	if err != nil {
 		return err
 	}
 	o.Source = source
-	return runDaemonProcess(o, a.Stdout, a.Stderr)
+	return runWeaverProcess(o, a.Stdout, a.Stderr)
 }
 
 func (a *App) launchRepl(o Options, stdin bool) error {
@@ -429,6 +460,21 @@ func (a *App) launchRepl(o Options, stdin bool) error {
 	}
 	return runReplProcess(o, stdin, os.Stdin, a.Stdout, a.Stderr)
 }
+func boolFlag(cmd *cobra.Command, name string) (bool, error) {
+	value, err := cmd.Flags().GetString(name)
+	if err != nil {
+		return false, err
+	}
+	switch value {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid --%s: must be true or false", name)
+	}
+}
+
 func parseKV(vals []string, name string) (map[string]any, error) {
 	m := map[string]any{}
 	for _, s := range vals {

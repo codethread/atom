@@ -86,7 +86,7 @@ func TestCallSuccessAndDaemonError(t *testing.T) {
 	writeMeta(t, stateDir, sock, os.Getpid())
 	_, err = New(Config{StateDir: stateDir, Format: "json"}).Call("show", map[string]any{"id": "missing"})
 	if err == nil || !strings.Contains(err.Error(), "task/not-found") {
-		t.Fatalf("expected daemon error, got %v", err)
+		t.Fatalf("expected weaver error, got %v", err)
 	}
 
 	sock = serve(t, stateDir, func(req map[string]any) map[string]any {
@@ -102,17 +102,17 @@ func TestCallSuccessAndDaemonError(t *testing.T) {
 func TestMetadataAndTransportFailures(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	_, err := New(Config{StateDir: stateDir, Format: "json"}).Call("init", map[string]any{})
-	if err == nil || !strings.Contains(err.Error(), "no running daemon") || !strings.Contains(err.Error(), "daemon start") {
-		t.Fatalf("expected missing daemon startup guidance, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no running weaver") || !strings.Contains(err.Error(), "weaver start") {
+		t.Fatalf("expected missing weaver startup guidance, got %v", err)
 	}
 	writeMeta(t, stateDir, filepath.Join(stateDir, "weaver.sock"), os.Getpid())
 	_, err = New(Config{StateDir: stateDir, Format: "json"}).Call("init", map[string]any{})
-	if err == nil || !strings.Contains(err.Error(), "daemon socket unreachable") {
+	if err == nil || !strings.Contains(err.Error(), "weaver socket unreachable") {
 		t.Fatalf("expected unreachable socket, got %v", err)
 	}
 	writeMeta(t, stateDir, filepath.Join(stateDir, "weaver.sock"), 999999)
 	_, err = New(Config{StateDir: stateDir, Format: "json"}).Call("init", map[string]any{})
-	if err == nil || !strings.Contains(err.Error(), "stale daemon metadata") {
+	if err == nil || !strings.Contains(err.Error(), "stale weaver metadata") {
 		t.Fatalf("expected stale metadata, got %v", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestMalformedMetadataAndIdentityMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = New(Config{StateDir: stateDir, Format: "json"}).Call("init", map[string]any{})
-	if err == nil || !strings.Contains(err.Error(), "malformed daemon metadata") {
+	if err == nil || !strings.Contains(err.Error(), "malformed weaver metadata") {
 		t.Fatalf("expected malformed metadata, got %v", err)
 	}
 

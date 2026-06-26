@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"atom-todo-cli/internal/config"
+	"skein-strand-cli/internal/config"
 )
 
 func run(args ...string) (string, error) {
@@ -25,12 +25,11 @@ func TestHelpIncludesCommandTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Available Commands:", "init", "add", "update", "show", "list", "ready", "daemon"} {
+	for _, want := range []string{"Available Commands:", "init", "add", "update", "show", "list", "ready", "weaver"} {
 		if !strings.Contains(root, want) {
 			t.Fatalf("root help missing %q in:\n%s", want, root)
 		}
 	}
-
 	add, err := run("add", "--help")
 	if err != nil {
 		t.Fatal(err)
@@ -41,23 +40,23 @@ func TestHelpIncludesCommandTree(t *testing.T) {
 		}
 	}
 
-	daemon, err := run("daemon", "--help")
+	weaver, err := run("weaver", "--help")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"start", "status", "stop", "repl"} {
-		if !strings.Contains(daemon, want) {
-			t.Fatalf("daemon help missing %q in:\n%s", want, daemon)
+		if !strings.Contains(weaver, want) {
+			t.Fatalf("weaver help missing %q in:\n%s", want, weaver)
 		}
 	}
 
-	start, err := run("daemon", "start", "--help")
+	start, err := run("weaver", "start", "--help")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"start", "--config-dir"} {
 		if !strings.Contains(start, want) {
-			t.Fatalf("daemon start help missing %q in:\n%s", want, start)
+			t.Fatalf("weaver start help missing %q in:\n%s", want, start)
 		}
 	}
 }
@@ -65,18 +64,21 @@ func TestHelpIncludesCommandTree(t *testing.T) {
 func TestRejectsRemovedAndMalformedInputs(t *testing.T) {
 	cases := [][]string{
 		{"--format", "edn", "list"},
-		{"list", "--where", "[:= :status \"todo\"]"},
+		{"list", "--where", "[:= :status \"strand\"]"},
 		{"list", "--where", ""},
 		{"list", "extra"},
 		{"ready", "--query", "q", "extra"},
 		{"ready", "--query", ""},
 		{"add", "x", "extra"},
 		{"add", "x", "--status", "bogus"},
+		{"add", "x", "--active", "maybe"},
+		{"add", "x", "--active=false", "--ephemeral=true"},
 		{"add", "x", "--attr", "novalue"},
 		{"update", "id", "extra"},
 		{"update", "id", "--edge", "depends-on"},
 		{"update", "id", "--edge", ":target"},
 		{"update", "id", "--edge", "depends-on:"},
+		{"update", "id", "--active=false", "--ephemeral=true"},
 		{"list", "--param", "novalue"},
 	}
 	for _, c := range cases {
@@ -212,7 +214,7 @@ func TestInitBootstrapsWorkspaceWhenMissingAndCallsInit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !clientCalled {
-		t.Fatal("expected init to call daemon init")
+		t.Fatal("expected init to call weaver init")
 	}
 	if !initCalled {
 		t.Fatal("expected git init to run")
@@ -319,7 +321,7 @@ func TestInitValidatesExistingConfigButDoesNotRewriteMissingKeys(t *testing.T) {
 	}
 }
 
-func TestDaemonStartLaunchesFromConfiguredSource(t *testing.T) {
+func TestWeaverStartLaunchesFromConfiguredSource(t *testing.T) {
 	cfg := t.TempDir()
 	source := t.TempDir()
 	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
@@ -329,13 +331,13 @@ func TestDaemonStartLaunchesFromConfiguredSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	var launched Options
-	orig := runDaemonProcess
-	runDaemonProcess = func(o Options, out, errOut io.Writer) error {
+	orig := runWeaverProcess
+	runWeaverProcess = func(o Options, out, errOut io.Writer) error {
 		launched = o
 		return nil
 	}
-	t.Cleanup(func() { runDaemonProcess = orig })
-	if _, err := run("--config-dir", cfg, "daemon", "start"); err != nil {
+	t.Cleanup(func() { runWeaverProcess = orig })
+	if _, err := run("--config-dir", cfg, "weaver", "start"); err != nil {
 		t.Fatal(err)
 	}
 	realCfg, err := filepath.EvalSymlinks(cfg)
@@ -345,17 +347,17 @@ func TestDaemonStartLaunchesFromConfiguredSource(t *testing.T) {
 	if launched.Source != source || launched.ConfigDir != realCfg || !launched.ConfigDirExplicit {
 		t.Fatalf("unexpected launch options: %#v", launched)
 	}
-	if !reflect.DeepEqual(daemonArgs(launched), []string{"-M:skein", "--config-dir", realCfg, "daemon", "start"}) {
-		t.Fatalf("unexpected explicit daemon args: %#v", daemonArgs(launched))
+	if !reflect.DeepEqual(weaverArgs(launched), []string{"-M:skein", "--config-dir", realCfg, "weaver", "start"}) {
+		t.Fatalf("unexpected explicit weaver args: %#v", weaverArgs(launched))
 	}
 	defaultLaunch := launched
 	defaultLaunch.ConfigDirExplicit = false
-	if !reflect.DeepEqual(daemonArgs(defaultLaunch), []string{"-M:skein", "daemon", "start"}) {
-		t.Fatalf("unexpected default daemon args: %#v", daemonArgs(defaultLaunch))
+	if !reflect.DeepEqual(weaverArgs(defaultLaunch), []string{"-M:skein", "weaver", "start"}) {
+		t.Fatalf("unexpected default weaver args: %#v", weaverArgs(defaultLaunch))
 	}
 }
 
-func TestDaemonReplVerifiesDaemonAndLaunchesFromConfiguredSource(t *testing.T) {
+func TestWeaverReplVerifiesWeaverAndLaunchesFromConfiguredSource(t *testing.T) {
 	cfg := t.TempDir()
 	source := t.TempDir()
 	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
@@ -376,7 +378,7 @@ func TestDaemonReplVerifiesDaemonAndLaunchesFromConfiguredSource(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { newClient = origClient; runReplProcess = origRun })
-	if _, err := run("--config-dir", cfg, "daemon", "repl", "--stdin"); err != nil {
+	if _, err := run("--config-dir", cfg, "weaver", "repl", "--stdin"); err != nil {
 		t.Fatal(err)
 	}
 	realCfg, err := filepath.EvalSymlinks(cfg)
@@ -390,11 +392,11 @@ func TestDaemonReplVerifiesDaemonAndLaunchesFromConfiguredSource(t *testing.T) {
 		t.Fatalf("unexpected repl args: %#v", replArgs(launched, true))
 	}
 	if len(fc.calls) != 1 || fc.calls[0].op != "status" {
-		t.Fatalf("daemon repl should verify status first: %#v", fc.calls)
+		t.Fatalf("weaver repl should verify status first: %#v", fc.calls)
 	}
 }
 
-func TestDaemonStartSupportsHomeRelativeSource(t *testing.T) {
+func TestWeaverStartSupportsHomeRelativeSource(t *testing.T) {
 	cfg := t.TempDir()
 	home := t.TempDir()
 	homeSource := filepath.Join(home, "skein")
@@ -409,13 +411,13 @@ func TestDaemonStartSupportsHomeRelativeSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	var launched Options
-	orig := runDaemonProcess
-	runDaemonProcess = func(o Options, out, errOut io.Writer) error {
+	orig := runWeaverProcess
+	runWeaverProcess = func(o Options, out, errOut io.Writer) error {
 		launched = o
 		return nil
 	}
-	t.Cleanup(func() { runDaemonProcess = orig })
-	if _, err := run("--config-dir", cfg, "daemon", "start"); err != nil {
+	t.Cleanup(func() { runWeaverProcess = orig })
+	if _, err := run("--config-dir", cfg, "weaver", "start"); err != nil {
 		t.Fatal(err)
 	}
 	realCfg, err := filepath.EvalSymlinks(cfg)
@@ -434,7 +436,7 @@ func TestDaemonStartSupportsHomeRelativeSource(t *testing.T) {
 	}
 }
 
-func TestDaemonReplStatusFailureBlocksLaunch(t *testing.T) {
+func TestWeaverReplStatusFailureBlocksLaunch(t *testing.T) {
 	cfg := t.TempDir()
 	source := t.TempDir()
 	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
@@ -446,13 +448,13 @@ func TestDaemonReplStatusFailureBlocksLaunch(t *testing.T) {
 	origClient := newClient
 	origRun := runReplProcess
 	launched := false
-	newClient = func(o Options) Caller { return &fakeClient{err: errors.New("no running daemon")} }
+	newClient = func(o Options) Caller { return &fakeClient{err: errors.New("no running weaver")} }
 	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
 		launched = true
 		return nil
 	}
 	t.Cleanup(func() { newClient = origClient; runReplProcess = origRun })
-	if _, err := run("--config-dir", cfg, "daemon", "repl"); err == nil || !strings.Contains(err.Error(), "no running daemon") {
+	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "no running weaver") {
 		t.Fatalf("expected status failure, got %v", err)
 	}
 	if launched {
@@ -460,12 +462,12 @@ func TestDaemonReplStatusFailureBlocksLaunch(t *testing.T) {
 	}
 }
 
-func TestSourceValidationForDaemonStart(t *testing.T) {
+func TestSourceValidationForWeaverStart(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"configFormat":"alpha","source":"relative"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run("--config-dir", dir, "daemon", "start"); err == nil || !strings.Contains(err.Error(), "source must be an absolute path") {
+	if _, err := run("--config-dir", dir, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "source must be an absolute path") {
 		t.Fatalf("expected absolute source error, got %v", err)
 	}
 
@@ -473,7 +475,7 @@ func TestSourceValidationForDaemonStart(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(missingDir, "config.json"), []byte(`{"configFormat":"alpha","source":"/definitely/missing/atom-source"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run("--config-dir", missingDir, "daemon", "start"); err == nil || !strings.Contains(err.Error(), "source must be an existing directory") {
+	if _, err := run("--config-dir", missingDir, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "source must be an existing directory") {
 		t.Fatalf("expected missing source error, got %v", err)
 	}
 
@@ -482,7 +484,7 @@ func TestSourceValidationForDaemonStart(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(noDepsDir, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run("--config-dir", noDepsDir, "daemon", "start"); err == nil || !strings.Contains(err.Error(), "source must contain deps.edn") {
+	if _, err := run("--config-dir", noDepsDir, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "source must contain deps.edn") {
 		t.Fatalf("expected deps.edn source error, got %v", err)
 	}
 }
@@ -568,19 +570,26 @@ func TestQueryCommandsUseSocketClientPayloads(t *testing.T) {
 	if strings.TrimSpace(out) != `{"id":"task-1"}` {
 		t.Fatalf("unexpected human list output: %q", out)
 	}
+	out, err = run("--config-dir", cfg, "list", "--active", "false")
+	if err != nil {
+		t.Fatal(err)
+	}
 	out, err = run("--config-dir", cfg, "ready", "--query", "by-owner", "--param", "owner=agent")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fc.calls) != 2 {
+	if len(fc.calls) != 3 {
 		t.Fatalf("calls = %#v", fc.calls)
 	}
 	if fc.calls[0].op != "list" || !reflect.DeepEqual(fc.calls[0].args, map[string]any{}) {
 		t.Fatalf("bad list call: %#v", fc.calls[0])
 	}
+	if fc.calls[1].op != "list" || !reflect.DeepEqual(fc.calls[1].args, map[string]any{"active": false}) {
+		t.Fatalf("bad list active call: %#v", fc.calls[1])
+	}
 	expected := map[string]any{"query": "by-owner", "params": map[string]any{"owner": "agent"}}
-	if fc.calls[1].op != "ready-query" || !reflect.DeepEqual(fc.calls[1].args, expected) {
-		t.Fatalf("bad ready-query call: %#v", fc.calls[1])
+	if fc.calls[2].op != "ready-query" || !reflect.DeepEqual(fc.calls[2].args, expected) {
+		t.Fatalf("bad ready-query call: %#v", fc.calls[2])
 	}
 	fc.result = []any{}
 	out, err = run("--config-dir", cfg, "list", "--query", "empty")
@@ -634,6 +643,18 @@ func TestStrandCommandsUseSocketClientPayloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	if fc.calls[3].args["title"] != "" {
-		t.Fatalf("empty title flag should be sent to daemon validation: %#v", fc.calls[3])
+		t.Fatalf("empty title flag should be sent to weaver validation: %#v", fc.calls[3])
+	}
+	if _, err = run("--config-dir", cfg, "add", "Scratch", "--ephemeral", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if fc.calls[4].args["ephemeral"] != true {
+		t.Fatalf("explicit ephemeral add flag should be sent: %#v", fc.calls[4])
+	}
+	if _, err = run("--config-dir", cfg, "update", "task-1", "--ephemeral", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if fc.calls[5].args["ephemeral"] != true {
+		t.Fatalf("explicit ephemeral update flag should be sent: %#v", fc.calls[5])
 	}
 }

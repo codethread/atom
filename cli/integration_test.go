@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestInitBootstrapsConfigDirWorkspaceAndStartsDaemon(t *testing.T) {
+func TestInitBootstrapsConfigDirWorkspaceAndStartsWeaver(t *testing.T) {
 	cfg := shortTempDir(t)
 	source, err := os.Getwd()
 	if err != nil {
@@ -23,10 +23,10 @@ func TestInitBootstrapsConfigDirWorkspaceAndStartsDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin := buildTodo(t)
-	out, err := outputTodo(bin, cfg, source, "init")
-	if err == nil || (!strings.Contains(out, "daemon socket unreachable") && !strings.Contains(out, "no running daemon")) {
-		t.Fatalf("expected daemon connection error on init, got out=%q err=%v", out, err)
+	bin := buildStrand(t)
+	out, err := outputStrand(bin, cfg, source, "init")
+	if err == nil || (!strings.Contains(out, "weaver socket unreachable") && !strings.Contains(out, "no running weaver")) {
+		t.Fatalf("expected weaver connection error on init, got out=%q err=%v", out, err)
 	}
 	configPath := filepath.Join(cfg, "config.json")
 	if _, err := os.Stat(configPath); err != nil {
@@ -57,40 +57,40 @@ func TestInitBootstrapsConfigDirWorkspaceAndStartsDaemon(t *testing.T) {
 		t.Fatalf("expected .git bootstrap: %v", err)
 	}
 
-	daemon := exec.Command(bin, "--config-dir", cfg, "daemon", "start")
-	daemon.Dir = source
-	var daemonOut bytes.Buffer
-	daemon.Stdout = &daemonOut
-	daemon.Stderr = &daemonOut
-	if err := daemon.Start(); err != nil {
-		t.Fatalf("start daemon: %v", err)
+	weaver := exec.Command(bin, "--config-dir", cfg, "weaver", "start")
+	weaver.Dir = source
+	var weaverOut bytes.Buffer
+	weaver.Stdout = &weaverOut
+	weaver.Stderr = &weaverOut
+	if err := weaver.Start(); err != nil {
+		t.Fatalf("start weaver: %v", err)
 	}
-	t.Cleanup(func() { _ = daemon.Process.Kill(); _, _ = daemon.Process.Wait() })
-	waitForStatus(t, bin, cfg, source, &daemonOut)
-	if err := runTodo(bin, cfg, source, "daemon", "stop"); err != nil {
+	t.Cleanup(func() { _ = weaver.Process.Kill(); _, _ = weaver.Process.Wait() })
+	waitForStatus(t, bin, cfg, source, &weaverOut)
+	if err := runStrand(bin, cfg, source, "weaver", "stop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := daemon.Wait(); err != nil {
-		t.Fatalf("daemon did not exit cleanly: %v\n%s", err, daemonOut.String())
+	if err := weaver.Wait(); err != nil {
+		t.Fatalf("weaver did not exit cleanly: %v\n%s", err, weaverOut.String())
 	}
 }
 
-func TestGoDaemonLifecycleCommands(t *testing.T) {
+func TestGoWeaverLifecycleCommands(t *testing.T) {
 	dir := shortTempDir(t)
 	writeClientConfig(t, dir)
-	bin := buildTodo(t)
+	bin := buildStrand(t)
 	runDir := shortTempDir(t)
-	daemon := exec.Command(bin, "--config-dir", dir, "daemon", "start")
-	daemon.Dir = runDir
-	var daemonOut bytes.Buffer
-	daemon.Stdout = &daemonOut
-	daemon.Stderr = &daemonOut
-	if err := daemon.Start(); err != nil {
-		t.Fatalf("start daemon: %v", err)
+	weaver := exec.Command(bin, "--config-dir", dir, "weaver", "start")
+	weaver.Dir = runDir
+	var weaverOut bytes.Buffer
+	weaver.Stdout = &weaverOut
+	weaver.Stderr = &weaverOut
+	if err := weaver.Start(); err != nil {
+		t.Fatalf("start weaver: %v", err)
 	}
-	t.Cleanup(func() { _ = daemon.Process.Kill(); _, _ = daemon.Process.Wait() })
-	waitForStatus(t, bin, dir, runDir, &daemonOut)
-	out, err := outputTodo(bin, dir, runDir, "--format", "json", "daemon", "status")
+	t.Cleanup(func() { _ = weaver.Process.Kill(); _, _ = weaver.Process.Wait() })
+	waitForStatus(t, bin, dir, runDir, &weaverOut)
+	out, err := outputStrand(bin, dir, runDir, "--format", "json", "weaver", "status")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,13 +105,13 @@ func TestGoDaemonLifecycleCommands(t *testing.T) {
 	if status["healthy"] != true || status["database_path"] == "" || status["config_dir"] != realDir || status["data_dir"] == "" || status["weaver_id"] == "" || status["socket_path"] != filepath.Join(realDir, "state", "weaver.sock") || status["pid"].(float64) <= 0 {
 		t.Fatalf("unexpected status payload: %#v", status)
 	}
-	if err := runTodo(bin, dir, runDir, "daemon", "stop"); err != nil {
+	if err := runStrand(bin, dir, runDir, "weaver", "stop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := daemon.Wait(); err != nil {
-		t.Fatalf("daemon did not exit cleanly: %v\n%s", err, daemonOut.String())
+	if err := weaver.Wait(); err != nil {
+		t.Fatalf("weaver did not exit cleanly: %v\n%s", err, weaverOut.String())
 	}
-	if _, err := outputTodo(bin, dir, runDir, "daemon", "status"); err == nil {
+	if _, err := outputStrand(bin, dir, runDir, "weaver", "status"); err == nil {
 		t.Fatal("expected status to fail after stop cleanup")
 	}
 }
@@ -125,43 +125,52 @@ func TestTaskAndQueryCommandsRunOutsideCheckoutWithoutSource(t *testing.T) {
 	if err := os.WriteFile(initPath, []byte(init), 0644); err != nil {
 		t.Fatal(err)
 	}
-	bin := buildTodo(t)
+	bin := buildStrand(t)
 	runDir := shortTempDir(t)
-	daemon := exec.Command(bin, "--config-dir", dir, "daemon", "start")
-	daemon.Dir = runDir
-	var daemonOut bytes.Buffer
-	daemon.Stdout = &daemonOut
-	daemon.Stderr = &daemonOut
-	if err := daemon.Start(); err != nil {
-		t.Fatalf("start daemon: %v", err)
+	weaver := exec.Command(bin, "--config-dir", dir, "weaver", "start")
+	weaver.Dir = runDir
+	var weaverOut bytes.Buffer
+	weaver.Stdout = &weaverOut
+	weaver.Stderr = &weaverOut
+	if err := weaver.Start(); err != nil {
+		t.Fatalf("start weaver: %v", err)
 	}
-	t.Cleanup(func() { _ = daemon.Process.Kill(); _, _ = daemon.Process.Wait() })
-	waitForDaemonAndInit(t, bin, dir, runDir, &daemonOut)
+	t.Cleanup(func() { _ = weaver.Process.Kill(); _, _ = weaver.Process.Wait() })
+	waitForWeaverAndInit(t, bin, dir, runDir, &weaverOut)
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"configFormat":"alpha","format":"json"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := outputTodo(bin, dir, runDir, "--format", "json", "daemon", "status"); err != nil || !strings.Contains(out, `"healthy":true`) {
+	if out, err := outputStrand(bin, dir, runDir, "--format", "json", "weaver", "status"); err != nil || !strings.Contains(out, `"healthy":true`) {
 		t.Fatalf("status after source removal output/error = %q/%v", out, err)
 	}
 	design := addJSON(t, bin, dir, runDir, "Design", "owner=agent")
 	docs := addJSON(t, bin, dir, runDir, "Docs", "owner=agent")
-	if out, err := outputTodo(bin, dir, runDir, "--format", "json", "show", docs); err != nil || !strings.Contains(out, `"title":"Docs"`) {
+	if out, err := outputStrand(bin, dir, runDir, "--format", "json", "show", docs); err != nil || !strings.Contains(out, `"title":"Docs"`) {
 		t.Fatalf("show output/error = %q/%v", out, err)
 	}
-	if err := runTodo(bin, dir, runDir, "update", docs, "--edge", "depends-on:"+design, "--attr", "phase=write"); err != nil {
+	if err := runStrand(bin, dir, runDir, "update", docs, "--edge", "depends-on:"+design, "--attr", "phase=write"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := outputTodo(bin, dir, runDir, "--format", "json", "list", "--query", "by-owner", "--param", "owner=agent"); err != nil || !strings.Contains(out, docs) || !strings.Contains(out, design) {
+	if err := runStrand(bin, dir, runDir, "update", design, "--active", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := outputStrand(bin, dir, runDir, "--format", "json", "list", "--active", "false"); err != nil || !strings.Contains(out, design) || strings.Contains(out, docs) {
+		t.Fatalf("list active=false output/error = %q/%v", out, err)
+	}
+	if out, err := outputStrand(bin, dir, runDir, "--format", "json", "list", "--query", "by-owner", "--param", "owner=agent"); err != nil || !strings.Contains(out, docs) || !strings.Contains(out, design) {
 		t.Fatalf("list query output/error = %q/%v", out, err)
 	}
-	if out, err := outputTodo(bin, dir, runDir, "--format", "json", "ready", "--query", "by-owner", "--param", "owner=agent"); err != nil || strings.Contains(out, docs) || !strings.Contains(out, design) {
+	if out, err := outputStrand(bin, dir, runDir, "--format", "json", "list", "--query", "by-owner", "--param", "owner=agent", "--active", "false"); err != nil || !strings.Contains(out, design) || strings.Contains(out, docs) {
+		t.Fatalf("list query active=false output/error = %q/%v", out, err)
+	}
+	if out, err := outputStrand(bin, dir, runDir, "--format", "json", "ready", "--query", "by-owner", "--param", "owner=agent"); err != nil || !strings.Contains(out, docs) || strings.Contains(out, design) {
 		t.Fatalf("ready query output/error = %q/%v", out, err)
 	}
-	if err := runTodo(bin, dir, runDir, "daemon", "stop"); err != nil {
+	if err := runStrand(bin, dir, runDir, "weaver", "stop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := daemon.Wait(); err != nil {
-		t.Fatalf("daemon did not exit cleanly: %v\n%s", err, daemonOut.String())
+	if err := weaver.Wait(); err != nil {
+		t.Fatalf("weaver did not exit cleanly: %v\n%s", err, weaverOut.String())
 	}
 }
 
@@ -175,15 +184,15 @@ func shortTempDir(t *testing.T) string {
 	return dir
 }
 
-func buildTodo(t *testing.T) string {
+func buildStrand(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(shortTempDir(t), "todo")
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/todo")
+	bin := filepath.Join(shortTempDir(t), "strand")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/strand")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("build todo: %v\n%s", err, out.String())
+		t.Fatalf("build strand: %v\n%s", err, out.String())
 	}
 	return bin
 }
@@ -199,7 +208,7 @@ func mustReadFile(t *testing.T, path string) []byte {
 
 func addJSON(t *testing.T, bin, configDir, cwd, title, attr string) string {
 	t.Helper()
-	out, err := outputTodo(bin, configDir, cwd, "--format", "json", "add", title, "--attr", attr)
+	out, err := outputStrand(bin, configDir, cwd, "--format", "json", "add", title, "--attr", attr)
 	if err != nil {
 		t.Fatalf("add %s: %v\n%s", title, err, out)
 	}
@@ -225,39 +234,39 @@ func writeClientConfig(t *testing.T, dir string) {
 	}
 }
 func quote(s string) string { b, _ := json.Marshal(s); return string(b) }
-func waitForStatus(t *testing.T, bin, configDir, cwd string, daemonErr *bytes.Buffer) {
+func waitForStatus(t *testing.T, bin, configDir, cwd string, weaverErr *bytes.Buffer) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		if _, err := outputTodo(bin, configDir, cwd, "daemon", "status"); err == nil {
+		if _, err := outputStrand(bin, configDir, cwd, "weaver", "status"); err == nil {
 			return
 		} else {
 			lastErr = err
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	t.Fatalf("daemon did not become ready: %v\n%s", lastErr, daemonErr.String())
+	t.Fatalf("weaver did not become ready: %v\n%s", lastErr, weaverErr.String())
 }
-func waitForDaemonAndInit(t *testing.T, bin, configDir, cwd string, daemonErr *bytes.Buffer) {
+func waitForWeaverAndInit(t *testing.T, bin, configDir, cwd string, weaverErr *bytes.Buffer) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		if err := runTodo(bin, configDir, cwd, "init"); err == nil {
+		if err := runStrand(bin, configDir, cwd, "init"); err == nil {
 			return
 		} else {
 			lastErr = err
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	t.Fatalf("daemon did not become ready: %v\n%s", lastErr, daemonErr.String())
+	t.Fatalf("weaver did not become ready: %v\n%s", lastErr, weaverErr.String())
 }
-func runTodo(bin, configDir, cwd string, args ...string) error {
-	_, err := outputTodo(bin, configDir, cwd, args...)
+func runStrand(bin, configDir, cwd string, args ...string) error {
+	_, err := outputStrand(bin, configDir, cwd, args...)
 	return err
 }
-func outputTodo(bin, configDir, cwd string, args ...string) (string, error) {
+func outputStrand(bin, configDir, cwd string, args ...string) (string, error) {
 	full := append([]string{"--config-dir", configDir}, args...)
 	cmd := exec.Command(bin, full...)
 	cmd.Dir = cwd

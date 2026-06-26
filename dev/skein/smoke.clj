@@ -8,7 +8,7 @@
 
 (def cli-smoke-db "smoke-cli.sqlite")
 (def repl-smoke-db "smoke-repl.sqlite")
-(def todo-bin (.getAbsolutePath (java.io.File. "cli/bin/todo")))
+(def strand-bin (.getAbsolutePath (java.io.File. "cli/bin/strand")))
 (def checkout-root (.getAbsolutePath (java.io.File. ".")))
 
 (defn titles [rows]
@@ -66,8 +66,8 @@
        output))))
 
 (defn build-cli! []
-  (run-process! "Go CLI build succeeds" ["go" "build" "-o" "./cli/bin/todo" "./cli/cmd/todo"])
-  todo-bin)
+  (run-process! "Go CLI build succeeds" ["go" "build" "-o" "./cli/bin/strand" "./cli/cmd/strand"])
+  strand-bin)
 
 (defn write-client-config! [db-file]
   (let [dir (.toFile (smoke-config-dir db-file))]
@@ -103,10 +103,10 @@
   config-dir)
 
 (defn run-cli-config! [config-dir & args]
-  (run-process! "Go CLI command succeeds" (outside-repo-dir) nil (into [todo-bin "--config-dir" config-dir] args)))
+  (run-process! "Go CLI command succeeds" (outside-repo-dir) nil (into [strand-bin "--config-dir" config-dir] args)))
 
 (defn run-cli-config-stdin! [config-dir stdin & args]
-  (run-process! "Go CLI stdin command succeeds" (outside-repo-dir) stdin (into [todo-bin "--config-dir" config-dir] args)))
+  (run-process! "Go CLI stdin command succeeds" (outside-repo-dir) stdin (into [strand-bin "--config-dir" config-dir] args)))
 
 (defn run-cli! [db-file & args]
   (apply run-cli-config! (write-client-config! db-file) args))
@@ -117,18 +117,18 @@
 (defn start-cli-daemon-config!
   ([config-dir] (start-cli-daemon-config! config-dir []))
   ([config-dir daemon-args]
-   (let [process (-> (ProcessBuilder. (into [todo-bin "--config-dir" config-dir "daemon" "start"] daemon-args))
+   (let [process (-> (ProcessBuilder. (into [strand-bin "--config-dir" config-dir "weaver" "start"] daemon-args))
                      (.directory (outside-repo-dir))
                      (.redirectErrorStream true)
                      (.start))]
      (loop [attempts 50]
        (when-not (.isAlive process)
-         (throw (ex-info "CLI daemon exited before becoming ready" {:output (slurp (.getInputStream process))})))
+         (throw (ex-info "CLI weaver exited before becoming ready" {:output (slurp (.getInputStream process))})))
        (when (zero? attempts)
          (.destroy process)
-         (throw (ex-info "CLI daemon did not become ready" {})))
+         (throw (ex-info "CLI weaver did not become ready" {})))
        (when-not (try
-                   (run-cli-config! config-dir "--format" "json" "daemon" "status")
+                   (run-cli-config! config-dir "--format" "json" "weaver" "status")
                    true
                    (catch AssertionError _ false))
          (Thread/sleep 200)
@@ -158,21 +158,21 @@
           (str message "\nmissing: " (pr-str needle) "\nin: " haystack)))
 
 (defn smoke-cli-help! []
-  (let [root (run-process! "Go CLI root help succeeds" [todo-bin "--help"])
-        add (run-process! "Go CLI add help succeeds" [todo-bin "add" "--help"])
-        daemon (run-process! "Go CLI daemon help succeeds" [todo-bin "daemon" "--help"])
-        start (run-process! "Go CLI daemon start help succeeds" [todo-bin "daemon" "start" "--help"])]
-    (doseq [needle ["Available Commands:" "add" "list" "daemon"]]
+  (let [root (run-process! "Go CLI root help succeeds" [strand-bin "--help"])
+        add (run-process! "Go CLI add help succeeds" [strand-bin "add" "--help"])
+        weaver (run-process! "Go CLI weaver help succeeds" [strand-bin "weaver" "--help"])
+        start (run-process! "Go CLI weaver start help succeeds" [strand-bin "weaver" "start" "--help"])]
+    (doseq [needle ["Available Commands:" "add" "list" "weaver"]]
       (assert-contains root needle "Go CLI root help shows command tree"))
     (doseq [needle ["add <title>" "--active" "--ephemeral" "--attr"]]
       (assert-contains add needle "Go CLI command help shows flags"))
     (doseq [needle ["start" "status" "stop"]]
-      (assert-contains daemon needle "Go CLI subcommand help shows children"))
+      (assert-contains weaver needle "Go CLI subcommand help shows children"))
     (assert-contains start "--config-dir" "Go CLI nested subcommand help shows selected world flag")))
 
 (defn stop-cli-daemon-config! [config-dir daemon]
   (when (.isAlive daemon)
-    (run-cli-config! config-dir "daemon" "stop")
+    (run-cli-config! config-dir "weaver" "stop")
     (.waitFor daemon)))
 
 (defn stop-cli-daemon! [db-file daemon]
@@ -195,12 +195,12 @@
       (run-process! "clean bootstrap creates config-dir files before weaver is running"
                     (java.io.File. checkout-root)
                     nil
-                    [todo-bin "--config-dir" config-dir "init"])
+                    [strand-bin "--config-dir" config-dir "init"])
       (throw (ex-info "clean bootstrap init unexpectedly reached daemon" {}))
       (catch AssertionError e
         (let [message (ex-message e)]
           (when-not (or (clojure.string/includes? message "weaver socket unreachable")
-                        (clojure.string/includes? message "no running daemon"))
+                        (clojure.string/includes? message "no running weaver"))
             (throw e)))))
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
@@ -258,7 +258,7 @@
       (try
         (run-cli-config! config-dir "init")
         (let [strand-id (cli-add-config! config-dir "Startup transformed strand" "--attr" "owner=smoke")
-              payload (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.graph.alpha :as graph] '[skein.views.alpha :as views]) {:query-ids (graph/query-ids! 'smoke-owned {}) :view (views/view! 'smoke-owned-view {:source \"stdin\"}) :views (views/views)})\n" "daemon" "repl" "--stdin"))]
+              payload (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.graph.alpha :as graph] '[skein.views.alpha :as views]) {:query-ids (graph/query-ids! 'smoke-owned {}) :view (views/view! 'smoke-owned-view {:source \"stdin\"}) :views (views/views)})\n" "weaver" "repl" "--stdin"))]
           (assert= [strand-id] (:query-ids payload) "startup registered query is available through graph helper")
           (assert= {:source "stdin"} (get-in payload [:view :params]) "startup view receives params")
           (assert= [strand-id] (get-in payload [:view :ids]) "startup view can call graph/query-ids!")
@@ -297,14 +297,14 @@
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
         (run-cli-config! config-dir "init")
-        (let [initial (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) {:approved (libs/approved) :syncs (libs/syncs) :uses (libs/uses)})\n" "daemon" "repl" "--stdin"))]
+        (let [initial (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) {:approved (libs/approved) :syncs (libs/syncs) :uses (libs/uses)})\n" "weaver" "repl" "--stdin"))]
           (assert= {:libs {}} (:approved initial) "live library smoke starts with no approved libs")
           (assert= {:libs {}} (:syncs initial) "live library smoke starts with no synced libs")
           (assert= {} (:uses initial) "live library smoke starts with no used modules"))
 
         (spit (java.io.File. config-dir "libs.edn") "{:libs {live/missing {:local/root \"libs/missing\"}}}\n")
-        (let [bad-sync (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) (libs/sync!))\n" "daemon" "repl" "--stdin"))
-              bad-use (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) (libs/use! :live/missing {:ns 'live.missing :libs #{'live/missing}}))\n" "daemon" "repl" "--stdin"))]
+        (let [bad-sync (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) (libs/sync!))\n" "weaver" "repl" "--stdin"))
+              bad-use (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) (libs/use! :live/missing {:ns 'live.missing :libs #{'live/missing}}))\n" "weaver" "repl" "--stdin"))]
           (assert= :failed (get-in bad-sync [:libs 'live/missing :status]) "missing live library sync records failure")
           (assert= :missing-root (get-in bad-sync [:libs 'live/missing :reason]) "missing live library sync records missing-root reason")
           (assert= :skipped (:status bad-use) "failed live library use is skipped")
@@ -313,10 +313,10 @@
         (write-live-lib! config-dir "throwing-lib" "live.throwing"
                          "(ns live.throwing)\n(defn install! [] (throw (ex-info \"install boom\" {:phase :install})))\n")
         (spit (java.io.File. config-dir "libs.edn") "{:libs {live/throwing {:local/root \"libs/throwing-lib\"}}}\n")
-        (let [throwing (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) (libs/sync!) (libs/use! :live/throwing {:ns 'live.throwing :libs #{'live/throwing} :call 'live.throwing/install!}))\n" "daemon" "repl" "--stdin"))]
+        (let [throwing (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) (libs/sync!) (libs/use! :live/throwing {:ns 'live.throwing :libs #{'live/throwing} :call 'live.throwing/install!}))\n" "weaver" "repl" "--stdin"))]
           (assert= :failed (:status throwing) "throwing live library call records failed use")
           (assert= "install boom" (get-in throwing [:error :message]) "throwing live library call captures user-code error"))
-        (assert= true (:healthy (parse-json (run-cli-config! config-dir "--format" "json" "daemon" "status"))) "daemon remains healthy after bad live library code")
+        (assert= true (:healthy (parse-json (run-cli-config! config-dir "--format" "json" "weaver" "status"))) "weaver remains healthy after bad live library code")
 
         (write-live-lib! config-dir "good-lib" "live.good-alpha"
                          (str "(ns live.good-alpha\n  (:require [skein.weaver.api :as api]))\n"
@@ -325,8 +325,8 @@
                               "  (api/register-query! 'live-owned [:= [:attr :owner] \"live\"])\n"
                               "  :installed)\n"))
         (spit (java.io.File. config-dir "libs.edn") "{:libs {live/good {:local/root \"libs/good-lib\"}}}\n")
-        (let [loaded (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) (libs/sync!) (libs/use! :live/good {:ns 'live.good-alpha :libs #{'live/good} :call 'live.good-alpha/install!}))\n" "daemon" "repl" "--stdin"))]
-          (assert= :loaded (:status loaded) "new good library loads without daemon restart")
+        (let [loaded (edn/read-string (run-cli-config-stdin! config-dir "(do (require '[skein.libs.alpha :as libs]) (libs/sync!) (libs/use! :live/good {:ns 'live.good-alpha :libs #{'live/good} :call 'live.good-alpha/install!}))\n" "weaver" "repl" "--stdin"))]
+          (assert= :loaded (:status loaded) "new good library loads without weaver restart")
           (assert= :installed (get-in loaded [:call :return]) "new good library install call returns value")
           (assert= :installed (edn/read-string (slurp marker)) "new good library install call has visible side effect"))
         (cli-add-config! config-dir "Live owned strand" "--attr" "owner=live")
@@ -346,9 +346,9 @@
     (smoke-bootstrap! db-file)
     (smoke-live-library-reload! db-file)
     (let [marker (write-library-startup-config! db-file)
-          daemon (start-cli-daemon! db-file)]
+          weaver (start-cli-daemon! db-file)]
       (try
-        (assert= "base layered" (slurp marker) "selected config-dir init.clj activates layered local library during daemon startup")
+        (assert= "base layered" (slurp marker) "selected config-dir init.clj activates layered local library during weaver startup")
         (run-cli! db-file "init")
             (let [design (cli-add! db-file "Sketch strand graph model" "--active=false" "--attr" "priority=high")
                   schema (cli-add! db-file "Create SQLite schema" "--attr" "priority=high")
@@ -365,30 +365,30 @@
               (assert= false
                        (:active (parse-json (run-cli! db-file "--format" "json" "show" schema)))
                        "Go CLI show exposes active lifecycle")
-              (let [status (parse-json (run-cli! db-file "--format" "json" "daemon" "status"))]
+              (let [status (parse-json (run-cli! db-file "--format" "json" "weaver" "status"))]
                 (assert= true
                          (:healthy status)
-                         "Go CLI daemon status checks socket health")
+                         "Go CLI weaver status checks socket health")
                 (assert= (.getPath (metadata/socket-file (smoke-world db-file)))
                          (:socket_path status)
-                         "Go CLI daemon status reports socket metadata")
-                (let [stdin-output (run-cli-stdin! db-file "(do\n  (require '[skein.libs.alpha :as libs])\n  (defquery! 'agent-owned '[:= [:attr :owner] \"agent\"])\n  {:strand-count (count (strands))\n   :ready-titles (mapv :title (ready))\n   :syncs (libs/syncs)\n   :base (libs/use :smoke/lib)\n   :layer (libs/use :smoke/layer)\n   :optional (libs/use :smoke/optional-missing)})\n" "daemon" "repl" "--stdin")
+                         "Go CLI weaver status reports socket metadata")
+                (let [stdin-output (run-cli-stdin! db-file "(do\n  (require '[skein.libs.alpha :as libs])\n  (defquery! 'agent-owned '[:= [:attr :owner] \"agent\"])\n  {:strand-count (count (strands))\n   :ready-titles (mapv :title (ready))\n   :syncs (libs/syncs)\n   :base (libs/use :smoke/lib)\n   :layer (libs/use :smoke/layer)\n   :optional (libs/use :smoke/optional-missing)})\n" "weaver" "repl" "--stdin")
                       payload (edn/read-string stdin-output)]
-                  (assert= 3 (:strand-count payload) "Go CLI daemon repl --stdin prints direct form result")
-                  (assert= ["Write usage notes"] (:ready-titles payload) "Go CLI daemon repl --stdin has connected helper context")
-                  (assert= :loaded (get-in payload [:syncs :libs 'smoke/lib :status]) "Go CLI daemon repl --stdin introspects loaded library sync state")
-                  (assert= :failed (get-in payload [:syncs :libs 'smoke/missing :status]) "Go CLI daemon repl --stdin introspects missing library sync failure")
-                  (assert= :loaded (get-in payload [:base :status]) "Go CLI daemon repl --stdin sees base module use state")
-                  (assert= :loaded (get-in payload [:layer :status]) "Go CLI daemon repl --stdin sees layered module use state")
-                  (assert= :layered (get-in payload [:layer :call :return]) "Go CLI daemon repl --stdin sees layered module call result")
-                  (assert= :skipped (get-in payload [:optional :status]) "Go CLI daemon repl --stdin sees optional missing module skipped without bricking startup")
+                  (assert= 3 (:strand-count payload) "Go CLI weaver repl --stdin prints direct form result")
+                  (assert= ["Write usage notes"] (:ready-titles payload) "Go CLI weaver repl --stdin has connected helper context")
+                  (assert= :loaded (get-in payload [:syncs :libs 'smoke/lib :status]) "Go CLI weaver repl --stdin introspects loaded library sync state")
+                  (assert= :failed (get-in payload [:syncs :libs 'smoke/missing :status]) "Go CLI weaver repl --stdin introspects missing library sync failure")
+                  (assert= :loaded (get-in payload [:base :status]) "Go CLI weaver repl --stdin sees base module use state")
+                  (assert= :loaded (get-in payload [:layer :status]) "Go CLI weaver repl --stdin sees layered module use state")
+                  (assert= :layered (get-in payload [:layer :call :return]) "Go CLI weaver repl --stdin sees layered module call result")
+                  (assert= :skipped (get-in payload [:optional :status]) "Go CLI weaver repl --stdin sees optional missing module skipped without bricking startup")
                   (assert (not (clojure.string/includes? stdin-output "\"result\""))
-                          (str "Go CLI daemon repl --stdin must not wrap output in a CLI response envelope\n" stdin-output))
+                          (str "Go CLI weaver repl --stdin must not wrap output in a CLI response envelope\n" stdin-output))
                   (assert= ["Write usage notes"]
                            (titles (parse-json (run-cli! db-file "--format" "json" "list" "--query" "agent-owned")))
-                           "Go CLI list --query consumes daemon query state from outside the repo"))))
+                           "Go CLI list --query consumes weaver query state from outside the repo"))))
         (finally
-          (stop-cli-daemon! db-file daemon))))
+          (stop-cli-daemon! db-file weaver))))
     (finally
       (clean-runtime-artifacts! db-file)
       (delete-built-cli!))))
@@ -408,7 +408,7 @@
           (repl/defquery! 'agent-owner '[:= [:attr :owner] "agent"])
           (assert= ["Second strand"]
                    (titles (repl/strands 'agent-owner))
-                   "skein.repl consumes a query registered during the daemon lifetime")
+                   "skein.repl consumes a query registered during the weaver lifetime")
           (assert= ["Second strand"]
                    (titles (repl/query '[:= [:attr :owner] "agent"]))
                    "skein.repl retains EDN-rich ad hoc query debugging")
@@ -422,4 +422,4 @@
 (defn -main [& [db-file]]
   (smoke-cli! (if db-file (str db-file ".cli") cli-smoke-db))
   (smoke-repl! (if db-file (str db-file ".repl") repl-smoke-db))
-  (println "\nSmoke completed with daemon-backed Go CLI and REPL flows."))
+  (println "\nSmoke completed with weaver-backed Go CLI and REPL flows."))

@@ -339,7 +339,7 @@
         (is (= false (get response "ok")))
         (is (= "domain" (get-in response ["error" "type"])))
         (is (= "database/not-initialized" (get-in response ["error" "code"])))
-        (is (= "Database is not initialized; run `todo init` first"
+        (is (= "Database is not initialized; run `strand init` first"
                (get-in response ["error" "message"])))))))
 
 (deftest json-socket-rejects-identity-mismatch

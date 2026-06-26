@@ -126,3 +126,9 @@ Append notes here. Do not rewrite earlier notes.
 - Renamed connected helpers to `skein.repl/strand!`, `strand`, and `strands`; old task helper vars are absent.
 - Moved blessed alpha libraries to `skein.libs.alpha`, `skein.graph.alpha`, and `skein.views.alpha`; graph hydration is now `strands-by-ids` and subgraph helpers expose `:strands` rows.
 - REPL helper tests now cover ephemeral creation, invalid inactive-ephemeral creation, same-patch active/ephemeral rejection, and delete-on-deactivate through the connected weaver path.
+
+### SR-PLAN-001.DN6 Task 004 implementation — 2026-06-26
+
+- Renamed the Go build target to `cmd/strand`, the root Cobra use to `strand`, and public lifecycle commands to `strand weaver ...`; no `cmd/todo` binary path remains.
+- Go CLI now sends `active`/`ephemeral` payloads, rejects removed `--status`, rejects inactive ephemeral creation, and rejects same-command active/ephemeral updates before reaching the weaver.
+- Smoke was minimally updated to build and exercise `strand`/`weaver` so repository-required validation remains end-to-end; broader docs refresh remains task 005.

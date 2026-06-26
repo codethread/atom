@@ -64,9 +64,9 @@ func New(cfg Config) *SocketClient {
 
 func (c *SocketClient) startCommand() string {
 	if c.Config.ConfigDir == "" {
-		return "todo daemon start"
+		return "strand weaver start"
 	}
-	return fmt.Sprintf("todo --config-dir %s daemon start", c.Config.ConfigDir)
+	return fmt.Sprintf("strand --config-dir %s weaver start", c.Config.ConfigDir)
 }
 
 func (c *SocketClient) daemonStateError(format string, args ...any) error {
@@ -76,7 +76,7 @@ func (c *SocketClient) daemonStateError(format string, args ...any) error {
 
 func (e *ResponseError) Error() string {
 	if e == nil {
-		return "daemon error"
+		return "weaver error"
 	}
 	message := e.Message
 	if query, ok := e.Details["canonical-query"].(string); ok && query != "" {
@@ -97,9 +97,9 @@ func (e *ResponseError) Error() string {
 		return message
 	}
 	if e.Code != "" {
-		return fmt.Sprintf("daemon %s error (%s): %s", e.Type, e.Code, message)
+		return fmt.Sprintf("weaver %s error (%s): %s", e.Type, e.Code, message)
 	}
-	return fmt.Sprintf("daemon %s error: %s", e.Type, message)
+	return fmt.Sprintf("weaver %s error: %s", e.Type, message)
 }
 
 func validResponseError(e *ResponseError) bool {
@@ -125,28 +125,28 @@ func (c *SocketClient) Call(operation string, arguments map[string]any) (any, er
 	defer cancel()
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", meta.SocketPath)
 	if err != nil {
-		return nil, fmt.Errorf("daemon socket unreachable for state dir %s: %w", c.Config.StateDir, err)
+		return nil, fmt.Errorf("weaver socket unreachable for state dir %s: %w", c.Config.StateDir, err)
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(c.RequestDeadline))
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return nil, fmt.Errorf("daemon socket write failed: %w", err)
+		return nil, fmt.Errorf("weaver socket write failed: %w", err)
 	}
 	var resp response
 	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&resp); err != nil {
-		return nil, fmt.Errorf("malformed daemon response: %w", err)
+		return nil, fmt.Errorf("malformed weaver response: %w", err)
 	}
 	if resp.ProtocolVersion != protocolVersion || resp.RequestID != requestID {
-		return nil, errors.New("malformed daemon response: protocol version or request id mismatch")
+		return nil, errors.New("malformed weaver response: protocol version or request id mismatch")
 	}
 	if !resp.OK {
 		if resp.Error == nil || !validResponseError(resp.Error) || resp.Result != nil {
-			return nil, errors.New("malformed daemon response: error envelope does not match protocol")
+			return nil, errors.New("malformed weaver response: error envelope does not match protocol")
 		}
 		return nil, resp.Error
 	}
 	if resp.Error != nil {
-		return nil, errors.New("malformed daemon response: success envelope includes error")
+		return nil, errors.New("malformed weaver response: success envelope includes error")
 	}
 	if err := validateLifecycleResult(operation, resp.Result, meta); err != nil {
 		return nil, err
@@ -166,26 +166,26 @@ func (c *SocketClient) metadata() (Metadata, string, error) {
 	file := filepath.Join(c.Config.StateDir, "weaver.json")
 	b, err := os.ReadFile(file)
 	if os.IsNotExist(err) {
-		return Metadata{}, "", c.daemonStateError("no running daemon (state dir %s)", c.Config.StateDir)
+		return Metadata{}, "", c.daemonStateError("no running weaver (state dir %s)", c.Config.StateDir)
 	}
 	if err != nil {
 		return Metadata{}, "", err
 	}
 	var m Metadata
 	if err := json.Unmarshal(b, &m); err != nil {
-		return Metadata{}, "", fmt.Errorf("%w: %v", c.daemonStateError("malformed daemon metadata"), err)
+		return Metadata{}, "", fmt.Errorf("%w: %v", c.daemonStateError("malformed weaver metadata"), err)
 	}
 	if m.ProtocolVersion != protocolVersion || m.PID == 0 || m.DatabasePath == "" || m.DaemonID == "" || m.ConfigDir == "" || m.DataDir == "" || m.SocketPath == "" || m.StartedAt == "" || m.NREPL.Host == "" || m.NREPL.Port == 0 {
-		return Metadata{}, "", c.daemonStateError("malformed daemon metadata: missing required fields")
+		return Metadata{}, "", c.daemonStateError("malformed weaver metadata: missing required fields")
 	}
 	if c.Config.ConfigDir != "" && filepath.Clean(m.ConfigDir) != filepath.Clean(c.Config.ConfigDir) {
-		return Metadata{}, "", c.daemonStateError("daemon metadata config dir mismatch: %s", m.ConfigDir)
+		return Metadata{}, "", c.daemonStateError("weaver metadata config dir mismatch: %s", m.ConfigDir)
 	}
 	if filepath.Clean(m.SocketPath) != filepath.Join(c.Config.StateDir, "weaver.sock") {
-		return Metadata{}, "", c.daemonStateError("daemon metadata socket mismatch: %s", m.SocketPath)
+		return Metadata{}, "", c.daemonStateError("weaver metadata socket mismatch: %s", m.SocketPath)
 	}
 	if !pidAlive(m.PID) {
-		return Metadata{}, "", c.daemonStateError("stale daemon metadata: pid %d is not alive", m.PID)
+		return Metadata{}, "", c.daemonStateError("stale weaver metadata: pid %d is not alive", m.PID)
 	}
 	return m, file, nil
 }
@@ -195,12 +195,12 @@ func validateLifecycleResult(operation string, result any, meta Metadata) error 
 	case "status":
 		m, ok := result.(map[string]any)
 		if !ok || m["healthy"] != true || m["protocol_version"] != float64(protocolVersion) || !samePositivePID(m["pid"], meta.PID) || m["database_path"] != meta.DatabasePath || m["weaver_id"] != meta.DaemonID || m["socket_path"] != meta.SocketPath || m["config_dir"] != meta.ConfigDir || m["data_dir"] != meta.DataDir || m["started_at"] != meta.StartedAt || !validNREPL(m["nrepl"]) {
-			return errors.New("malformed daemon response: invalid status result")
+			return errors.New("malformed weaver response: invalid status result")
 		}
 	case "stop":
 		m, ok := result.(map[string]any)
 		if !ok || m["stopping"] != true || !samePositivePID(m["pid"], meta.PID) || m["weaver_id"] != meta.DaemonID {
-			return errors.New("malformed daemon response: invalid stop result")
+			return errors.New("malformed weaver response: invalid stop result")
 		}
 	}
 	return nil
@@ -251,7 +251,7 @@ func waitForCleanup(metadataFile, socketPath string) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return errors.New("daemon stop did not clean up runtime metadata/socket")
+	return errors.New("weaver stop did not clean up runtime metadata/socket")
 }
 func missing(path string) (bool, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {

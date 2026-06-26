@@ -11,7 +11,7 @@
 
 (defn connected-config-dir []
   (case @active-config-dir
-    ::no-connection (throw (ex-info "No Skein weaver world is connected. Start a connected helper REPL with `todo daemon repl`, or call (connect!) / (connect! \"/path/to/config-dir\") before using skein.repl helpers."
+    ::no-connection (throw (ex-info "No Skein weaver world is connected. Start a connected helper REPL with `strand weaver repl`, or call (connect!) / (connect! \"/path/to/config-dir\") before using skein.repl helpers."
                                    {:helper 'connect!}))
     ::default-world nil
     @active-config-dir))

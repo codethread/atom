@@ -12,7 +12,7 @@
             [skein.specs :as specs]))
 
 (def query-commands #{"show" "list" "ready"})
-(def commands (conj query-commands "init" "add" "update" "daemon"))
+(def commands (conj query-commands "init" "add" "update" "weaver"))
 
 (def global-options
   [[nil "--config-dir DIR" "Weaver world config directory"
@@ -79,7 +79,7 @@
 (def daemon-start-options [])
 
 (defn usage [summary]
-  (str "Todo CLI\n\n"
+  (str "Skein CLI\n\n"
        "Usage:\n"
        "  clojure -M:skein [--config-dir <dir>] [--format human|edn|json] <command> [args]\n\n"
        "Commands:\n"
@@ -89,9 +89,9 @@
        "  show <id>\n"
        "  list [--where EDN | --query name] [--param key=value ...]\n"
        "  ready [--where EDN | --query name] [--param key=value ...]\n"
-       "  daemon start\n"
-       "  daemon stop\n"
-       "  daemon status\n\n"
+       "  weaver start\n"
+       "  weaver stop\n"
+       "  weaver status\n\n"
        "Options:\n"
        summary
        "\n"))
@@ -243,26 +243,26 @@
     (case subcommand
       "start" (do (parse-daemon-start-options subargs summary)
                   (runtime/start! db-file {:world world})
-                  (println "daemon started")
+                  (println "weaver started")
                   (while @runtime/current-runtime
                     (Thread/sleep 100)))
-      "stop" (do (require-conform ::specs/empty-command subargs "daemon stop" summary)
+      "stop" (do (require-conform ::specs/empty-command subargs "weaver stop" summary)
                  (client/stop-world (:config-dir world)))
-      "status" (do (require-conform ::specs/empty-command subargs "daemon status" summary)
+      "status" (do (require-conform ::specs/empty-command subargs "weaver status" summary)
                    (daemon-status world))
-      (fail! (str "Unknown daemon command: " (or subcommand "")) summary))))
+      (fail! (str "Unknown weaver command: " (or subcommand "")) summary))))
 
 (defn -main [& args]
   (let [[opts command command-args summary] (parse-global-options args)]
     (when (nil? command) (fail! "Missing command" summary))
     (when-not (commands command) (fail! (str "Unknown command: " command) summary))
     (try
-      (let [result (if (= command "daemon")
+      (let [result (if (= command "weaver")
                      (run-daemon-command! (:db opts) (:world opts) command-args summary)
                      (run-command! (:db opts) command command-args summary))]
         (cond
           (and (= command "add") (= "human" (:format opts))) (println (:id result))
-          (and (= command "daemon") (= "start" (first command-args))) nil
-          (or (query-commands command) (= command "daemon") (not= "human" (:format opts))) (print-result (:format opts) result)))
+          (and (= command "weaver") (= "start" (first command-args))) nil
+          (or (query-commands command) (= command "weaver") (not= "human" (:format opts))) (print-result (:format opts) result)))
       (catch clojure.lang.ExceptionInfo e (fail! (cli-error-message e) summary))
       (catch Exception e (fail! (.getMessage e) summary)))))
