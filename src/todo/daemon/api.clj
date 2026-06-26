@@ -207,7 +207,17 @@
           (:after opts))))
 
 (defn- module-file [runtime path]
-  (.getCanonicalPath (io/file (config-dir runtime) path)))
+  (let [base (.getCanonicalFile (io/file (config-dir runtime)))
+        file (.getCanonicalFile (io/file base path))
+        base-path (.getPath base)
+        file-path (.getPath file)]
+    (when-not (or (= base-path file-path)
+                  (str/starts-with? file-path (str base-path java.io.File/separator)))
+      (throw (ex-info "Module use :file must stay within selected config-dir"
+                      {:file path
+                       :config-dir base-path
+                       :resolved file-path})))
+    file-path))
 
 (defn- exception-data [t]
   {:message (ex-message t)
@@ -216,6 +226,8 @@
 
 (defn use! [runtime key opts]
   (validate-use-opts! key opts)
+  (when-let [file (:file opts)]
+    (module-file runtime file))
   (if-let [[reason data] (use-lib-skip runtime opts)]
     (skip-use runtime key opts reason data)
     (if-let [[reason data] (use-after-skip runtime opts)]

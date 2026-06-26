@@ -29,7 +29,7 @@ This feature adds an explicit blessed REPL/config namespace for daemon-side libr
 ## RLW-DELTA-002.P4 Resilient module activation with `use!`
 
 - **RLW-DELTA-002.C11:** `(libs/use! key opts)` records one daemon-lifetime module-use attempt under `key`. Duplicate keys replace prior use state for reload workflows.
-- **RLW-DELTA-002.C12:** `opts` may identify load target with `:ns` for daemon-side `require` or `:file` for selected-config-dir-relative daemon-side `load-file`. Supplying neither or both fails loudly.
+- **RLW-DELTA-002.C12:** `opts` may identify load target with `:ns` for daemon-side `require` or `:file` for selected-config-dir-relative daemon-side `load-file`. `:file` must be relative and must resolve within the selected config-dir. Supplying neither or both fails loudly.
 - **RLW-DELTA-002.C13:** `opts` may include `:libs`, a vector or set of symbol library coordinate keys that must be both approved and available in the daemon runtime before target loading. MVP `:libs` does not accept version ranges.
 - **RLW-DELTA-002.C14:** Unmet `:libs` requirements cause a structured skipped result before raw `require`/`load-file` runs. Reasons distinguish at least `:not-approved`, `:not-synced`, and `:sync-failed` when that information is known.
 - **RLW-DELTA-002.C15:** `opts` may include `:after`, a vector of prior `use!` keys that must have `:loaded` status. Missing, skipped, or failed prerequisites cause a structured skipped result with reason `:missing-after`.

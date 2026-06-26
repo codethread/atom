@@ -159,3 +159,7 @@ Promoted runtime library workspace contracts into root daemon runtime and REPL A
 ### RLW-PLAN-001.DN13 MVP simplification pass — 2026-06-25
 
 Removed the thin `atom.prelude.alpha` alias namespace and its tests/docs references after a YAGNI review. It duplicated `atom.libs.alpha` without adding MVP behavior, so the shipped public library-workspace surface is now a single explicit namespace.
+
+### RLW-PLAN-001.DN14 Alignment fix-forward — 2026-06-25
+
+Post-build alignment review found one blessed-path boundary bug: `use! :file` rejected absolute paths but allowed relative traversal such as `../mod.clj`, which contradicted the selected-config-dir-relative contract. Fixed `todo.daemon.api/use!` to reject `:file` targets whose canonical path escapes the selected config-dir, added regression coverage, and updated root/feature REPL specs. Validation passed afterward: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.

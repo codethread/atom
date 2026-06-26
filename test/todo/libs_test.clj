@@ -352,6 +352,7 @@
                ["bad ns" :bad {:ns "demo.core"} #":ns must be a symbol"]
                ["bad file" :bad {:file ""} #":file must be"]
                ["absolute file" :bad {:file "/tmp/mod.clj"} #"relative to selected config-dir"]
+               ["escaping file" :bad {:file "../mod.clj"} #"stay within selected config-dir"]
                ["bad libs" :bad {:ns 'demo.core :libs ['demo/lib 1]} #":libs entries"]
                ["bad after" :bad {:ns 'demo.core :after [1]} #":after entries"]
                ["bad call" :bad {:ns 'demo.core :call 'install!} #":call must"]
