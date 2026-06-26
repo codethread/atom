@@ -171,3 +171,7 @@ Added DB-layer primitives for ad hoc query id selection, ordered duplicate-colla
 ### RTP-PLAN-001.DN4 TASK-003 daemon registry ops — 2026-06-26
 
 Added daemon/client routing for the frozen primitive op names and a daemon-lifetime view registry. The view registry intentionally stores only serializable `{ :name string :fn symbol }` entries and resolves functions at invocation time, which supports reload workflows without holding stale function objects. JSON socket public operations remain unchanged.
+
+### RTP-PLAN-001.DN5 TASK-004 blessed alpha helpers — 2026-06-26
+
+Added `atom.graph.alpha` and `atom.views.alpha` as source-visible helper namespaces over the daemon operations. The helpers mirror `atom.libs.alpha` routing: direct calls inside the daemon JVM use `todo.daemon.api`, while connected helper REPL calls route through the selected `todo.repl` config-dir world. No install helper was added because this slice has no default registrations to perform.

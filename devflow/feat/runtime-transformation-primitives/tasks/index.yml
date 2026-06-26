@@ -17,7 +17,7 @@ tasks:
   - id: 4
     description: blessed alpha helpers
     task_file: tasks/004-blessed-alpha-helpers.md
-    status: pending
+    status: complete
     blocked_by: [3]
   - id: 5
     description: init docs smoke workflow
