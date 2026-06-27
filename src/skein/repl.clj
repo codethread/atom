@@ -123,8 +123,11 @@
   ([query-or-def params]
    (run-query (config-dir) query-or-def params :ready :ready-query)))
 
-(defn defpattern! [pattern-name fn-sym input-spec]
-  (patterns-alpha/register-pattern! pattern-name fn-sym input-spec))
+(defn defpattern!
+  ([pattern-name fn-sym input-spec]
+   (patterns-alpha/register-pattern! pattern-name fn-sym input-spec))
+  ([pattern-name doc fn-sym input-spec]
+   (patterns-alpha/register-pattern! pattern-name doc fn-sym input-spec)))
 
 (defn patterns []
   (patterns-alpha/patterns))

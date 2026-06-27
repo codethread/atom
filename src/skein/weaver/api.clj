@@ -541,15 +541,32 @@
     (throw (ex-info "Pattern input spec must be a keyword or symbol" {:spec spec-name})))
   spec-name)
 
+(defn- validate-pattern-doc! [doc]
+  (when-not (and (string? doc) (not (str/blank? doc)))
+    (throw (ex-info "Pattern doc must be a non-blank string" {:doc doc})))
+  doc)
+
+(defn- runtime? [x]
+  (and (map? x) (contains? x :pattern-registry)))
+
+(defn- pattern-entry [pattern-name doc fn-sym input-spec]
+  (cond-> {:name (canonical-pattern-name pattern-name)
+           :fn (validate-pattern-fn-symbol! fn-sym)
+           :input-spec (validate-pattern-spec! input-spec)}
+    doc (assoc :doc (validate-pattern-doc! doc))))
+
 (defn register-pattern!
   ([pattern-name fn-sym input-spec]
    (register-pattern! (current-runtime) pattern-name fn-sym input-spec))
-  ([runtime pattern-name fn-sym input-spec]
-   (let [name (canonical-pattern-name pattern-name)
-         entry {:name name
-                :fn (validate-pattern-fn-symbol! fn-sym)
-                :input-spec (validate-pattern-spec! input-spec)}]
-     (swap! (pattern-registry runtime) assoc name entry)
+  ([a b c d]
+   (if (runtime? a)
+     (let [entry (pattern-entry b nil c d)]
+       (swap! (pattern-registry a) assoc (:name entry) entry)
+       entry)
+     (register-pattern! (current-runtime) a b c d)))
+  ([runtime pattern-name doc fn-sym input-spec]
+   (let [entry (pattern-entry pattern-name doc fn-sym input-spec)]
+     (swap! (pattern-registry runtime) assoc (:name entry) entry)
      entry)))
 
 (defn patterns [runtime]
@@ -568,22 +585,75 @@
       (throw (ex-info "Pattern input spec is not registered" {:input-spec spec-name})))
     form))
 
+(defn- spec-summary [spec-name]
+  {:spec (str spec-name)
+   :spec-form (pr-str (spec-form spec-name))})
+
+(defn- key-spec-summary [key-spec]
+  (merge {:key (name key-spec)}
+         (try
+           (spec-summary key-spec)
+           (catch clojure.lang.ExceptionInfo _
+             {:spec (str key-spec)
+              :spec-form "<unregistered>"}))))
+
+(defn- keys-spec-summary [form]
+  (when (and (seq? form) (= 'clojure.spec.alpha/keys (first form)))
+    (let [opts (apply hash-map (rest form))]
+      {:required (mapv key-spec-summary (concat (:req opts) (:req-un opts)))
+       :optional (mapv key-spec-summary (concat (:opt opts) (:opt-un opts)))})))
+
+(defn- pattern-input-contract [input-spec]
+  (let [form (spec-form input-spec)
+        keys-summary (keys-spec-summary form)]
+    (cond-> (spec-summary input-spec)
+      true (assoc :summary "Input must satisfy this clojure.spec contract. For key specs, see required/optional entries for each key's own predicate.")
+      keys-summary (merge keys-summary))))
+
 (defn pattern-explain [runtime pattern-name]
-  (let [{:keys [name fn input-spec]} (resolve-pattern runtime pattern-name)
-        form (spec-form input-spec)]
-    {:name name
-     :fn (str fn)
-     :input-spec (str input-spec)
-     :spec-form (pr-str form)}))
+  (let [{:keys [name doc fn input-spec]} (resolve-pattern runtime pattern-name)
+        contract (pattern-input-contract input-spec)]
+    (cond-> (merge {:name name
+                    :fn (str fn)
+                    :input-spec (str input-spec)
+                    :spec-form (:spec-form contract)}
+                   (select-keys contract [:summary :required :optional]))
+      doc (assoc :doc doc))))
+
+(defn- missing-key [problem]
+  (let [pred (pr-str (:pred problem))]
+    (when (str/includes? pred "contains?")
+      (or (last (:path problem))
+          (some->> (re-find #"contains\? % (:?[A-Za-z0-9._/-]+)" pred) second keyword)))))
+
+(defn- problem-message [contract problem]
+  (if-let [key-spec (missing-key problem)]
+    (let [key-contract (some #(when (= (name key-spec) (:key %)) %)
+                             (:required contract))]
+      (str "missing required key `" (name key-spec) "`"
+           (when key-contract
+             (str " (expected " (:spec key-contract) " " (:spec-form key-contract) ")"))))
+    (str "value at " (pr-str (:in problem)) " failed predicate " (pr-str (:pred problem)))))
+
+(defn- pattern-validation-message [pattern-name contract explain]
+  (let [problems (::s/problems explain)]
+    (str "Pattern input failed spec validation for `" (canonical-pattern-name pattern-name) "`"
+         (when (seq problems)
+           (str ": " (str/join "; " (map #(problem-message contract %) problems)))))))
 
 (defn weave! [runtime pattern-name input]
   (let [{fn-sym :fn input-spec :input-spec} (resolve-pattern runtime pattern-name)]
     (spec-form input-spec)
     (when-not (s/valid? input-spec input)
-      (throw (ex-info "Pattern input failed spec validation"
-                      {:pattern (canonical-pattern-name pattern-name)
-                       :input-spec input-spec
-                       :explain (s/explain-data input-spec input)})))
+      (let [explain (s/explain-data input-spec input)
+            contract (pattern-input-contract input-spec)]
+        (throw (ex-info (pattern-validation-message pattern-name contract explain)
+                        {:code "pattern/input-invalid"
+                         :pattern (canonical-pattern-name pattern-name)
+                         :input-spec (str input-spec)
+                         :contract contract
+                         :problems (mapv #(problem-message contract %) (::s/problems explain))
+                         :explain explain}))))
     (let [batch (with-library-classloader
                   runtime
                   #((requiring-resolve fn-sym) {:input input}))]

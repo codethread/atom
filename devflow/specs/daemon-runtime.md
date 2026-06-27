@@ -96,9 +96,9 @@ The weaver runtime is the long-lived local Clojure process that owns strand stor
 - **SPEC-004.C57:** View invocation resolves the registered function symbol in the weaver JVM and calls it with one context map containing at least `:params`. View functions are read-only transformations in this feature; mutating workflows require a separate contract.
 - **SPEC-004.C58:** View registry contents are weaver-lifetime runtime state and are not durable across restarts. Registry introspection returns serializable entries, not function objects.
 - **SPEC-004.C59:** View registry weaver operation names are `:register-view!`, `:view!`, and `:views`.
-- **SPEC-004.C60:** Pattern registry entries are named by simple unqualified names and point to fully qualified Clojure function symbols plus input spec names resolvable in the weaver JVM. Duplicate registration replaces the prior entry for reload workflows.
+- **SPEC-004.C60:** Pattern registry entries are named by simple unqualified names and point to an optional non-blank doc string, fully qualified Clojure function symbol, and input spec name resolvable in the weaver JVM. Duplicate registration replaces the prior entry for reload workflows.
 - **SPEC-004.C61:** Pattern invocation validates input against the registered spec before calling user code, invokes the function with `{:input input}`, requires a batch strand vector return value, and delegates persistence to `skein.db/add-strand-batch!` for id generation, ref resolution, edge insertion, cycle checks, and transactionality.
-- **SPEC-004.C62:** Pattern explanation returns serializable guidance containing the pattern name, function symbol string, input spec string, and printable spec form. This is caller guidance; invocation-time spec validation remains authoritative.
+- **SPEC-004.C62:** Pattern explanation returns serializable guidance containing the pattern name, optional doc string, function symbol string, input spec string, printable spec form, and expanded schema details when available. This is caller guidance; invocation-time spec validation remains authoritative.
 - **SPEC-004.C63:** Pattern registry contents are weaver-lifetime runtime state and are not durable across restarts. `libs/reload!` clears pattern state before loading selected config again.
 
 ## SPEC-004.P10a Event helpers

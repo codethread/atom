@@ -461,6 +461,17 @@
              (api/register-pattern! rt 'dev-task 'skein.weaver-test/test-pattern ::pattern-input)))
       (is (= [{:name "dev-task" :fn 'skein.weaver-test/test-pattern :input-spec ::pattern-input}]
              (api/patterns rt)))
+      (is (= {:name "documented-task"
+              :doc "Create implementation and review strands."
+              :fn 'skein.weaver-test/test-pattern
+              :input-spec ::pattern-input}
+             (api/register-pattern! rt 'documented-task "Create implementation and review strands."
+                                    'skein.weaver-test/test-pattern ::pattern-input)))
+      (is (= "Create implementation and review strands."
+             (:doc (api/pattern-explain rt :documented-task))))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"Pattern doc"
+                            (api/register-pattern! rt 'bad-doc "" 'skein.weaver-test/test-pattern ::pattern-input)))
       (is (clojure.string/includes? (:spec-form (api/pattern-explain rt :dev-task))
                                     "clojure.spec.alpha/keys"))
       (let [result (api/weave! rt :dev-task {:title "Implement weave"})]

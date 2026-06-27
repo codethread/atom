@@ -10,12 +10,15 @@
 (defn register-pattern!
   "Register a weaver-memory weave pattern.
 
-  Pattern names are simple names. `fn-sym` must be a fully qualified function
-  symbol loadable in the weaver JVM. `input-spec` is a clojure.spec name used
-  for pre-invocation validation and caller explanation. Routes directly when
-  called inside the weaver JVM, or through the connected helper REPL world."
-  [name fn-sym input-spec]
-  (call-daemon :register-pattern! name fn-sym input-spec))
+  Pattern names are simple names. Optional `doc` is a non-blank string.
+  `fn-sym` must be a fully qualified function symbol loadable in the weaver JVM.
+  `input-spec` is a clojure.spec name used for pre-invocation validation and
+  caller explanation. Routes directly when called inside the weaver JVM, or
+  through the connected helper REPL world."
+  ([name fn-sym input-spec]
+   (call-daemon :register-pattern! name fn-sym input-spec))
+  ([name doc fn-sym input-spec]
+   (call-daemon :register-pattern! name doc fn-sym input-spec)))
 
 (defn patterns
   "Return serializable weaver-memory pattern registry entries."
