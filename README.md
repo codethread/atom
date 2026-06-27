@@ -80,18 +80,19 @@ Skein stores:
 - strand edges with a type, direction, and JSON attributes;
 - `depends-on` edges used to calculate readiness.
 
-`active` is the only core lifecycle concept. Inactive strands are retained with `inactive_at`; destructive cleanup uses explicit `burn`. Outcomes, categories, or ephemeral/scratch concepts are user attributes chosen by your world, not built-in fields.
+`active` is the only core lifecycle concept. Inactive strands are retained with `inactive_at`; destructive cleanup uses explicit `burn`. Outcomes, categories, temporary markers, or other workflow concepts are user attributes chosen by your world, not built-in fields.
 
 ## Runtime customization
 
 Named queries, weaver-memory views, and runtime libraries are loaded into the selected Skein world, then consumed by helpers or by small CLI commands such as `list --query <name>`.
 
-Fresh `strand init` startup config uses `skein.libs.alpha/use!` to load `config.clj` from the selected config-dir. That keeps `init.clj` as a small resilient bootstrap while the real user config lives in a normal editable Clojure module. `use!` records load/call failures instead of killing the weaver unless you opt into strict `:required? true` behavior.
+Fresh `strand init` startup config creates a small resilient `init.clj` that syncs approved libraries. Add your own config or library files when you need runtime queries, views, or workflow helpers.
 
 Use `strand weaver repl` for trusted interactive work and `(skein.libs.alpha/reload!)` to hot-reload `init.clj`.
 
 ## Documentation
 
+- [Skein user reference](./docs/skein.md)
 - [Getting started](./docs/getting-started.md)
 - [Clojure crash course](./docs/clojure-crash-course.md)
 - [Devflow specs](./devflow/specs/)

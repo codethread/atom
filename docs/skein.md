@@ -1,0 +1,570 @@
+# Skein user reference
+
+Skein is a local strand graph for agents and humans. It gives you a durable SQLite-backed graph of work, notes, dependencies, and workflow state, while keeping the command-line surface small and machine-readable.
+
+The short version:
+
+- A **strand** is one record in your graph.
+- A **weaver** is the long-lived local process that owns the database and runtime state.
+- The **`strand` CLI** is a thin JSON control surface for scripts and agents.
+- The **REPL** is the trusted, high-power surface for customization and exploration.
+- Your workflow model lives mostly in custom **attributes** and your own config/library code.
+
+This guide is written for Skein users and for agents working inside a user's Skein world. Maintainer-facing contracts live in [`devflow/specs/`](../devflow/specs/); see the [spec index](#spec-index) at the end.
+
+## Mental model
+
+Skein is daemon-core-first. You start a weaver for a selected world, then clients talk to that weaver.
+
+```text
+selected config-dir
+  config.json      -> points to the Skein source checkout
+  init.clj         -> trusted startup code loaded by the weaver
+  libs.edn         -> approved local library roots
+  libs/            -> optional local libraries
+
+running weaver
+  owns SQLite storage
+  owns named queries
+  owns view registrations
+  owns synced library state
+
+clients
+  strand CLI       -> JSON socket, small safe command set
+  weaver REPL      -> connected Clojure helper context
+```
+
+Different config dirs are different worlds. Use `--config-dir <dir>` when you want an isolated world for experiments, agent work, or tests.
+
+## Worlds and config dirs
+
+The default world lives under your user config directory:
+
+```sh
+${XDG_CONFIG_HOME:-$HOME/.config}/skein
+```
+
+A world is selected explicitly with:
+
+```sh
+strand --config-dir /path/to/world ...
+```
+
+For explicit worlds, Skein keeps everything self-contained:
+
+- config in `/path/to/world`
+- runtime state in `/path/to/world/state`
+- data in `/path/to/world/data/skein.sqlite`
+
+The important file is `config.json`:
+
+```json
+{
+  "configFormat": "alpha",
+  "source": "/absolute/path/to/skein/source"
+}
+```
+
+`source` tells the CLI where to launch the Clojure weaver and REPL from. It should point at a Skein checkout containing `deps.edn`.
+
+## Agent guidance files
+
+From a Skein source checkout, `make bootstrap` is a convenience setup path for the default user config dir (`${XDG_CONFIG_HOME:-$HOME/.config}/skein`, or `SKEIN_CONFIG=...` if passed to make). It:
+
+- runs `go install ./cli/cmd/strand`;
+- creates the config dir;
+- writes `config.json` pointing `source` at the current checkout;
+- creates `AGENTS.md` only if absent;
+- creates `CLAUDE.md` as a symlink to `AGENTS.md` only if absent.
+
+`AGENTS.md` tells coding agents to read this canonical guide from the configured Skein source checkout. `CLAUDE.md` exists for Claude-oriented tooling.
+
+`make bootstrap` does not overwrite existing `AGENTS.md` or `CLAUDE.md`, so you can customize them after initial setup. It does rewrite `config.json` for the selected make config target. User-facing Skein documentation lives in the source checkout under `docs/`; the canonical user reference is `docs/skein.md`.
+
+## Weaver
+
+The weaver is the application core. It is a long-lived local Clojure process that owns:
+
+- the SQLite database connection;
+- strand creation, update, query, readiness, and burn operations;
+- the in-memory named-query registry;
+- the in-memory view registry;
+- the approved-library sync state;
+- runtime module activation state.
+
+Start it:
+
+```sh
+strand --config-dir "$world" weaver start
+```
+
+Stop it:
+
+```sh
+strand --config-dir "$world" weaver stop
+```
+
+Check it:
+
+```sh
+strand --config-dir "$world" weaver status
+```
+
+The weaver exposes two local transports:
+
+- a Unix socket used by the Go `strand` CLI;
+- an nREPL endpoint used by the connected helper REPL.
+
+A selected config-dir may have one running weaver. Runtime registries are weaver-lifetime state, so named queries, views, and synced library state should be loaded from startup config if you want them to appear after every restart.
+
+## CLI
+
+The `strand` CLI is intentionally small. It is for scripts, low-friction agent use, and JSON automation. It does not evaluate rich Clojure forms or mutate runtime extension state.
+
+Common commands:
+
+```sh
+strand --config-dir "$world" init
+strand --config-dir "$world" add "Write docs" --attr owner=agent --attr area=docs
+strand --config-dir "$world" update <id> --active false
+strand --config-dir "$world" update <id> --edge depends-on:<other-id>
+strand --config-dir "$world" show <id>
+strand --config-dir "$world" list
+strand --config-dir "$world" ready
+strand --config-dir "$world" burn <id>
+```
+
+The public strand/weaver commands emit JSON. CLI attributes are string-valued `key=value` pairs; richer Clojure data belongs in config or REPL workflows.
+
+Use the CLI for:
+
+- creating and updating ordinary strands;
+- attaching simple attributes;
+- adding edges;
+- asking what is ready;
+- consuming named queries registered by trusted config;
+- starting, stopping, and checking the weaver.
+
+Do not expect the CLI to be a package manager, query authoring surface, plugin host, or Clojure evaluator. Those belong to the weaver config and REPL.
+
+## Strand model
+
+A strand has:
+
+- `id` — generated text id;
+- `title` — human-readable title;
+- `active` — core lifecycle boolean;
+- `inactive_at` — set when a strand becomes inactive;
+- `created_at` and `updated_at`;
+- `attributes` — userland JSON object.
+
+`active` is the only built-in lifecycle state. Concepts like `status`, `kind`, `type`, `category`, `outcome`, `owner`, `priority`, `project`, `estimate`, or `retention` are your attributes, not core fields.
+
+| Concept | Where it belongs |
+| --- | --- |
+| done/not done for readiness | core `active` boolean |
+| completion time | core `inactive_at`, set when `active` becomes false |
+| status like `todo`, `doing`, `blocked`, `done` | custom attribute |
+| outcome like `done`, `cancelled`, `abandoned` | custom attribute |
+| owner, priority, project, estimate | custom attributes |
+| local workflow marker | custom attribute plus your own helper code |
+
+Deactivate work when it is no longer active. There is no special `done` command; use `update --active false` and optionally record your own outcome attribute:
+
+```sh
+strand --config-dir "$world" update <id> --active false --attr outcome=done
+```
+
+`update --active` defaults to `true` when the flag is omitted, so pass `--active false` explicitly when deactivating.
+
+Burn only when you want deletion:
+
+```sh
+strand --config-dir "$world" burn <id>
+```
+
+## Edges and readiness
+
+Edges connect strands. Supported edge types are:
+
+- `depends-on`
+- `related-to`
+- `parent-of`
+- `supersedes`
+
+A `depends-on` edge from `A` to `B` means: `A` is blocked while `B` is active.
+
+```sh
+strand --config-dir "$world" update "$docs" --edge depends-on:"$design"
+```
+
+`ready` returns active strands whose direct `depends-on` targets are inactive or absent:
+
+```sh
+strand --config-dir "$world" ready
+```
+
+The edge graph is acyclic. Self-edges and writes that create cycles fail loudly.
+
+## Attributes are the extension point
+
+Skein's core is deliberately small. Most workflow meaning hangs off `attributes`.
+
+Examples:
+
+```sh
+strand --config-dir "$world" add "Draft release notes" \
+  --attr owner=agent \
+  --attr project=skein \
+  --attr kind=doc \
+  --attr priority=high
+```
+
+Your world can decide what attributes mean. For example:
+
+- `owner=agent` can mean an agent should pick it up;
+- `kind=feature` can identify feature roots;
+- `outcome=done` can record completion reason after deactivation;
+- `temporary=true` can identify rows your own tooling treats as temporary;
+- `external.issue=123` can link to another system if your tooling understands it.
+
+Skein stores attributes as JSON text. CLI input is simple string pairs; `--attr temporary=true` stores the string `"true"`, not a JSON boolean. Trusted Clojure workflows can write richer JSON-compatible values.
+
+Because attributes are userland, your own config and libraries should define the conventions for your world. Prefer documenting those conventions in source-controlled docs or in your library docs. Attribute names and cleanup behavior are userland choices, not Skein core.
+
+## Queries
+
+Queries can be registered in weaver memory, then consumed by the REPL or CLI.
+
+From the connected REPL, `defquery!` registers a query for the current weaver lifetime only:
+
+```clojure
+(defquery! 'agent-docs
+  '[:and
+    [:= [:attr :owner] "agent"]
+    [:= [:attr :area] "docs"]])
+```
+
+Then from the CLI:
+
+```sh
+strand --config-dir "$world" list --query agent-docs
+strand --config-dir "$world" ready --query agent-docs
+```
+
+Named query registries are not durable by themselves. If you want a query after every weaver restart, register it from startup-loaded code.
+
+For a simple persistent query, put it directly in `init.clj`:
+
+```clojure
+(require '[skein.libs.alpha :as libs]
+         '[skein.weaver.api :as api])
+
+(libs/sync!)
+(api/register-query! 'mine [:= [:attr :owner] "ct"])
+```
+
+For a world that already activates a local library with `libs/use!`, follow that existing pattern instead: add the `api/register-query!` call to the library's `install!` function so reload/startup installs everything from one place.
+
+Defining a Clojure var that contains query data is not the same as registering a named query. A local var can be passed to graph helpers from your own code, but `strand list --query mine` only works after `mine` has been registered in the weaver's named-query registry.
+
+`strand list --query mine` returns all matching strands unless you also pass an active filter. Use `strand list --query mine --active true` when you only want active matches. `strand ready --query mine` always applies readiness semantics, so returned strands are active and unblocked.
+
+## REPL
+
+The REPL is the trusted, high-power surface. Use it for richer inspection, custom query authoring, config reloads, and calling your own library code.
+
+Open a connected REPL:
+
+```sh
+strand --config-dir "$world" weaver repl
+```
+
+Useful forms:
+
+```clojure
+(init!)
+(def id (:id (strand! "Explore workflow" {:owner "ct" :kind "spike"})))
+(strand id)
+(update! id {:active false :attributes {:outcome "captured"}})
+(strands)
+(ready)
+```
+
+Script a connected helper REPL with stdin:
+
+```sh
+printf '(ready)\n' | strand --config-dir "$world" weaver repl --stdin
+```
+
+The REPL helper namespace includes common strand functions, but library-workspace helpers are explicit. Require them when needed:
+
+```clojure
+(require '[skein.libs.alpha :as libs])
+(libs/reload!)
+```
+
+## Startup config
+
+`strand init` bootstraps missing workspace files in the selected config-dir without overwriting existing files, then asks the running weaver to initialize storage. If no weaver is running, the local file bootstrap may still remain even though the command fails to complete storage initialization.
+
+It creates or ensures:
+
+- `config.json` only if absent;
+- `libs/` directory;
+- `libs.edn` only if absent, with `{:libs {}}`;
+- `init.clj` only if absent, with the default below;
+- a Git repository via `git init` only if `.git` is absent.
+
+Existing `config.json`, `libs.edn`, `init.clj`, and `.git` are preserved.
+
+The generated `init.clj` is intentionally small:
+
+```clojure
+;; init.clj
+(require '[skein.libs.alpha :as libs])
+
+(libs/sync!)
+```
+
+The weaver loads `init.clj` at startup when present. Use startup-loaded code to register queries, load approved libraries, register views, and install conventions for your world. Simple worlds can put registrations directly in `init.clj`; reusable or larger worlds should keep `init.clj` minimal and install behavior from a local library.
+
+A direct `init.clj` query registration can look like this:
+
+```clojure
+(require '[skein.libs.alpha :as libs]
+         '[skein.weaver.api :as api])
+
+(libs/sync!)
+(api/register-query! 'mine [:= [:attr :owner] "ct"])
+```
+
+Use reload during development:
+
+```clojure
+(require '[skein.libs.alpha :as libs])
+(libs/reload!)
+```
+
+Reload clears weaver-lifetime library sync state, module-use state, named queries, and views, then reloads `init.clj`.
+
+## Authoring your own library code
+
+Skein treats runtime extensions as trusted Clojure code. A common layout is:
+
+```text
+world/
+  config.json
+  init.clj
+  libs.edn
+  libs/
+    my-workflow/
+      deps.edn
+      src/my/workflow.clj
+```
+
+Approve the local library root in `libs.edn`:
+
+```clojure
+{:libs {my/workflow {:local/root "libs/my-workflow"}}}
+```
+
+Relative `:local/root` values resolve against the selected config-dir. Absolute paths are accepted as explicit user-approved paths, and `~` expands to your home directory.
+
+Create a minimal `deps.edn` in the library root:
+
+```clojure
+{:paths ["src"]}
+```
+
+If `:paths` is omitted, Skein's namespace loading defaults to `["src"]`.
+
+Implement the library:
+
+```clojure
+(ns my.workflow
+  (:require [skein.weaver.api :as api]))
+
+(defn install! []
+  (api/register-query! 'mine [:= [:attr :owner] "ct"])
+  {:my.workflow/installed true})
+```
+
+Activate it from `init.clj`:
+
+```clojure
+(require '[skein.libs.alpha :as libs])
+
+(libs/sync!)
+(libs/use! :my/workflow
+  {:ns 'my.workflow
+   :libs #{'my/workflow}
+   :call 'my.workflow/install!})
+```
+
+Key points:
+
+- `libs.edn` is approval. It says which local roots the weaver may load.
+- `libs/sync!` makes approved roots available to the weaver.
+- `libs/use!` activates one module and records whether it loaded, skipped, or failed.
+- `:call` must name a fully qualified zero-argument function.
+- Direct `require` from `strand weaver repl` is not the supported activation path for newly synced weaver libraries. The connected helper REPL is a separate client process; use `libs/use!` or `libs/reload!` so loading and installation happen inside the weaver runtime.
+- Extension code runs with weaver authority. Only load trusted code.
+- There is no per-module isolation or unload guarantee. Restart the weaver for a clean runtime if needed.
+
+## Views and graph helpers
+
+Skein ships built-in alpha namespaces for trusted runtime transformations:
+
+```clojure
+(require '[skein.graph.alpha :as graph]
+         '[skein.views.alpha :as views])
+```
+
+Graph helpers include operations such as query id selection, strand hydration by ids, ancestor-root traversal, subgraph expansion, and burn-by-id helpers.
+
+Views let you register named read-only transformations backed by weaver-loadable function symbols. A view name is a simple unqualified name; the function symbol must be fully qualified and loadable in the weaver runtime.
+
+```clojure
+(ns my.workflow
+  (:require [skein.graph.alpha :as graph]
+            [skein.views.alpha :as views]
+            [skein.weaver.api :as api]))
+
+(defn owned-view [{:keys [params]}]
+  (let [ids (graph/query-ids! 'owned params)]
+    {:ids ids
+     :strands (graph/strands-by-ids ids)}))
+
+(defn install! []
+  (api/register-query! 'owned [:= [:attr :owner] "ct"])
+  (views/register-view! 'owned-view 'my.workflow/owned-view)
+  {:installed true})
+```
+
+Call a registered view from trusted Clojure, usually a connected REPL:
+
+```clojure
+(require '[skein.views.alpha :as views])
+(views/view! 'owned-view {})
+```
+
+For scripts, use `weaver repl --stdin`:
+
+```sh
+printf "(do (require '[skein.views.alpha :as views]) (views/view! 'owned-view {}))\n" \
+  | strand --config-dir "$world" weaver repl --stdin
+```
+
+There is no public `strand view` CLI command; view registration and invocation are trusted config/REPL workflows. A view returns whatever serializable Clojure data your function returns. The `{:ids ... :strands ...}` shape above is a convention, not a required schema.
+
+Like queries, views are weaver-lifetime runtime state. Register them from startup config if they should always exist after restart or reload. View functions should be read-only; mutating workflows such as updates, burns, or cleanup helpers should be ordinary trusted functions, not views.
+
+## Fail loudly
+
+Skein intentionally fails loudly instead of guessing. Expect errors for malformed config, unsupported fields, missing weavers, stale metadata, invalid edge targets, cycles, unknown queries, missing libraries, and bad runtime code.
+
+This is by design: the system is flexible because attributes and user code are open-ended, so surprising states should be visible and fixable rather than silently papered over.
+
+## Practical bootstrap
+
+Install from a checkout and create a default world:
+
+```sh
+go install ./cli/cmd/strand
+SKEIN_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/skein"
+mkdir -p "$SKEIN_CONFIG"
+printf '{"configFormat":"alpha","source":"%s"}\n' "$PWD" | jq . > "$SKEIN_CONFIG/config.json"
+```
+
+For experiments, use a disposable world:
+
+```sh
+world=$(mktemp -d)
+printf '{"configFormat":"alpha","source":"%s"}\n' "$PWD" | jq . > "$world/config.json"
+strand --config-dir "$world" weaver start
+```
+
+In another terminal:
+
+```sh
+strand --config-dir "$world" init
+strand --config-dir "$world" add "Sketch workflow" --attr owner=agent
+strand --config-dir "$world" ready
+```
+
+Stop when finished:
+
+```sh
+strand --config-dir "$world" weaver stop
+```
+
+## Spec index
+
+Use this guide for orientation. Use the specs when you need exact behavior, contracts, or implementation boundaries.
+
+### Strand model
+
+Spec: [`devflow/specs/strand-model.md`](../devflow/specs/strand-model.md)
+
+Covers:
+
+- durable strand fields;
+- active/inactive lifecycle;
+- burn deletion;
+- JSON attributes;
+- edge types and DAG rules;
+- readiness semantics;
+- queryable fields.
+
+Read this when you need to know what data exists, what `active` means, how `depends-on` works, or what belongs in attributes instead of core fields.
+
+### CLI surface
+
+Spec: [`devflow/specs/cli.md`](../devflow/specs/cli.md)
+
+Covers:
+
+- supported `strand` commands and flags;
+- config-dir selection;
+- `config.json` format;
+- JSON-only public output;
+- CLI failure behavior;
+- `strand init` bootstrap behavior;
+- weaver lifecycle commands;
+- what the CLI intentionally does not support.
+
+Read this when scripting `strand`, debugging CLI behavior, or deciding whether a workflow belongs in the CLI versus config/REPL code.
+
+### REPL API
+
+Spec: [`devflow/specs/repl-api.md`](../devflow/specs/repl-api.md)
+
+Covers:
+
+- connected helper REPL functions;
+- `strand weaver repl --stdin` behavior;
+- query registration and execution;
+- `skein.libs.alpha` helpers;
+- graph and view helper namespaces;
+- runtime library workspace activation.
+
+Read this when writing trusted Clojure forms, config code, local libraries, or custom query/view workflows.
+
+### Weaver runtime
+
+Spec: [`devflow/specs/daemon-runtime.md`](../devflow/specs/daemon-runtime.md)
+
+Covers:
+
+- weaver process model;
+- config/state/data world selection;
+- runtime metadata and socket discovery;
+- JSON socket and nREPL transports;
+- weaver API boundaries;
+- startup config loading;
+- named query registry behavior;
+- runtime library workspace model;
+- graph/view runtime primitives.
+
+Read this when debugging weaver startup, metadata, transports, runtime state, library loading, or multi-world behavior.

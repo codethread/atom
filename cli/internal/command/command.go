@@ -32,8 +32,7 @@ type Caller interface {
 	Call(string, map[string]any) (any, error)
 }
 
-const defaultInitCLJ = "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n(libs/use! :user/config\n  {:file \"config.clj\"\n   :call 'user.config/install!})\n"
-const defaultConfigCLJ = "(ns user.config\n  (:require [skein.graph.alpha :as graph]\n            [skein.views.alpha :as views]))\n\n(defn install!\n  \"Install this world's Skein runtime config.\"\n  []\n  {:installed true})\n"
+const defaultInitCLJ = "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n"
 
 var newClient = func(o Options) Caller {
 	return client.New(client.Config{ConfigDir: o.ConfigDir, StateDir: o.StateDir})
@@ -377,13 +376,6 @@ func (a *App) bootstrapConfigDir(o Options) error {
 	}
 	if _, err := os.Stat(filepath.Join(world.ConfigDir, "init.clj")); os.IsNotExist(err) {
 		if err := os.WriteFile(filepath.Join(world.ConfigDir, "init.clj"), []byte(defaultInitCLJ), 0o644); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-	if _, err := os.Stat(filepath.Join(world.ConfigDir, "config.clj")); os.IsNotExist(err) {
-		if err := os.WriteFile(filepath.Join(world.ConfigDir, "config.clj"), []byte(defaultConfigCLJ), 0o644); err != nil {
 			return err
 		}
 	} else if err != nil {

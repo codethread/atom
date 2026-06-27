@@ -50,11 +50,8 @@ func TestInitBootstrapsConfigDirWorkspaceAndStartsWeaver(t *testing.T) {
 	if _, err := os.Stat(initPath); err != nil {
 		t.Fatalf("expected init.clj bootstrap: %v", err)
 	}
-	if got := string(mustReadFile(t, initPath)); got != "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n(libs/use! :user/config\n  {:file \"config.clj\"\n   :call 'user.config/install!})\n" {
+	if got := string(mustReadFile(t, initPath)); got != "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n" {
 		t.Fatalf("unexpected init.clj bootstrap contents: %q", got)
-	}
-	if got := string(mustReadFile(t, filepath.Join(cfg, "config.clj"))); !strings.Contains(got, "(ns user.config") {
-		t.Fatalf("unexpected config.clj bootstrap contents: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(cfg, ".git")); err != nil {
 		t.Fatalf("expected .git bootstrap: %v", err)

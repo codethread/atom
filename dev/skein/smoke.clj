@@ -212,8 +212,7 @@
         (run-cli-config! config-dir "init")
         (assert (.isFile config-file) "clean bootstrap preserves/creates config.json")
         (assert-file-contents (java.io.File. config-dir "libs.edn") "{:libs {}}\n" "clean bootstrap creates empty libs.edn")
-        (assert-file-contents (java.io.File. config-dir "init.clj") "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n(libs/use! :user/config\n  {:file \"config.clj\"\n   :call 'user.config/install!})\n" "clean bootstrap creates use! init.clj template")
-        (assert-contains (slurp (java.io.File. config-dir "config.clj")) "(ns user.config" "clean bootstrap creates config.clj module")
+        (assert-file-contents (java.io.File. config-dir "init.clj") "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n" "clean bootstrap creates libs sync init.clj template")
         (assert (.isDirectory (java.io.File. config-dir "libs")) "clean bootstrap creates libs directory")
         (assert (.isDirectory (java.io.File. config-dir ".git")) "clean bootstrap initializes config-dir git repo")
         (let [strand-id (cli-add-config! config-dir "Bootstrap clean strand" "--attr" "owner=ct")]
@@ -312,7 +311,7 @@
                          "Go CLI show exposes active lifecycle")
                 (assert (:inactive_at inactive-schema)
                         (str "Go CLI show exposes inactive_at for inactive persistent strands\n" inactive-schema)))
-              (let [scratch (cli-add! db-file "Temporary scratch strand" "--attr" "ephemeral=true")]
+              (let [scratch (cli-add! db-file "Temporary scratch strand" "--attr" "temporary=true")]
                 (run-cli! db-file "burn" scratch)
                 (assert (not (some #{"Temporary scratch strand"}
                                    (titles (parse-json (run-cli! db-file "list")))))
@@ -369,7 +368,7 @@
             (assert= false (:active inactive-b) "skein.repl update! updates active")
             (assert (:inactive_at inactive-b)
                     (str "skein.repl exposes inactive_at for inactive persistent strands\n" inactive-b)))
-          (let [scratch (:id (repl/strand! "Scratch REPL strand" {:ephemeral "true"}))]
+          (let [scratch (:id (repl/strand! "Scratch REPL strand" {:temporary "true"}))]
             (repl/burn! scratch)
             (assert (nil? (repl/strand scratch))
                     "skein.repl burn! deletes a scratch strand row")))

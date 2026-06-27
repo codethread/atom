@@ -70,14 +70,14 @@ func TestRejectsRemovedAndMalformedInputs(t *testing.T) {
 		{"add", "x", "extra"},
 		{"add", "x", "--status", "bogus"},
 		{"add", "x", "--active", "maybe"},
-		{"add", "x", "--ephemeral", "true"},
+		{"add", "x", "--priority", "high"},
 		{"add", "x", "--parent", "id"},
 		{"add", "x", "--attr", "novalue"},
 		{"update", "id", "extra"},
 		{"update", "id", "--edge", "depends-on"},
 		{"update", "id", "--edge", ":target"},
 		{"update", "id", "--edge", "depends-on:"},
-		{"update", "id", "--ephemeral", "true"},
+		{"update", "id", "--priority", "high"},
 		{"list", "--param", "novalue"},
 	}
 	for _, c := range cases {
@@ -255,10 +255,6 @@ func TestInitBootstrapsWorkspaceWhenMissingAndCallsInit(t *testing.T) {
 	}
 	if got := string(mustReadFile(t, initPath)); got != defaultInitCLJ {
 		t.Fatalf("unexpected init.clj contents: %q", got)
-	}
-	configCLJPath := filepath.Join(cfg, "config.clj")
-	if got := string(mustReadFile(t, configCLJPath)); got != defaultConfigCLJ {
-		t.Fatalf("unexpected config.clj contents: %q", got)
 	}
 	realCfg, err := filepath.EvalSymlinks(cfg)
 	if err != nil {

@@ -9,13 +9,13 @@
 
 ## PROP-001.P1 Problem
 
-Skein has a low-level atomic batch strand primitive with ephemeral refs, but no current public workflow for agents to submit a higher-level work request and let the selected weaver world shape the resulting strand graph. Agents creating several related strands through the CLI must manually create strands, capture ids, and add edges. More importantly, owners cannot enforce their preferred workflow shape when an agent adds work: the agent decides the graph directly instead of submitting intent to trusted user config.
+Skein has a low-level atomic batch strand primitive with transient refs, but no current public workflow for agents to submit a higher-level work request and let the selected weaver world shape the resulting strand graph. Agents creating several related strands through the CLI must manually create strands, capture ids, and add edges. More importantly, owners cannot enforce their preferred workflow shape when an agent adds work: the agent decides the graph directly instead of submitting intent to trusted user config.
 
 ## PROP-001.P2 Goals
 
 - **PROP-001.G1:** Let trusted config define named weave patterns that transform input data into one or more strand creations and edges.
 - **PROP-001.G2:** Let the public CLI invoke a named pattern with JSON from stdin: `strand weave --pattern <name>`.
-- **PROP-001.G3:** Preserve the existing DB-owned id and batch-local ref model; refs are still ephemeral and creation remains atomic.
+- **PROP-001.G3:** Preserve the existing DB-owned id and batch-local ref model; refs are still transient and creation remains atomic.
 - **PROP-001.G4:** Allow owners to enforce workflow shape, such as inserting review or validation strands, while agents submit simpler work-intent payloads.
 - **PROP-001.G5:** Keep the CLI thin: it reads JSON stdin, names a pattern, sends data to the weaver, and prints JSON.
 - **PROP-001.G6:** Let CLI callers inspect a registered pattern's expected input shape before invoking it, without receiving executable code or REPL access.

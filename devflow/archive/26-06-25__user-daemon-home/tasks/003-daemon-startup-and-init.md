@@ -35,4 +35,4 @@ Make daemon startup use the selected daemon world end-to-end: configured source 
 
 - **TASK-003.REF1:** `UDH-PLAN-001.PH3`, `UDH-PLAN-001.CM5`, `UDH-PLAN-001.TC2`.
 - **TASK-003.REF2:** `UDH-DELTA-001.C7`, `UDH-DELTA-001.C8`, `UDH-DELTA-002.C6`, `UDH-DELTA-002.C7`.
-- **TASK-003.REF3:** Current startup code: `src/todo/daemon/runtime.clj`, `src/todo/daemon/config.clj`, `src/todo/cli.clj`, `cli/internal/command/command.go`.
+- **TASK-003.REF3:** Current startup code: todo daemon runtime/config namespaces, todo CLI namespace, and Go command implementation.

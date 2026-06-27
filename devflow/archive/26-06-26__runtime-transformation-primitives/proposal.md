@@ -39,7 +39,7 @@ The Runtime Transformations PRD defines the desired architecture: durable task f
 - **RTP-PROP-001.S4:** Add `parent-of` graph primitives sufficient for the flagship PRD flow: active seed ids -> feature root ids -> feature DAG/subgraph.
 - **RTP-PROP-001.S5:** Add a read-only daemon-memory view registry for named, fully qualified Clojure function symbols, plus trusted Clojure helpers such as `register-view!`, `view!`, and introspection.
 - **RTP-PROP-001.S6:** Update generated config-dir startup files from `todo init` so new users get an editable template requiring the blessed transformation helper namespace(s). Built-in namespaces are already on the Atom classpath; do not use `atom.libs.alpha/use!` merely to load shipped namespaces unless an explicit install side effect is introduced.
-- **RTP-PROP-001.S7:** Adapt useful patterns from the existing local helper `/Users/ct/.config/atom/libs/ct-config/src/ct/atom/config.clj` where appropriate, especially install-style helper registration; keep personal owner-specific behavior out of shipped defaults.
+- **RTP-PROP-001.S7:** Adapt useful patterns from the existing local helper library where appropriate, especially install-style helper registration; keep personal owner-specific behavior out of shipped defaults.
 
 ## RTP-PROP-001.P5 Open questions
 

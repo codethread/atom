@@ -24,7 +24,7 @@ The feature should prove the PRD flagship shape: query active seed ids, walk to 
 - **RTP-PLAN-001.A6:** Keep view functions read-only by convention and contract. They may call query/graph/hydration helpers and arbitrary Clojure shaping code, but this feature should not design mutating workflows.
 - **RTP-PLAN-001.A7:** Register views by fully qualified function symbol, not by passing arbitrary function values through connected-client transports. This keeps registration serializable and daemon-resolvable from config-dir libraries.
 - **RTP-PLAN-001.A8:** Update `todo init` generated `init.clj` so fresh worlds require the built-in transformation helper namespace(s) as an editable template. Existing files must not be overwritten. Do not use `atom.libs.alpha/use!` merely to load shipped namespaces unless an explicit install side effect is added.
-- **RTP-PLAN-001.A9:** Adapt the useful install-style pattern from `/Users/ct/.config/atom/libs/ct-config/src/ct/atom/config.clj`, but do not ship user-specific queries such as owner `ct` defaults.
+- **RTP-PLAN-001.A9:** Adapt the useful install-style pattern from the local helper library, but do not ship user-specific queries such as owner `ct` defaults.
 
 ## RTP-PLAN-001.P3 Affected areas
 
@@ -152,7 +152,7 @@ Update README/getting-started/CONTRIBUTING as needed to show the new workflow. A
 - **RTP-PLAN-001.TC1:** Runtime library workspace is shipped and canonical. Do not create a parallel plugin or package model.
 - **RTP-PLAN-001.TC2:** Public CLI stays thin and JSON-only. New transformation authoring/debugging belongs in Clojure config/REPL/libraries.
 - **RTP-PLAN-001.TC3:** The first useful product flow is feature-DAG inspection, not general graph analytics.
-- **RTP-PLAN-001.TC4:** Use `/Users/ct/.config/atom/libs/ct-config/src/ct/atom/config.clj` as a local prototype reference only; do not make tests depend on that path.
+- **RTP-PLAN-001.TC4:** Use the local helper library as a prototype reference only; do not make tests depend on that path.
 
 ## RTP-PLAN-001.P9 Developer Notes
 

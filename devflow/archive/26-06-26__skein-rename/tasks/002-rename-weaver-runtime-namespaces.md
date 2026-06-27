@@ -33,4 +33,4 @@ Move the Clojure runtime identity from `todo.*` / daemon wording to `skein.*` / 
 
 - **TASK-002.REF1:** [Daemon runtime delta](../specs/daemon-runtime.delta.md)
 - **TASK-002.REF2:** [Plan](../skein-rename.plan.md) `SR-PLAN-001.PH2`
-- **TASK-002.REF3:** Current anchors from scout: `src/todo/client.clj`, `src/todo/daemon/config.clj`, `src/todo/daemon/metadata.clj`, `src/todo/daemon/runtime.clj`, and `src/todo/daemon/socket.clj`.
+- **TASK-002.REF3:** Current anchors from scout: todo client, daemon config, metadata, runtime, and socket namespaces.

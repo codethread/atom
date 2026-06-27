@@ -24,7 +24,7 @@ Add strands:
 
 ```sh
 strand --config-dir "$world" add "Review docs" --attr owner=ct --attr area=docs
-strand --config-dir "$world" add "Scratch idea" --attr ephemeral=true --attr example_category=scratch
+strand --config-dir "$world" add "Scratch idea" --attr temporary=true --attr example_category=scratch
 ```
 
 List and inspect ready strands. The CLI always emits JSON:
@@ -77,38 +77,22 @@ strand --config-dir "$world" ready --query mine
 
 ## Startup config and runtime helpers
 
-Fresh `strand init` creates missing workspace files without overwriting existing files. The generated `init.clj` is a small resilient bootstrap:
+Fresh `strand init` creates missing workspace files without overwriting existing files: `config.json` if absent, `libs/`, `libs.edn`, `init.clj`, and `.git` if absent. It then asks the running weaver to initialize storage. The generated `init.clj` is a small resilient bootstrap:
 
 ```clojure
 (require '[skein.libs.alpha :as libs])
 
 (libs/sync!)
-(libs/use! :user/config
-  {:file "config.clj"
-   :call 'user.config/install!})
 ```
 
-The generated `config.clj` is where most user config should live:
-
-```clojure
-(ns user.config
-  (:require [skein.graph.alpha :as graph]
-            [skein.views.alpha :as views]))
-
-(defn install!
-  "Install this world's Skein runtime config."
-  []
-  {:installed true})
-```
-
-Edit `config.clj` to register queries, views, and other runtime behavior. `use!` records optional config failures without killing the weaver by default; use raw `require` or `:required? true` for strict fail-fast config.
+Create your own config or library files when you need runtime behavior. `init.clj` is the place to load approved libraries, register queries, register views, or call your own install functions.
 
 Built-in `skein.graph.alpha` and `skein.views.alpha` come from the configured Skein checkout. User/community libraries are approved separately in `libs.edn` and synced through `skein.libs.alpha`.
 
-Example `config.clj` view setup:
+Example view setup in your own startup-loaded library:
 
 ```clojure
-(ns user.config
+(ns my.workflow
   (:require [skein.graph.alpha :as graph]
             [skein.views.alpha :as views]
             [skein.weaver.api :as api]))
@@ -120,7 +104,14 @@ Example `config.clj` view setup:
 
 (defn install! []
   (api/register-query! 'owned [:= [:attr :owner] "ct"])
-  (views/register-view! 'owned-view 'user.config/owned-view))
+  (views/register-view! 'owned-view 'my.workflow/owned-view))
+```
+
+Call registered views from trusted Clojure, not from a public `strand view` CLI command:
+
+```clojure
+(require '[skein.views.alpha :as views])
+(views/view! 'owned-view {})
 ```
 
 Hot-reload the selected config-dir `init.clj` from a connected REPL:

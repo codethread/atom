@@ -88,9 +88,9 @@
         (is (= {:priority "high"} (:attributes design)))
         (is (false? (:active design)))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown core strand fields"
-                              (repl/strand! "Invalid" {} {:ephemeral true})))
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown core strand fields"
-                              (repl/update! (:id docs) {:ephemeral true})))
+                              (repl/strand! "Invalid" {} {:priority "high"})))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown strand update fields"
+                              (repl/update! (:id docs) {:priority "high"})))
         (repl/update! (:id docs) {:edges [{:type "depends-on" :to (:id design)}]})
         (is (= {:owner "agent"} (:attributes (repl/strand (:id docs)))))
         (is (= #{(:id design) (:id docs) (:id scratch)} (set (map :id (repl/strands)))))

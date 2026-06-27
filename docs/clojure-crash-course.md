@@ -95,7 +95,7 @@ The aliases let you call functions like `libs/sync!`, `graph/strands-by-ids`, an
 ```clojure
 (strand! "Title")
 (strand! "Title" {:owner "ct"})
-(strand! "Scratch" {:ephemeral "true"})
+(strand! "Scratch" {:temporary "true"})
 (update! strand-id {:active false})
 (burn! strand-id)
 (strand strand-id)

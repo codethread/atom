@@ -10,7 +10,7 @@
 
 Skein now owns the mutation boundary for strand creation, updates, burns, and graph changes, but trusted userland workflows that want to react to those mutations must either poll, wrap every operation themselves, or use external scheduled jobs.
 
-This makes workflows like “burn userland ephemeral children when their parent becomes inactive” possible but awkward: the behavior belongs in trusted weaver config, yet there is no core event primitive for composing it cleanly.
+This makes workflows like “burn children tagged with a userland temporary attribute when their parent becomes inactive” possible but awkward: the behavior belongs in trusted weaver config, yet there is no core event primitive for composing it cleanly.
 
 ## PROP-001.P2 Goals
 

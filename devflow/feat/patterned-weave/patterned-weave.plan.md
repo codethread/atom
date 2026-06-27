@@ -82,7 +82,7 @@ Outcome: README/getting-started/smoke demonstrate a user config pattern that add
 - **PLAN-001.TC1:** The archived batch task refs feature is historical context for the low-level primitive; do not restore the raw public `batch` command unless explicitly requested.
 - **PLAN-001.TC2:** Keep the public CLI JSON-only and stdin-only for payloads.
 - **PLAN-001.TC3:** Pattern definitions belong in trusted Clojure config/REPL workflows and should work naturally with `libs/use!` and `libs/reload!`.
-- **PLAN-001.TC4:** Preserve batch-local refs as ephemeral interface-only identifiers; never persist pattern refs as durable identity.
+- **PLAN-001.TC4:** Preserve batch-local refs as transient interface-only identifiers; never persist pattern refs as durable identity.
 
 ## PLAN-001.P9 Developer Notes
 

@@ -28,7 +28,7 @@ The weaver runtime gains an in-memory pattern registry and a semantic weave oper
 ### DELTA-003.D1 Owner policy layer above batch refs
 
 - **Decision:** Pattern functions sit above `add-strand-batch!` rather than replacing it.
-- **Rationale:** The existing primitive already owns id generation, ephemeral refs, edge resolution, transactionality, and validation. Patterns add owner-controlled transformation and workflow policy.
+- **Rationale:** The existing primitive already owns id generation, transient refs, edge resolution, transactionality, and validation. Patterns add owner-controlled transformation and workflow policy.
 
 ### DELTA-003.D2 Create-only MVP
 

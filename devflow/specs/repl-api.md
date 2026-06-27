@@ -61,7 +61,7 @@ Skein ships blessed source-visible runtime transformation namespaces for trusted
 
 Helpers execute weaver-side when called from `init.clj` or activated runtime libraries, and route to the selected weaver world when called from connected REPL clients. Connected helper REPL users who want to register new view functions should place them in weaver-loadable config/library code and register their symbols. View registrations are weaver-lifetime runtime state unless user config reloads them on startup.
 
-Fresh `strand init` config may require `skein.graph.alpha` and `skein.views.alpha` so users can inspect and extend the blessed path immediately. These built-in namespaces come from the Skein checkout on the weaver classpath; they do not require `libs.edn` approval.
+User config may require `skein.graph.alpha` and `skein.views.alpha` so users can inspect and extend the blessed path. These built-in namespaces come from the Skein checkout on the weaver classpath; they do not require `libs.edn` approval.
 
 ## SPEC-003.P5 Runtime library workspace helpers
 

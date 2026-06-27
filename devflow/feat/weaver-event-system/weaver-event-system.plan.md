@@ -36,7 +36,7 @@
 - **PLAN-001.IP1:** Add internal event runtime primitives: registry, dispatch queue, worker startup/shutdown, event enqueue, failure recording, and focused unit tests.
 - **PLAN-001.IP2:** Emit semantic strand events from public weaver mutation operations with stable payloads for add, update, and burn. `update` covers both row patches and edge writes performed through the update operation; include the submitted patch, including `:edges`, in the event. Defer batch events until a blessed batch mutation API exists.
 - **PLAN-001.IP3:** Add `skein.events.alpha` trusted helpers and client routing so config libraries and connected REPL code can register/list/unregister handlers.
-- **PLAN-001.IP4:** Add integration coverage with a real handler that responds to an update event and burns userland ephemeral strands without blocking the original operation.
+- **PLAN-001.IP4:** Add integration coverage with a real handler that responds to an update event and burns strands tagged with a userland temporary attribute without blocking the original operation.
 - **PLAN-001.IP5:** Update specs/docs and smoke coverage for the event system MVP.
 
 ## PLAN-001.P5 Validation strategy

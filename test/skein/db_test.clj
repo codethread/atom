@@ -45,7 +45,7 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid strand"
                             (db/add-strand! ds {:title "Bad" :active "true"})))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown core strand fields"
-                            (db/add-strand! ds {:title "Bad" :ephemeral true}))))))
+                            (db/add-strand! ds {:title "Bad" :priority "high"}))))))
 
 (deftest active-readiness-and-reactivation
   (with-db
@@ -70,7 +70,7 @@
     (fn [ds]
       (let [strand (:id (db/add-strand! ds {:title "Strand"}))]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown core strand fields"
-                              (db/update-strand! ds strand {:ephemeral true})))
+                              (db/update-strand! ds strand {:priority "high"})))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Removed lifecycle fields"
                               (db/update-strand! ds strand {:final_at "now"})))))))
 
@@ -94,12 +94,12 @@
     (fn [ds]
       (let [agent (:id (db/add-strand! ds {:title "Agent" :attributes {:owner "agent"}}))
             _human (db/add-strand! ds {:title "Human" :attributes {:owner "human"}})
-            scratch (:id (db/add-strand! ds {:title "Scratch" :attributes {:ephemeral "true"}}))]
+            scratch (:id (db/add-strand! ds {:title "Scratch" :attributes {:kind "scratch"}}))]
         (is (= [agent]
                (mapv :id (db/all-strands ds [:and [:= :active true] [:= [:attr :owner] "agent"]]))))
-        (is (= [scratch] (mapv :id (db/all-strands ds [:= [:attr :ephemeral] "true"]))))
+        (is (= [scratch] (mapv :id (db/all-strands ds [:= [:attr :kind] "scratch"]))))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown query field"
-                              (query/compile-query [:= :ephemeral true] {})))
+                              (query/compile-query [:= :kind "scratch"] {})))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown query field"
                               (query/compile-query [:= :status "todo"] {})))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown query field"

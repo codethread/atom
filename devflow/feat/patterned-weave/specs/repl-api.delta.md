@@ -42,7 +42,7 @@ The REPL API gains trusted helpers for registering, explaining, and invoking nam
 (s/def ::dev-task-input (s/keys :req-un [::title]
                                 :opt-un [::owner]))
 
-(defpattern! 'dev-task 'user.config/dev-task-pattern ::dev-task-input)
+(defpattern! 'dev-task 'my.workflow/dev-task-pattern ::dev-task-input)
 (weave! 'dev-task {:title "Remove format config"})
 ```
 

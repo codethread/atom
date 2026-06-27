@@ -8,6 +8,8 @@ CONFIG_HOME ?= $(if $(XDG_CONFIG_HOME),$(XDG_CONFIG_HOME),$(HOME)/.config)
 SKEIN_CONFIG ?= $(CONFIG_HOME)/skein
 CONFIG_DIR := $(SKEIN_CONFIG)
 CONFIG_FILE := $(CONFIG_DIR)/config.json
+AGENTS_FILE := $(CONFIG_DIR)/AGENTS.md
+CLAUDE_FILE := $(CONFIG_DIR)/CLAUDE.md
 
 build:
 	go build -o $(BIN) $(GO_CLI)
@@ -24,6 +26,12 @@ bootstrap:
 	go install $(GO_CLI)
 	mkdir -p "$(CONFIG_DIR)"
 	printf '{"configFormat":"alpha","source":"%s"}\n' "$(CURDIR)" | jq . > "$(CONFIG_FILE)"
+	@if [ ! -e "$(AGENTS_FILE)" ] && [ ! -L "$(AGENTS_FILE)" ]; then \
+		printf '%s\n' 'Always read <source-dir>/docs/skein.md where source-dir = !`cat config.json | jq '\''.source'\''` first.' > "$(AGENTS_FILE)"; \
+	fi
+	@if [ ! -e "$(CLAUDE_FILE)" ] && [ ! -L "$(CLAUDE_FILE)" ]; then \
+		ln -s AGENTS.md "$(CLAUDE_FILE)"; \
+	fi
 
 open-config: bootstrap
 	@if [ -z "$(EDITOR)" ]; then \

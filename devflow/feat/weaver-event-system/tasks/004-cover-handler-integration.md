@@ -18,7 +18,7 @@ Add an end-to-end integration test proving a trusted handler can react to strand
 ## TASK-004.P3 Implementation notes
 
 - Create a test handler namespace/function available to the weaver JVM.
-- Register a handler filtered to `:strand/updated` that listens for a parent strand becoming inactive and burns child strands tagged with userland attribute `{:ephemeral "true"}` or equivalent JSON-normalized attributes.
+- Register a handler filtered to `:strand/updated` that listens for a parent strand becoming inactive and burns child strands tagged with userland attribute `{:temporary "true"}` or equivalent JSON-normalized attributes.
 - Trigger the handler via a normal `update` operation.
 - Account for asynchronous dispatch with bounded polling/waiting in tests rather than sleeps with no assertion loop.
 - Use deterministic coordination such as promises/latches/atoms in slow-handler tests: prove the mutation returns while the handler is blocked, then release the handler and assert final effects. Also prove unrelated event types do not invoke the filtered handler.
@@ -26,7 +26,7 @@ Add an end-to-end integration test proving a trusted handler can react to strand
 
 ## TASK-004.P4 Done when
 
-- Integration test proves registered handler reacts to update events and burns expected userland ephemeral children.
+- Integration test proves registered handler reacts to update events and burns expected userland temporary children.
 - Test proves unrelated children remain.
 - Test proves handler failure or slowness does not fail the original mutation without relying on wall-clock thresholds.
 - No default-world config/data/state is touched.

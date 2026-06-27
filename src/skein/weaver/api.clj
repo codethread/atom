@@ -392,7 +392,15 @@
       (throw (ex-info "Edge target strand not found" {:to to :type type})))
     (db/add-edge! tx {:from id :to to :type type :attributes (or attributes {})})))
 
+(def ^:private update-patch-keys #{:title :active :attributes :edges})
+
+(defn- reject-unknown-update-keys! [patch]
+  (let [unknown (seq (remove update-patch-keys (keys patch)))]
+    (when unknown
+      (throw (ex-info "Unknown strand update fields" {:fields (vec unknown)})))))
+
 (defn update [runtime id patch]
+  (reject-unknown-update-keys! patch)
   (let [{:keys [title active attributes edges]} patch]
     (jdbc/with-transaction [tx (ds runtime)]
       (when-not (db/get-strand tx id)
@@ -401,7 +409,6 @@
       (normalize (db/update-strand! tx id (cond-> {}
                                           (contains? patch :title) (assoc :title title)
                                           (contains? patch :active) (assoc :active active)
-                                          (contains? patch :ephemeral) (assoc :ephemeral (:ephemeral patch))
                                           (contains? patch :attributes) (assoc :attributes attributes)))))))
 
 (defn show [runtime id]
