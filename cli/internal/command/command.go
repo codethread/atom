@@ -82,8 +82,7 @@ func (a *App) rootCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		attrs, _ := cmd.Flags().GetStringArray("attr")
-		am, err := parseKV(attrs, "--attr")
+		am, err := a.addAttributes(cmd)
 		if err != nil {
 			return err
 		}
@@ -96,7 +95,10 @@ func (a *App) rootCommand() *cobra.Command {
 		})
 	}}
 	add.Flags().String("active", "true", "strand active state: true or false")
-	add.Flags().StringArray("attr", nil, "string attribute key=value (repeatable)")
+	add.Flags().StringArray("attr", nil, "string attribute key=value (repeatable; highest priority)")
+	add.Flags().StringArray("attr-file", nil, "string attribute key=path read from file contents (repeatable)")
+	add.Flags().StringArray("attr-stdin", nil, "attribute key whose string value is read from stdin (max once)")
+	add.Flags().Bool("attributes-stdin", false, "read one JSON object from stdin as bulk attributes")
 	root.AddCommand(add)
 
 	update := &cobra.Command{Use: "update <id>", Short: "Update a strand", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -459,11 +461,15 @@ func boolFlag(cmd *cobra.Command, name string) (bool, error) {
 }
 
 func readOneJSONValue(r io.Reader) (any, error) {
+	return readOneJSONValueNamed(r, "weave requires one JSON value on stdin")
+}
+
+func readOneJSONValueNamed(r io.Reader, emptyMessage string) (any, error) {
 	dec := json.NewDecoder(r)
 	var value any
 	if err := dec.Decode(&value); err != nil {
 		if errors.Is(err, io.EOF) {
-			return nil, errors.New("weave requires one JSON value on stdin")
+			return nil, errors.New(emptyMessage)
 		}
 		return nil, fmt.Errorf("malformed JSON stdin: %w", err)
 	}
@@ -477,12 +483,97 @@ func readOneJSONValue(r io.Reader) (any, error) {
 	return value, nil
 }
 
+func (a *App) addAttributes(cmd *cobra.Command) (map[string]any, error) {
+	attrs, _ := cmd.Flags().GetStringArray("attr")
+	attrFiles, _ := cmd.Flags().GetStringArray("attr-file")
+	attrStdinVals, _ := cmd.Flags().GetStringArray("attr-stdin")
+	attributesStdin, _ := cmd.Flags().GetBool("attributes-stdin")
+	if len(attrStdinVals) > 1 {
+		return nil, errors.New("--attr-stdin may appear at most once")
+	}
+	attrStdinChanged := cmd.Flags().Changed("attr-stdin")
+	attrStdin := ""
+	if len(attrStdinVals) == 1 {
+		attrStdin = attrStdinVals[0]
+	}
+	if attrStdinChanged && attrStdin == "" {
+		return nil, errors.New("--attr-stdin requires a non-empty key")
+	}
+	if attrStdinChanged && attributesStdin {
+		return nil, errors.New("--attr-stdin and --attributes-stdin cannot be used together")
+	}
+
+	merged := map[string]any{}
+	if attributesStdin {
+		value, err := readOneJSONValueNamed(a.Stdin, "--attributes-stdin requires one JSON object on stdin")
+		if err != nil {
+			return nil, err
+		}
+		obj, ok := value.(map[string]any)
+		if !ok {
+			return nil, errors.New("--attributes-stdin requires a JSON object")
+		}
+		for k, v := range obj {
+			if k == "" {
+				return nil, errors.New("--attributes-stdin contains a blank attribute key")
+			}
+			merged[k] = v
+		}
+	}
+
+	fileAttrs, err := parseKVNoDuplicates(attrFiles, "--attr-file")
+	if err != nil {
+		return nil, err
+	}
+	for k, path := range fileAttrs {
+		b, err := os.ReadFile(path.(string))
+		if err != nil {
+			return nil, fmt.Errorf("failed to read --attr-file %s: %w", k, err)
+		}
+		merged[k] = string(b)
+	}
+	if attrStdinChanged {
+		if _, exists := fileAttrs[attrStdin]; exists {
+			return nil, fmt.Errorf("duplicate attribute key in file/stdin sources: %s", attrStdin)
+		}
+		b, err := io.ReadAll(a.Stdin)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read --attr-stdin: %w", err)
+		}
+		merged[attrStdin] = string(b)
+	}
+
+	flagAttrs, err := parseKVNoDuplicates(attrs, "--attr")
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range flagAttrs {
+		merged[k] = v
+	}
+	return merged, nil
+}
+
 func parseKV(vals []string, name string) (map[string]any, error) {
 	m := map[string]any{}
 	for _, s := range vals {
 		k, v, ok := strings.Cut(s, "=")
 		if !ok || k == "" {
 			return nil, fmt.Errorf("malformed %s: %s", name, s)
+		}
+		m[k] = v
+	}
+	return m, nil
+}
+
+func parseKVNoDuplicates(vals []string, name string) (map[string]any, error) {
+	m := map[string]any{}
+	for _, s := range vals {
+		k, v, ok := strings.Cut(s, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("malformed %s: %s", name, s)
+		}
+		if _, exists := m[k]; exists {
+			return nil, fmt.Errorf("duplicate attribute key in %s: %s", name, k)
 		}
 		m[k] = v
 	}

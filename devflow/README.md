@@ -35,3 +35,4 @@ Archived feature folders preserve historical planning context. Current shipped c
 - `26-06-24__stripped-task-api` — shipped smaller CLI/REPL surface with first-class task lifecycle fields.
 - `26-06-27__patterned-weave` — shipped named weaver-side patterns for owner-controlled strand DAG creation from JSON CLI input.
 - `26-06-27__weaver-event-system` — shipped weaver-owned semantic strand mutation events with trusted async handlers.
+- `26-06-28__cli-attribute-inputs` — shipped file, stdin, and bulk JSON attribute input sources for `strand add`.

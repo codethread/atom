@@ -24,7 +24,7 @@ Commands:
 
 ```text
 init
-add <title> [--active true|false] [--attr key=value ...]
+add <title> [--active true|false] [--attr key=value ...] [--attr-file key=path ...] [--attr-stdin key] [--attributes-stdin]
 update <id> [--title title] [--active true|false] [--attr key=value ...] [--edge edge-type:to-id ...]
 show <id>
 burn <id>
@@ -45,7 +45,12 @@ weaver status
 - **SPEC-002.C3:** `source`, when required, must resolve to an absolute path to the Skein source checkout root containing `deps.edn`. A leading `~` (or `~/`) is expanded to the user home directory before validation. Relative paths, missing directories, and directories without `deps.edn` fail before launching Clojure.
 - **SPEC-002.C4:** Public strand/weaver commands emit JSON. `--format` and config-file output format settings are not supported.
 - **SPEC-002.C5:** Normal strand/query/status/stop commands connect to `weaver.sock` for the selected world and do not require `source` once the weaver is running. They fail loudly when no weaver is running, when `weaver.json`/socket state is stale or malformed, or when protocol/identity verification fails.
-- **SPEC-002.C6:** `add` creates a strand with generated id, active state, timestamps, and string-valued CLI attributes. `--active` defaults to `true`.
+- **SPEC-002.C6:** `add` creates a strand with generated id, active state, timestamps, and CLI attributes. `--active` defaults to `true`.
+- **SPEC-002.C6a:** `--attr key=value` writes one string-valued attribute and may be repeated.
+- **SPEC-002.C6b:** `--attr-file key=path` reads the exact file contents and writes that string as attribute `key`; it may be repeated.
+- **SPEC-002.C6c:** `--attr-stdin key` reads all stdin and writes that string as attribute `key`; it may appear at most once.
+- **SPEC-002.C6d:** `--attributes-stdin` reads exactly one JSON object from stdin and merges its properties into the attributes map, preserving JSON value types from that object.
+- **SPEC-002.C6e:** `--attr-stdin` and `--attributes-stdin` are mutually exclusive because both consume stdin. Attribute merge precedence is `--attr` highest, then `--attr-file` / `--attr-stdin`, then `--attributes-stdin` lowest. Cross-priority duplicate keys are allowed and resolved by precedence; duplicate keys within one priority fail loudly.
 - **SPEC-002.C7:** `update` patches title, active state, attributes, and strand edges for one existing strand.
 - **SPEC-002.C8:** `--edge edge-type:to-id` creates or updates an outgoing edge from the updated strand to the target strand.
 - **SPEC-002.C9:** `add`, `update`, `show`, `list`, and `ready` return JSON with normalized `attributes` and fields `active` and `inactive_at`; they do not emit `status` or `final_at`.
@@ -56,7 +61,7 @@ weaver status
 - **SPEC-002.C13:** The CLI has no query registry mutation/listing commands and does not accept `--query-file`; query loading is a trusted weaver config or REPL workflow, and registry contents last only for the weaver lifetime.
 - **SPEC-002.C13a:** `weave --pattern <name>` reads exactly one JSON value from stdin, sends it to an already registered weaver-side pattern, and returns the pattern-created batch result as JSON with `created` rows and `refs`. Empty stdin, malformed JSON, trailing JSON values, missing/blank pattern names, and positional args fail before mutation.
 - **SPEC-002.C13b:** `pattern explain <name>` sends only the pattern name to the weaver and returns JSON caller guidance for the registered input spec, including pattern name, optional doc string, function symbol, input spec name, spec form, a short summary, and expanded required/optional key specs when the input spec is a `clojure.spec.alpha/keys` form. Pattern registration is not exposed through the public CLI.
-- **SPEC-002.C14:** Malformed options, invalid booleans, removed lifecycle fields, invalid edge targets, unknown commands, stale/missing metadata, socket transport/identity failures, malformed weaver responses, and database/domain errors fail non-zero. Strand commands against a reachable but uninitialized weaver store fail clearly with instructions to run `strand init`. Pattern input validation failures use the `pattern/input-invalid` code and include a human-readable message plus structured contract/problem details.
+- **SPEC-002.C14:** Malformed options, malformed attribute key/value flags, blank attribute keys, invalid booleans, removed lifecycle fields, invalid edge targets, unreadable attribute files, malformed/trailing/non-object attribute JSON stdin, incompatible stdin-consuming flags, unknown commands, stale/missing metadata, socket transport/identity failures, malformed weaver responses, and database/domain errors fail non-zero. Strand commands against a reachable but uninitialized weaver store fail clearly with instructions to run `strand init`. Pattern input validation failures use the `pattern/input-invalid` code and include a human-readable message plus structured contract/problem details.
 - **SPEC-002.C14a:** `strand init` is also the selected config-dir bootstrap command. Before initializing strand storage, it creates only missing alpha workspace files/directories: selected config-dir, `config.json`, `libs/`, `libs.edn`, `init.clj`, and a Git repository with `git init` when `.git` is missing. It never overwrites existing files. Created config uses `"configFormat":"alpha"` and `source` as the current Skein checkout. Generated `init.clj` requires `skein.libs.alpha` and calls `(libs/sync!)`.
 - **SPEC-002.C15:** The Go CLI implementation uses Cobra rather than hand-rolled command dispatch or flag parsing. Root, command, subcommand, and flag help must clearly describe the supported command tree and accepted flags.
 - **SPEC-002.C16:** `weaver start` resolves the selected config-dir, reads `config.json`, requires valid `source`, launches the Clojure weaver from that source in the foreground, and passes the selected config-dir into the weaver. The weaver owns storage selection and loads selected config-dir `init.clj` when present.

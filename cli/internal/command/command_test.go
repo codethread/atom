@@ -38,7 +38,7 @@ func TestHelpIncludesCommandTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"add <title>", "--active", "--attr"} {
+	for _, want := range []string{"add <title>", "--active", "--attr", "--attr-file", "--attr-stdin", "--attributes-stdin"} {
 		if !strings.Contains(add, want) {
 			t.Fatalf("add help missing %q in:\n%s", want, add)
 		}
@@ -638,6 +638,74 @@ func TestWeaveAndPatternCommandsUseSocketClientPayloads(t *testing.T) {
 	for _, stdin := range []string{"", `{bad`, `{} {}`} {
 		if _, err := runWithStdin(stdin, "--config-dir", cfg, "weave", "--pattern", "dev-task"); err == nil {
 			t.Fatalf("expected stdin error for %q", stdin)
+		}
+	}
+}
+
+func TestAddMergesAttributeInputs(t *testing.T) {
+	cfg := testConfig(t)
+	file := filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(file, []byte("# Plan\n\nDo it.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	orig := newClient
+	fc := &fakeClient{}
+	newClient = func(o Options) Caller { return fc }
+	t.Cleanup(func() { newClient = orig })
+	stdin := `{"kind":"template","owner":"default","body":"placeholder","count":2}`
+	_, err := runWithStdin(stdin, "--config-dir", cfg, "add", "Implement", "--attributes-stdin", "--attr-file", "body="+file, "--attr", "owner=agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string]any{"kind": "template", "owner": "agent", "body": "# Plan\n\nDo it.\n", "count": float64(2)}
+	if len(fc.calls) != 1 || fc.calls[0].op != "add" || !reflect.DeepEqual(fc.calls[0].args["attributes"], expected) {
+		t.Fatalf("bad add attributes: %#v", fc.calls)
+	}
+}
+
+func TestAddReadsSingleAttributeFromStdin(t *testing.T) {
+	cfg := testConfig(t)
+	orig := newClient
+	fc := &fakeClient{}
+	newClient = func(o Options) Caller { return fc }
+	t.Cleanup(func() { newClient = orig })
+	_, err := runWithStdin("# Plan\n", "--config-dir", cfg, "add", "Implement", "--attr-stdin", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string]any{"body": "# Plan\n"}
+	if !reflect.DeepEqual(fc.calls[0].args["attributes"], expected) {
+		t.Fatalf("bad stdin attributes: %#v", fc.calls[0].args)
+	}
+}
+
+func TestAddAttributeInputsFailLoudly(t *testing.T) {
+	cfg := testConfig(t)
+	file := filepath.Join(t.TempDir(), "body.md")
+	if err := os.WriteFile(file, []byte("body"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	orig := newClient
+	newClient = func(o Options) Caller { return &fakeClient{} }
+	t.Cleanup(func() { newClient = orig })
+	cases := []struct {
+		stdin string
+		args  []string
+	}{
+		{"", []string{"--config-dir", cfg, "add", "x", "--attr", "a=1", "--attr", "a=2"}},
+		{"", []string{"--config-dir", cfg, "add", "x", "--attr-file", "body=" + file, "--attr-file", "body=" + file}},
+		{"", []string{"--config-dir", cfg, "add", "x", "--attr-file", "body=" + file, "--attr-stdin", "body"}},
+		{"", []string{"--config-dir", cfg, "add", "x", "--attr-stdin", ""}},
+		{"", []string{"--config-dir", cfg, "add", "x", "--attr-stdin", "body", "--attr-stdin", "notes"}},
+		{"{}", []string{"--config-dir", cfg, "add", "x", "--attr-stdin", "body", "--attributes-stdin"}},
+		{"", []string{"--config-dir", cfg, "add", "x", "--attributes-stdin"}},
+		{"[]", []string{"--config-dir", cfg, "add", "x", "--attributes-stdin"}},
+		{"{} {}", []string{"--config-dir", cfg, "add", "x", "--attributes-stdin"}},
+		{"", []string{"--config-dir", cfg, "add", "x", "--attr-file", "body=/missing/file"}},
+	}
+	for _, c := range cases {
+		if _, err := runWithStdin(c.stdin, c.args...); err == nil {
+			t.Fatalf("expected error for stdin %q args %v", c.stdin, c.args)
 		}
 	}
 }
