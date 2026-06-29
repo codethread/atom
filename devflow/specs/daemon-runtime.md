@@ -12,6 +12,7 @@ The weaver runtime is the long-lived local Clojure process that owns strand stor
 
 ## SPEC-004.P2 Runtime model
 
+- **SPEC-004.C0a:** The alpha mill router runtime adds a local Go `mill` process as the known XDG entrypoint for routing/supervision. The mill owns process routing metadata only; the weaver remains the semantic runtime that owns storage, query execution, runtime registries, trusted config evaluation, hooks/events, and REPL semantics.
 - **SPEC-004.C1:** A weaver owns exactly one active SQLite datasource, one in-memory named-query registry, one in-memory read-only view registry, one in-memory weave-pattern registry, one in-memory CLI operation registry, one in-memory lifecycle hook registry, one in-memory event handler registry with asynchronous dispatch state, one in-memory approved-library sync state, and one in-memory module-use registry for its lifetime.
 - **SPEC-004.C2:** A weaver exposes two local transports: nREPL for Clojure REPL/client workflows and a JSON Unix domain socket for the public Go CLI.
 - **SPEC-004.C3:** Transports are local-only by default: nREPL binds to loopback, and the JSON CLI transport uses a Unix domain socket under the selected runtime state directory.
@@ -24,6 +25,8 @@ The weaver runtime is the long-lived local Clojure process that owns strand stor
 
 ## SPEC-004.P3 Runtime metadata and discovery
 
+- **SPEC-004.C9a:** The mill router publishes its entrypoint under Skein's XDG state root: `$XDG_STATE_HOME/skein` or `~/.local/state/skein` when `XDG_STATE_HOME` is unset. Mill metadata lives at `mill.json`, and the mill JSON socket lives at `mill.sock`.
+- **SPEC-004.C9b:** Mill derives per-world runtime directories under `<state-root>/weavers/<hash>`, where `<hash>` is a filesystem-safe hash of the canonical selected config identity.
 - **SPEC-004.C10:** The JSON socket path is fixed within the selected state world as `weaver.sock`.
 - **SPEC-004.C11:** Runtime metadata is published beside the fixed socket as `weaver.json` for Go clients and `weaver.edn` for Clojure clients.
 - **SPEC-004.C12:** Runtime metadata records enough identity for clients to connect and verify intent: pid, weaver id, protocol version, selected config-dir, selected state dir, selected data dir, weaver-owned database path for status/debugging, nREPL endpoint data, JSON socket path, and startup time.

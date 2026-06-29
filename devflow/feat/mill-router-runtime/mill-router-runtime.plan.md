@@ -104,3 +104,8 @@ Outcome: Go, Clojure, integration, smoke, README, getting-started, Makefile, and
 ### PLAN-MillRouterRuntime-001.DN2 Task queue review fixes — 2026-06-29
 
 - Review found the lifecycle and Clojure runtime storage tasks were sequenced backward. Updated the queue so explicit Clojure config/state/data dir support precedes mill weaver launching, made those dir inputs required, and tightened `weaver status` task acceptance to include the full selected-world runtime status payload.
+
+### PLAN-MillRouterRuntime-001.DN3 Task 1 implementation notes — 2026-06-29
+
+- Added the initial Go `mill` command with foreground `mill start`, metadata/socket publication, and `mill status` for the health-envelope proof path. Focused tests use isolated `XDG_STATE_HOME`; the live mill test uses a short `/tmp` state root because macOS Unix socket paths fail when Go test temp paths are too long.
+- Added shared Go helpers for XDG state root resolution, canonical config identity, and per-world hashed runtime/data dirs. Later slices still need to route `strand` through these helpers and move Clojure weaver storage into the XDG runtime worlds.

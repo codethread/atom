@@ -3,6 +3,7 @@
 all: build install bootstrap
 
 GO_CLI := ./cli/cmd/strand
+MILL_CLI := ./cli/cmd/mill
 BIN := ./cli/bin/strand
 
 # Optional explicit disposable world; leave empty to use repo-local bootstrap via `strand init`.
@@ -19,10 +20,12 @@ build:
 
 install:
 	go install $(GO_CLI)
+	go install $(MILL_CLI)
 
 # Bootstrap matching repo-first CLI flow: install strand and run repo-local `strand init`.
 bootstrap:
 	go install $(GO_CLI)
+	go install $(MILL_CLI)
 	mkdir -p "$(CONFIG_DIR)"
 	@if [ -n "$(BOOTSTRAP_CONFIG_DIR)" ]; then \
 		strand --config-dir "$(BOOTSTRAP_CONFIG_DIR)" init --source "$(CURDIR)"; \

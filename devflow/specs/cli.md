@@ -10,14 +10,18 @@
 
 The CLI is the primary scripted interface for coding agents. It exposes a deliberately small strand surface: initialize storage, create strands, update strands, burn strands, inspect strands, list strands, ask for ready work, and manage the local weaver runtime.
 
-The public CLI is a thin Go executable named `strand`. It uses Cobra for command, subcommand, flag parsing, and help text; resolves the selected Skein world; sends JSON requests over the weaver's local Unix socket; emits JSON for public strand/weaver commands; and never opens SQLite or evaluates rich query definitions locally.
+The public strand CLI is a thin Go executable named `strand`. It uses Cobra for command, subcommand, flag parsing, and help text; resolves the selected Skein world; sends JSON requests over the weaver's local Unix socket; emits JSON for public strand/weaver commands; and never opens SQLite or evaluates rich query definitions locally.
+
+Skein also ships an alpha local router executable named `mill`. In the mill router runtime feature, `mill start` creates the Skein XDG state root, publishes `mill.json` and `mill.sock`, and listens in the foreground for local requests; `mill status` performs a minimal health request against the active mill.
 
 ## SPEC-002.P2 Interface
 
-Entrypoint:
+Entrypoints:
 
 ```text
 strand [--config-dir <dir>] <command> [args]
+mill start
+mill status
 ```
 
 Commands:

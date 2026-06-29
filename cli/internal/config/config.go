@@ -74,15 +74,11 @@ func InitWorld(configDir string) (World, error) {
 }
 
 func isolatedWorld(configDir string) (World, error) {
-	abs, err := filepath.Abs(configDir)
+	identity, err := CanonicalConfigIdentity(configDir)
 	if err != nil {
 		return World{}, err
 	}
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = real
-	}
-	abs = filepath.Clean(abs)
-	return world(abs, filepath.Join(abs, "state"), filepath.Join(abs, "data")), nil
+	return world(identity, filepath.Join(identity, "state"), filepath.Join(identity, "data")), nil
 }
 
 func world(configDir, stateDir, dataDir string) World {
