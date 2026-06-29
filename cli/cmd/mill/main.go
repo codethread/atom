@@ -92,6 +92,13 @@ func (s server) handle(conn net.Conn) {
 	switch req.Operation {
 	case "status", "ping":
 		_ = json.NewEncoder(conn).Encode(client.MillResponse{ProtocolVersion: client.MillProtocolVersion, RequestID: req.RequestID, OK: true, Result: map[string]any{"healthy": true, "protocol_version": client.MillProtocolVersion, "pid": s.meta.PID, "mill_id": s.meta.MillID, "state_root": s.meta.StateRoot, "socket_path": s.meta.SocketPath, "started_at": s.meta.StartedAt}})
+	case "init":
+		world, err := config.BootstrapWorld(req.World.CWD, req.World.ConfigDir, req.World.Source)
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(errorResponse(req.RequestID, "domain", "mill/init-failed", "strand init failed", err.Error()))
+			return
+		}
+		_ = json.NewEncoder(conn).Encode(client.MillResponse{ProtocolVersion: client.MillProtocolVersion, RequestID: req.RequestID, OK: true, Result: map[string]any{"config_dir": world.ConfigDir, "config_file": world.ConfigFile}})
 	default:
 		_ = json.NewEncoder(conn).Encode(errorResponse(req.RequestID, "protocol", "mill/unknown-operation", "unknown mill operation", req.Operation))
 	}

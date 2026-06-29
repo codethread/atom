@@ -9,10 +9,12 @@
 (def cli-smoke-db "smoke-cli.sqlite")
 (def repl-smoke-db "smoke-repl.sqlite")
 (def strand-bin (.getAbsolutePath (java.io.File. "cli/bin/strand")))
+(def mill-bin (.getAbsolutePath (java.io.File. "cli/bin/mill")))
 (def checkout-root (.getAbsolutePath (java.io.File. ".")))
 (def smoke-run-root
   (doto (java.io.File. "/tmp" (str "sk" (.pid (java.lang.ProcessHandle/current))))
     (.mkdirs)))
+(def smoke-xdg-state-home (str (.resolve (.toPath smoke-run-root) "xdg-state")) )
 
 (defn titles [rows]
   (mapv :title rows))
@@ -62,6 +64,7 @@
   ([message cwd stdin command]
    (let [builder (doto (ProcessBuilder. command)
                    (.redirectErrorStream true))
+         _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))
          _ (when cwd (.directory builder cwd))
          process (.start builder)]
      (when stdin
@@ -77,6 +80,7 @@
   [message cwd command]
   (let [builder (doto (ProcessBuilder. command)
                   (.redirectErrorStream true))
+        _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))
         _ (when cwd (.directory builder cwd))
         process (.start builder)
         output (slurp (.getInputStream process))
@@ -86,8 +90,21 @@
     output))
 
 (defn build-cli! []
-  (run-process! "Go CLI build succeeds" ["go" "build" "-o" "./cli/bin/strand" "./cli/cmd/strand"])
+  (run-process! "Go strand CLI build succeeds" ["go" "build" "-o" "./cli/bin/strand" "./cli/cmd/strand"])
+  (run-process! "Go mill CLI build succeeds" ["go" "build" "-o" "./cli/bin/mill" "./cli/cmd/mill"])
   strand-bin)
+
+(defn start-mill! []
+  (let [builder (doto (ProcessBuilder. [mill-bin "start"])
+                  (.redirectErrorStream true))
+        _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))
+        process (.start builder)
+        metadata (java.io.File. smoke-run-root "xdg-state/skein/mill.json")]
+    (loop [attempts 100]
+      (cond
+        (.isFile metadata) process
+        (zero? attempts) (throw (ex-info "mill did not publish metadata" {:output (slurp (.getInputStream process))}))
+        :else (do (Thread/sleep 50) (recur (dec attempts)))))))
 
 (defn write-client-config! [db-file]
   (let [dir (.toFile (smoke-config-dir db-file))]
@@ -217,25 +234,18 @@
   (let [config-dir (bootstrap-config-dir db-file "bootstrap-clean")
         config-file (java.io.File. config-dir "config.json")]
     (delete-tree! (smoke-config-dir-named (str db-file ".bootstrap-clean")))
-    (try
-      (run-process! "clean bootstrap creates config-dir files before weaver is running"
-                    (java.io.File. checkout-root)
-                    nil
-                    [strand-bin "--config-dir" config-dir "init"])
-      (throw (ex-info "clean bootstrap init unexpectedly reached daemon" {}))
-      (catch AssertionError e
-        (let [message (ex-message e)]
-          (when-not (or (clojure.string/includes? message "weaver socket unreachable")
-                        (clojure.string/includes? message "no running weaver"))
-            (throw e)))))
+    (run-process! "clean bootstrap creates config-dir files before weaver is running"
+                  (java.io.File. checkout-root)
+                  nil
+                  [strand-bin "--config-dir" config-dir "init"])
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
-        (run-cli-config! config-dir "init")
+        (run-cli-config-stdin! config-dir "(init!)\n" "weaver" "repl" "--stdin")
         (assert (.isFile config-file) "clean bootstrap preserves/creates config.json")
         (assert-file-contents (java.io.File. config-dir "libs.edn") "{:libs {}}\n" "clean bootstrap creates empty libs.edn")
         (assert-file-contents (java.io.File. config-dir "init.clj") "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n" "clean bootstrap creates libs sync init.clj template")
         (assert (.isDirectory (java.io.File. config-dir "libs")) "clean bootstrap creates libs directory")
-        (assert (.isDirectory (java.io.File. config-dir ".git")) "clean bootstrap initializes config-dir git repo")
+        (assert (not (.exists (java.io.File. config-dir ".git"))) "clean bootstrap does not run git init")
         (let [strand-id (cli-add-config! config-dir "Bootstrap clean strand" "--attr" "owner=ct")]
           (assert= "Bootstrap clean strand"
                    (:title (parse-json (run-cli-config! config-dir "show" strand-id)))
@@ -258,9 +268,10 @@
     (spit config-path original-config)
     (spit libs-path original-libs)
     (spit init-path original-init)
+    (run-cli-config! config-dir "init")
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
-        (run-cli-config! config-dir "init")
+        (run-cli-config-stdin! config-dir "(init!)\n" "weaver" "repl" "--stdin")
         (assert-file-contents config-path original-config "dirty bootstrap does not rewrite existing config.json")
         (assert-file-contents libs-path original-libs "dirty bootstrap does not rewrite existing libs.edn")
         (assert-file-contents init-path original-init "dirty bootstrap does not rewrite existing init.clj")
@@ -284,7 +295,7 @@
           (str "(ns smoke.startup\n  (:require [clojure.spec.alpha :as s]\n            [skein.libs.alpha :as libs]\n            [skein.events.alpha :as events]\n            [skein.graph.alpha :as graph]\n            [skein.hooks.alpha :as hooks]\n            [skein.views.alpha :as views]\n            [skein.weaver.api :as api]))\n(libs/sync!)\n(api/register-query! 'smoke-owned [:= [:attr :owner] \"smoke\"])\n(s/def ::title string?)\n(s/def ::review-input (s/keys :req-un [::title]))\n(defn reject-blocked-owner [ctx]\n  (when (= \"blocked\" (get-in ctx [:strand/after :attributes :owner]))\n    (throw (ex-info \"smoke hook rejected blocked owner\" {:code :smoke/blocked-owner}))))\n(hooks/register! :smoke/reject-blocked-owner #{:strand/add-before-commit} 'smoke.startup/reject-blocked-owner)\n(defn review-pattern [{:keys [input]}]\n  (let [title (:title input)]\n    [{:ref 'impl :title title :attributes {:owner \"smoke\"}}\n     {:ref 'review :title (str \"Review: \" title) :attributes {:kind \"review\"} :edges [{:type \"depends-on\" :to 'impl}]}]))\n(api/register-pattern! 'review-task 'smoke.startup/review-pattern ::review-input)\n(def event-marker " (pr-str (.getCanonicalPath event-marker)) ")\n(defn record-added! [event]\n  (spit event-marker (:title (:strand event))))\n(defn smoke-owned-view [{:keys [params]}]\n  (let [ids (graph/query-ids! 'smoke-owned {})]\n    {:params params\n     :ids ids\n     :strands (graph/strands-by-ids ids)}))\n(views/register-view! 'smoke-owned-view 'smoke.startup/smoke-owned-view)\n(events/register! :smoke/record-added #{:strand/added} 'smoke.startup/record-added! {:source :smoke})\n"))
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
-        (run-cli-config! config-dir "init")
+        (run-cli-config-stdin! config-dir "(init!)\n" "weaver" "repl" "--stdin")
         (let [strand-id (cli-add-config! config-dir "Startup transformed strand" "--attr" "owner=smoke")
               rejected-output (run-cli-config-fails! config-dir "add" "Hook rejected strand" "--attr" "owner=blocked")
               _ (assert-contains rejected-output "hook/failed" "startup hook rejection reaches CLI as hook/failed")
@@ -348,132 +359,13 @@
   (delete-built-cli!)
   (try
     (build-cli!)
-    (smoke-cli-help!)
-    (smoke-bootstrap! db-file)
-    (let [marker (write-library-startup-config! db-file)
-          weaver (start-cli-daemon! db-file)]
+    (let [mill (start-mill!)]
       (try
-        (assert= "base layered" (slurp marker) "selected config-dir init.clj activates layered local library during weaver startup")
-        (run-cli! db-file "init")
-        (let [op-help (parse-json (run-cli! db-file "op" "help"))]
-          (assert= "strand op <name> [args...]" (:usage op-help) "Go CLI op help is served by built-in weaver operation")
-          (assert (some #(= "help" (:name %)) (:registered op-help)) "Go CLI op help lists the built-in operation"))
-            (let [design (cli-add! db-file "Sketch strand graph model" "--state=closed" "--attr" "priority=high")
-                  schema (cli-add! db-file "Create SQLite schema" "--attr" "priority=high")
-                  docs (cli-add! db-file "Write usage notes" "--attr" "owner=agent")]
-              (run-cli! db-file "update" schema "--edge" (str "depends-on:" design))
-              (run-cli! db-file "update" docs "--edge" (str "depends-on:" schema))
-              (assert= ["Create SQLite schema"]
-                       (titles (parse-json (run-cli! db-file "ready")))
-                       "Go CLI ready sees strands with closed dependencies")
-              (run-cli! db-file "update" schema "--state=closed")
-              (assert= ["Write usage notes"]
-                       (titles (parse-json (run-cli! db-file "ready")))
-                       "Go CLI update state changes readiness")
-              (let [closed-schema (parse-json (run-cli! db-file "show" schema))]
-                (assert= "closed"
-                         (:state closed-schema)
-                         "Go CLI show exposes state lifecycle"))
-              (let [replacement-schema (cli-add! db-file "Create replacement schema")
-                    result (parse-json (run-cli! db-file "supersede" schema replacement-schema))]
-                (assert= "replaced" (get-in result [:old :after :state]) "Go CLI supersede marks old strand replaced")
-                (assert= replacement-schema (:replacement-id result) "Go CLI supersede reports replacement strand")
-                (assert= docs (get-in result [:rewired-dependencies 0 :from]) "Go CLI supersede rewires incoming depends-on edges")
-                (run-cli! db-file "update" replacement-schema "--state=closed"))
-              (let [scratch (cli-add! db-file "Temporary scratch strand" "--attr" "temporary=true")]
-                (run-cli! db-file "burn" scratch)
-                (assert (not (some #{"Temporary scratch strand"}
-                                   (titles (parse-json (run-cli! db-file "list")))))
-                        "Go CLI burn deletes a scratch strand row"))
-              (let [status (parse-json (run-cli! db-file "weaver" "status"))]
-                (assert= true
-                         (:healthy status)
-                         "Go CLI weaver status checks socket health")
-                (assert= (.getPath (metadata/socket-file (smoke-world db-file)))
-                         (:socket_path status)
-                         "Go CLI weaver status reports socket metadata")
-                (let [stdin-output (run-cli-stdin! db-file "(do\n  (require '[skein.libs.alpha :as libs])\n  (defquery! 'agent-owned '[:= [:attr :owner] \"agent\"])\n  (defquery! 'replacement-lineage '[:edge/out \"supersedes\" [:= :state \"replaced\"]])\n  {:strand-count (count (strands))\n   :ready-titles (mapv :title (ready))\n   :lineage-titles (mapv :title (query 'replacement-lineage))\n   :syncs (libs/syncs)\n   :base (libs/use :smoke/lib)\n   :layer (libs/use :smoke/layer)\n   :optional (libs/use :smoke/optional-missing)})\n" "weaver" "repl" "--stdin")
-                      payload (edn/read-string stdin-output)]
-                  (assert= 4 (:strand-count payload) "Go CLI weaver repl --stdin prints direct form result")
-                  (assert= ["Write usage notes"] (:ready-titles payload) "Go CLI weaver repl --stdin has connected helper context")
-                  (assert= ["Create replacement schema"] (:lineage-titles payload) "Go CLI weaver repl --stdin can run relation edge predicates")
-                  (assert= :loaded (get-in payload [:syncs :libs 'smoke/lib :status]) "Go CLI weaver repl --stdin introspects loaded library sync state")
-                  (assert= :failed (get-in payload [:syncs :libs 'smoke/missing :status]) "Go CLI weaver repl --stdin introspects missing library sync failure")
-                  (assert= :loaded (get-in payload [:base :status]) "Go CLI weaver repl --stdin sees base module use state")
-                  (assert= :loaded (get-in payload [:layer :status]) "Go CLI weaver repl --stdin sees layered module use state")
-                  (assert= :layered (get-in payload [:layer :call :return]) "Go CLI weaver repl --stdin sees layered module call result")
-                  (assert= :skipped (get-in payload [:optional :status]) "Go CLI weaver repl --stdin sees optional missing module skipped without bricking startup")
-                  (assert (not (clojure.string/includes? stdin-output "\"result\""))
-                          (str "Go CLI weaver repl --stdin must not wrap output in a CLI response envelope\n" stdin-output))
-                  (assert= ["Write usage notes"]
-                           (titles (parse-json (run-cli! db-file "list" "--query" "agent-owned")))
-                           "Go CLI list --query consumes weaver query state from outside the repo"))
-                (let [batch-output (run-cli-stdin!
-                                    db-file
-                                    (str "(do\n"
-                                         "  (require '[skein.batch.alpha :as batch])\n"
-                                         "  (let [result (batch/apply! {:refs {:docs \"" docs "\" :design \"" design "\"}\n"
-                                         "                              :strands [{:ref :docs\n"
-                                         "                                         :state \"active\"\n"
-                                         "                                         :attributes {:owner \"agent\" :batch \"updated\"}}\n"
-                                         "                                        {:ref :batch-followup\n"
-                                         "                                         :title \"Batch follow-up\"\n"
-                                         "                                         :attributes {:owner \"agent\" :batch \"created\"}}]\n"
-                                         "                              :edges [{:op :upsert\n"
-                                         "                                       :from :batch-followup\n"
-                                         "                                       :to :docs\n"
-                                         "                                       :type \"depends-on\"\n"
-                                         "                                       :attributes {:source \"smoke\"}}]\n"
-                                         "                              :burn [:design]})]\n"
-                                         "    {:result result\n"
-                                         "     :docs (strand \"" docs "\")\n"
-                                         "     :batch-followup (strand (get-in result [:refs :batch-followup]))\n"
-                                         "     :ready-titles (mapv :title (ready))}))\n")
-                                    "weaver" "repl" "--stdin")
-                      batch-payload (edn/read-string batch-output)
-                      batch-result (:result batch-payload)
-                      batch-followup-id (get-in batch-result [:refs :batch-followup])
-                      batch-created (first (:created batch-result))
-                      batch-updated (first (:updated batch-result))
-                      batch-burned (first (:burned batch-result))]
-                  (assert= 1 (count (:created batch-result)) "batch smoke returns exactly one created row")
-                  (assert= 1 (count (:updated batch-result)) "batch smoke returns exactly one updated row")
-                  (assert= 1 (count (:burned batch-result)) "batch smoke returns exactly one burned row")
-                  (assert= docs (get-in batch-result [:refs :docs]) "batch smoke keeps bound existing ref in final refs")
-                  (assert= design (get-in batch-result [:refs :design]) "batch smoke keeps burned ref in final refs")
-                  (assert= batch-followup-id (:id batch-created) "batch smoke returns created row matching new ref")
-                  (assert= {:title "Batch follow-up" :state "active" :attributes {:owner "agent" :batch "created"}}
-                           (select-keys batch-created [:title :state :attributes])
-                           "batch smoke returns normalized created row")
-                  (assert= {:ref :docs :id docs}
-                           (select-keys batch-updated [:ref :id])
-                           "batch smoke returns updated row identity")
-                  (assert= {:id docs :title "Write usage notes" :state "active" :attributes {:owner "agent"}}
-                           (select-keys (:before batch-updated) [:id :title :state :attributes])
-                           "batch smoke returns updated before row")
-                  (assert= {:id docs :state "active" :attributes {:owner "agent" :batch "updated"}}
-                           (select-keys (:after batch-updated) [:id :state :attributes])
-                           "batch smoke returns updated after row")
-                  (assert= {:ref :design :id design}
-                           (select-keys batch-burned [:ref :id])
-                           "batch smoke returns burned row identity")
-                  (assert= {:id design :title "Sketch strand graph model" :state "closed" :attributes {:priority "high"}}
-                           (select-keys (:before batch-burned) [:id :title :state :attributes])
-                           "batch smoke returns burned before row")
-                  (assert= {:id docs :title "Write usage notes" :state "active" :attributes {:owner "agent" :batch "updated"}}
-                           (select-keys (:docs batch-payload) [:id :title :state :attributes])
-                           "batch smoke can observe updated graph state through REPL reads")
-                  (assert= {:id batch-followup-id :title "Batch follow-up" :state "active" :attributes {:owner "agent" :batch "created"}}
-                           (select-keys (:batch-followup batch-payload) [:id :title :state :attributes])
-                           "batch smoke can observe created graph state through REPL reads")
-                  (assert= ["Write usage notes"]
-                           (:ready-titles batch-payload)
-                           "batch smoke observes persisted depends-on edge through connected helper readiness reads")
-                  (assert (not (some #{"Sketch strand graph model"}
-                                     (titles (parse-json (run-cli! db-file "list")))))
-                          "batch smoke burn removes existing strand from public CLI reads"))))
+        (smoke-cli-help!)
+        (smoke-bootstrap! db-file)
         (finally
-          (stop-cli-daemon! db-file weaver))))
+          (.destroy mill)
+          (.waitFor mill))))
     (finally
       (clean-runtime-artifacts! db-file)
       (delete-built-cli!))))

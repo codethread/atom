@@ -7,7 +7,7 @@ tasks:
   - id: 2
     description: Route strand init through mill
     task_file: tasks/002-route-strand-init-through-mill.md
-    status: pending
+    status: complete
     blocked_by: [1]
   - id: 3
     description: Start weavers through mill

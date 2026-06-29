@@ -109,3 +109,8 @@ Outcome: Go, Clojure, integration, smoke, README, getting-started, Makefile, and
 
 - Added the initial Go `mill` command with foreground `mill start`, metadata/socket publication, and `mill status` for the health-envelope proof path. Focused tests use isolated `XDG_STATE_HOME`; the live mill test uses a short `/tmp` state root because macOS Unix socket paths fail when Go test temp paths are too long.
 - Added shared Go helpers for XDG state root resolution, canonical config identity, and per-world hashed runtime/data dirs. Later slices still need to route `strand` through these helpers and move Clojure weaver storage into the XDG runtime worlds.
+
+### PLAN-MillRouterRuntime-001.DN4 Task 2 implementation notes — 2026-06-29
+
+- `strand init` now sends cwd, optional config-dir, and optional source to the reachable mill and no longer contacts a weaver or runs `git init`. Mill owns repo/config bootstrap and requires implicit init callers to be inside a Git worktree.
+- Bootstrap preserves existing config files and creates only missing workspace files. Smoke uses `strand init` for config bootstrap and trusted REPL `init!` where existing smoke flows still need database initialization until later slices move storage initialization into weaver startup.

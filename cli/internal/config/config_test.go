@@ -119,3 +119,19 @@ func TestResolveSourceRejectsRelativePath(t *testing.T) {
 		t.Fatalf("expected absolute path error, got %v", err)
 	}
 }
+
+func TestBootstrapTargetWorldResolvesRelativeConfigDirAgainstCallerCWD(t *testing.T) {
+	cwd := t.TempDir()
+	world, err := BootstrapTargetWorld(cwd, ".skein")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		want = filepath.Clean(cwd)
+	}
+	want = filepath.Join(want, ".skein")
+	if world.ConfigDir != want {
+		t.Fatalf("relative config dir resolved against wrong cwd: got %q want %q", world.ConfigDir, want)
+	}
+}

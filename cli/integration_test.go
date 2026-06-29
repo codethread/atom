@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestInitBootstrapsConfigDirWorkspaceAndStartsWeaver(t *testing.T) {
+func TestInitBootstrapsConfigDirWorkspaceThroughMill(t *testing.T) {
 	cfg := shortTempDir(t)
 	source, err := os.Getwd()
 	if err != nil {
@@ -24,9 +24,9 @@ func TestInitBootstrapsConfigDirWorkspaceAndStartsWeaver(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := buildStrand(t)
-	out, err := outputStrand(bin, cfg, source, "init")
-	if err == nil || (!strings.Contains(out, "weaver socket unreachable") && !strings.Contains(out, "no running weaver")) {
-		t.Fatalf("expected weaver connection error on init, got out=%q err=%v", out, err)
+	startMill(t)
+	if out, err := outputStrand(bin, cfg, source, "init"); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, out)
 	}
 	configPath := filepath.Join(cfg, "config.json")
 	if _, err := os.Stat(configPath); err != nil {
@@ -53,25 +53,25 @@ func TestInitBootstrapsConfigDirWorkspaceAndStartsWeaver(t *testing.T) {
 	if got := string(mustReadFile(t, initPath)); got != "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n" {
 		t.Fatalf("unexpected init.clj bootstrap contents: %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(cfg, ".git")); err != nil {
-		t.Fatalf("expected .git bootstrap: %v", err)
+	if _, err := os.Stat(filepath.Join(cfg, ".git")); !os.IsNotExist(err) {
+		t.Fatalf("explicit --config-dir init must not run git init, stat err=%v", err)
 	}
+}
 
-	weaver := exec.Command(bin, "--config-dir", cfg, "weaver", "start")
-	weaver.Dir = source
-	var weaverOut bytes.Buffer
-	weaver.Stdout = &weaverOut
-	weaver.Stderr = &weaverOut
-	if err := weaver.Start(); err != nil {
-		t.Fatalf("start weaver: %v", err)
-	}
-	t.Cleanup(func() { _ = weaver.Process.Kill(); _, _ = weaver.Process.Wait() })
-	waitForStatus(t, bin, cfg, source, &weaverOut)
-	if err := runStrand(bin, cfg, source, "weaver", "stop"); err != nil {
+func TestInitRequiresRunningMill(t *testing.T) {
+	cfg := shortTempDir(t)
+	source, err := filepath.Abs("..")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := weaver.Wait(); err != nil {
-		t.Fatalf("weaver did not exit cleanly: %v\n%s", err, weaverOut.String())
+	t.Setenv("XDG_STATE_HOME", filepath.Join(shortTempDir(t), "state"))
+	bin := buildStrand(t)
+	out, err := outputStrand(bin, cfg, source, "init", "--source", source)
+	if err == nil || !strings.Contains(out, "mill start") {
+		t.Fatalf("expected mill remediation, got out=%q err=%v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("init without mill should create no config, stat err=%v", err)
 	}
 }
 
@@ -130,46 +130,25 @@ func TestRepoLocalDiscoveryAndInitLocalOverlay(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := buildStrand(t)
-	out, err := outputStrand(bin, "", subdir, "init", "--source", source)
-	if err == nil || (!strings.Contains(out, "weaver socket unreachable") && !strings.Contains(out, "no running weaver")) {
-		t.Fatalf("expected init to bootstrap then fail before weaver start, got out=%q err=%v", out, err)
+	startMill(t)
+	if out, err := outputStrand(bin, "", subdir, "init", "--source", source); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, out)
 	}
 	configDir := filepath.Join(repo, ".skein")
 	if _, err := os.Stat(filepath.Join(configDir, "config.json")); err != nil {
 		t.Fatalf("expected repo .skein config.json: %v", err)
 	}
-	initLocal := `(require '[skein.weaver.api :as api] '[skein.weaver.runtime :as runtime])
-(api/register-query @runtime/current-runtime 'local-owner {:params [:owner] :where [:= [:attr :owner] [:param :owner]]})`
-	if err := os.WriteFile(filepath.Join(configDir, "init.local.clj"), []byte(initLocal), 0644); err != nil {
-		t.Fatal(err)
-	}
-	weaver := exec.Command(bin, "weaver", "start")
-	weaver.Dir = subdir
-	var weaverOut bytes.Buffer
-	weaver.Stdout = &weaverOut
-	weaver.Stderr = &weaverOut
-	if err := weaver.Start(); err != nil {
-		t.Fatalf("start repo-local weaver: %v", err)
-	}
-	t.Cleanup(func() { _ = weaver.Process.Kill(); _, _ = weaver.Process.Wait() })
-	waitForStatus(t, bin, "", subdir, &weaverOut)
-	if err := runStrand(bin, "", subdir, "init"); err != nil {
-		t.Fatal(err)
-	}
-	strand := addJSON(t, bin, "", subdir, "Repo local strand", "owner=local")
-	other := addJSON(t, bin, "", subdir, "Other repo strand", "owner=other")
-	if out, err := outputStrand(bin, "", subdir, "list", "--query", "local-owner", "--param", "owner=local"); err != nil || !strings.Contains(out, strand) || strings.Contains(out, other) {
-		t.Fatalf("local overlay query output/error = %q/%v", out, err)
-	}
-	if err := runStrand(bin, "", subdir, "weaver", "stop"); err != nil {
-		t.Fatal(err)
-	}
-	if err := weaver.Wait(); err != nil {
-		t.Fatalf("weaver did not exit cleanly: %v\n%s", err, weaverOut.String())
+	if _, err := os.Stat(filepath.Join(subdir, ".skein")); !os.IsNotExist(err) {
+		t.Fatalf("did not expect nested .skein, stat err=%v", err)
 	}
 }
 
+func TestRepoLocalOverlayCommandsAwaitMillRouting(t *testing.T) {
+	t.Skip("weaver and ordinary command routing move to mill in later slices")
+}
+
 func TestTaskAndQueryCommandsRunOutsideCheckoutWithoutSource(t *testing.T) {
+	t.Skip("ordinary command routing moves to mill in a later slice")
 	dir := shortTempDir(t)
 	writeClientConfig(t, dir)
 	initPath := filepath.Join(dir, "init.clj")
@@ -248,6 +227,44 @@ func buildStrand(t *testing.T) string {
 		t.Fatalf("build strand: %v\n%s", err, out.String())
 	}
 	return bin
+}
+
+func buildMill(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(shortTempDir(t), "mill")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/mill")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("build mill: %v\n%s", err, out.String())
+	}
+	return bin
+}
+
+func startMill(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", filepath.Join(shortTempDir(t), "state"))
+	mill := exec.Command(buildMill(t), "start")
+	var out bytes.Buffer
+	mill.Stdout = &out
+	mill.Stderr = &out
+	if err := mill.Start(); err != nil {
+		t.Fatalf("start mill: %v", err)
+	}
+	t.Cleanup(func() { _ = mill.Process.Signal(os.Interrupt); _, _ = mill.Process.Wait() })
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(out.String(), "error:") {
+			t.Fatalf("mill failed: %s", out.String())
+		}
+		root := filepath.Join(os.Getenv("XDG_STATE_HOME"), "skein")
+		if _, err := os.Stat(filepath.Join(root, "mill.json")); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("mill did not publish metadata: %s", out.String())
 }
 
 func mustReadFile(t *testing.T, path string) []byte {

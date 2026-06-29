@@ -11,6 +11,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"skein-strand-cli/internal/client"
+	"skein-strand-cli/internal/config"
 )
 
 func run(args ...string) (string, error) {
@@ -18,6 +21,18 @@ func run(args ...string) (string, error) {
 }
 
 func runWithStdin(stdin string, args ...string) (string, error) {
+	origMill := millCall
+	millCall = func(operation string, world client.MillWorldRequest) (any, error) {
+		if operation == "init" {
+			w, err := config.BootstrapWorld(world.CWD, world.ConfigDir, world.Source)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"config_dir": w.ConfigDir}, nil
+		}
+		return origMill(operation, world)
+	}
+	defer func() { millCall = origMill }()
 	var out, er bytes.Buffer
 	app := New(&out, &er)
 	app.Stdin = strings.NewReader(stdin)
@@ -208,7 +223,7 @@ func TestConfigDirPrecedenceAndValidation(t *testing.T) {
 	}
 }
 
-func TestInitBootstrapsWorkspaceWhenMissingAndCallsInit(t *testing.T) {
+func TestInitBootstrapsWorkspaceWhenMissingWithoutWeaverInit(t *testing.T) {
 	cfg := t.TempDir()
 	source := t.TempDir()
 	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
@@ -223,38 +238,20 @@ func TestInitBootstrapsWorkspaceWhenMissingAndCallsInit(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 	var clientCalled bool
-	var initCalled bool
-	captured := Options{}
 	origClient := newClient
-	origGit := runGitInit
 	newClient = func(o Options) Caller {
 		clientCalled = true
-		captured = o
 		return &fakeClient{}
 	}
-	runGitInit = func(configDir string) error {
-		tgt, err := filepath.EvalSymlinks(cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if configDir != tgt {
-			t.Fatalf("unexpected git init dir: %s", configDir)
-		}
-		initCalled = true
-		return nil
-	}
-	t.Cleanup(func() {
-		newClient = origClient
-		runGitInit = origGit
-	})
+	t.Cleanup(func() { newClient = origClient })
 	if _, err := run("--config-dir", cfg, "init"); err != nil {
 		t.Fatal(err)
 	}
-	if !clientCalled {
-		t.Fatal("expected init to call weaver init")
+	if clientCalled {
+		t.Fatal("init must not call weaver init")
 	}
-	if !initCalled {
-		t.Fatal("expected git init to run")
+	if _, err := os.Stat(filepath.Join(cfg, ".git")); !os.IsNotExist(err) {
+		t.Fatalf("explicit --config-dir init must not run git init, stat err=%v", err)
 	}
 	cfgFile := filepath.Join(cfg, "config.json")
 	if _, err := os.Stat(cfgFile); err != nil {
@@ -291,18 +288,11 @@ func TestInitBootstrapsWorkspaceWhenMissingAndCallsInit(t *testing.T) {
 	if _, err := os.Stat(initPath); err != nil {
 		t.Fatalf("missing init.clj: %v", err)
 	}
-	if got := string(mustReadFile(t, initPath)); got != defaultInitCLJ {
+	if got := string(mustReadFile(t, initPath)); got != config.DefaultInitCLJ {
 		t.Fatalf("unexpected init.clj contents: %q", got)
 	}
-	if got := string(mustReadFile(t, filepath.Join(cfg, ".gitignore"))); got != defaultSkeinGitignore {
+	if got := string(mustReadFile(t, filepath.Join(cfg, ".gitignore"))); got != config.DefaultSkeinGitignore {
 		t.Fatalf("unexpected .gitignore contents: %q", got)
-	}
-	realCfg, err := filepath.EvalSymlinks(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if captured.ConfigDir != realCfg {
-		t.Fatalf("unexpected resolved config-dir: %#v", captured)
 	}
 }
 
@@ -337,13 +327,8 @@ func TestInitValidatesExistingConfigButDoesNotRewriteMissingKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	origClient := newClient
-	origGit := runGitInit
 	newClient = func(o Options) Caller { return &fakeClient{} }
-	runGitInit = func(configDir string) error {
-		t.Fatalf("git init should not run when .git exists")
-		return nil
-	}
-	t.Cleanup(func() { newClient = origClient; runGitInit = origGit })
+	t.Cleanup(func() { newClient = origClient })
 	if _, err := run("--config-dir", cfg, "init"); err != nil {
 		t.Fatalf("init failed: %v", err)
 	}
@@ -638,13 +623,8 @@ func TestInitUsesGitRootForImplicitRepoWorld(t *testing.T) {
 	source := tempSource(t)
 	withChdir(t, nested)
 	origClient := newClient
-	origGit := runGitInit
 	newClient = func(o Options) Caller { return &fakeClient{} }
-	runGitInit = func(configDir string) error {
-		t.Fatalf("implicit repo .skein should not get nested git init: %s", configDir)
-		return nil
-	}
-	t.Cleanup(func() { newClient = origClient; runGitInit = origGit })
+	t.Cleanup(func() { newClient = origClient })
 	if _, err := run("init", "--source", source); err != nil {
 		t.Fatal(err)
 	}
@@ -656,18 +636,36 @@ func TestInitUsesGitRootForImplicitRepoWorld(t *testing.T) {
 	}
 }
 
-func TestInitOutsideGitUsesCwd(t *testing.T) {
+func TestInitPassesCallerEnvSourceToMill(t *testing.T) {
+	source := tempSource(t)
+	t.Setenv("SKEIN_SOURCE", source)
+	cfg := t.TempDir()
+	orig := millCall
+	var captured client.MillWorldRequest
+	millCall = func(operation string, world client.MillWorldRequest) (any, error) {
+		captured = world
+		return map[string]any{}, nil
+	}
+	t.Cleanup(func() { millCall = orig })
+	var out, er bytes.Buffer
+	app := New(&out, &er)
+	if err := app.Run([]string{"--config-dir", cfg, "init"}); err != nil {
+		t.Fatal(err)
+	}
+	if captured.Source != source {
+		t.Fatalf("expected caller SKEIN_SOURCE to be sent to mill, got %#v", captured)
+	}
+}
+
+func TestInitOutsideGitFailsWithoutCreatingCwdWorld(t *testing.T) {
 	dir := t.TempDir()
 	source := tempSource(t)
 	withChdir(t, dir)
-	origClient := newClient
-	newClient = func(o Options) Caller { return &fakeClient{} }
-	t.Cleanup(func() { newClient = origClient })
-	if _, err := run("init", "--source", source); err != nil {
-		t.Fatal(err)
+	if _, err := run("init", "--source", source); err == nil || !strings.Contains(err.Error(), "requires cwd inside a Git worktree") {
+		t.Fatalf("expected outside-git failure, got %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".skein", "config.json")); err != nil {
-		t.Fatalf("expected cwd .skein config.json: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, ".skein")); !os.IsNotExist(err) {
+		t.Fatalf("did not expect cwd .skein, stat err=%v", err)
 	}
 }
 
@@ -688,10 +686,8 @@ func TestInitSourcePrecedenceAndNoOverwriteBootstrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	origClient := newClient
-	origGit := runGitInit
 	newClient = func(o Options) Caller { return &fakeClient{} }
-	runGitInit = func(configDir string) error { return os.Mkdir(filepath.Join(configDir, ".git"), 0o755) }
-	t.Cleanup(func() { newClient = origClient; runGitInit = origGit })
+	t.Cleanup(func() { newClient = origClient })
 	if _, err := run("--config-dir", cfg, "init", "--source", flagSource); err != nil {
 		t.Fatal(err)
 	}

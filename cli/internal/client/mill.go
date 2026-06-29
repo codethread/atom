@@ -26,10 +26,17 @@ type MillMetadata struct {
 }
 
 type MillRequest struct {
-	ProtocolVersion int    `json:"protocol_version"`
-	RequestID       string `json:"request_id"`
-	MillID          string `json:"mill_id"`
-	Operation       string `json:"operation"`
+	ProtocolVersion int              `json:"protocol_version"`
+	RequestID       string           `json:"request_id"`
+	MillID          string           `json:"mill_id"`
+	Operation       string           `json:"operation"`
+	World           MillWorldRequest `json:"world,omitempty"`
+}
+
+type MillWorldRequest struct {
+	CWD       string `json:"cwd,omitempty"`
+	ConfigDir string `json:"config_dir,omitempty"`
+	Source    string `json:"source,omitempty"`
 }
 
 type MillResponse struct {
@@ -40,13 +47,15 @@ type MillResponse struct {
 	Error           *ResponseError `json:"error"`
 }
 
-func MillStatus() (any, error) {
+func MillStatus() (any, error) { return MillCall("status", MillWorldRequest{}) }
+
+func MillCall(operation string, world MillWorldRequest) (any, error) {
 	meta, err := ReadMillMetadata()
 	if err != nil {
 		return nil, err
 	}
 	requestID := fmt.Sprintf("%d", time.Now().UnixNano())
-	req := MillRequest{ProtocolVersion: MillProtocolVersion, RequestID: requestID, MillID: meta.MillID, Operation: "status"}
+	req := MillRequest{ProtocolVersion: MillProtocolVersion, RequestID: requestID, MillID: meta.MillID, Operation: operation, World: world}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", meta.SocketPath)
@@ -78,13 +87,21 @@ func MillStatus() (any, error) {
 }
 
 func ReadMillMetadata() (MillMetadata, error) {
+	metadata, err := readMillMetadata()
+	if err != nil {
+		return MillMetadata{}, fmt.Errorf("%w; start one with: mill start", err)
+	}
+	return metadata, nil
+}
+
+func readMillMetadata() (MillMetadata, error) {
 	file, err := config.MillMetadataPath()
 	if err != nil {
 		return MillMetadata{}, err
 	}
 	b, err := os.ReadFile(file)
 	if os.IsNotExist(err) {
-		return MillMetadata{}, errors.New("no running mill; start one with: mill start")
+		return MillMetadata{}, errors.New("no running mill")
 	}
 	if err != nil {
 		return MillMetadata{}, err

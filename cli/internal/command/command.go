@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -34,9 +33,6 @@ func (e *ExitError) ExitCode() int { return e.Code }
 type Caller interface {
 	Call(string, map[string]any) (any, error)
 }
-
-const defaultInitCLJ = "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n"
-const defaultSkeinGitignore = "config.json\ninit.local.clj\nlibs.local.edn\nstate/\ndata/\nweaver.*\n*.sqlite\n*.sqlite-*\n"
 
 var newClient = func(o Options) Caller {
 	return client.New(client.Config{ConfigDir: o.ConfigDir, StateDir: o.StateDir})
@@ -110,7 +106,7 @@ func (a *App) rootCommand() *cobra.Command {
 	root.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		o.ConfigDirExplicit = cmd.Flags().Changed("config-dir")
 	}
-	initCmd := &cobra.Command{Use: "init", Short: "Bootstrap missing config-dir files; initialize strand storage via the running weaver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	initCmd := &cobra.Command{Use: "init", Short: "Bootstrap missing repo config files through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.initCommand(o)
 	}}
 	initCmd.Flags().StringVar(&o.Source, "source", "", "Skein source checkout for local config.json (defaults to SKEIN_SOURCE or valid Skein cwd)")
@@ -380,108 +376,19 @@ var runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Wr
 	return runProcess(o.Source, replArgs(o, stdin), in, out, errOut)
 }
 
-var runGitInit = func(configDir string) error {
-	cmd := exec.Command("git", "init")
-	cmd.Dir = configDir
-	if err := cmd.Run(); err != nil {
-		if exit, ok := err.(*exec.ExitError); ok {
-			return &ExitError{Code: exit.ExitCode(), Err: err}
-		}
-		return err
-	}
-	return nil
-}
+var millCall = client.MillCall
 
 func (a *App) initCommand(o Options) error {
-	if err := a.bootstrapConfigDir(o); err != nil {
-		return err
-	}
-	if err := a.withConfig(o, func(r Options) error {
-		return a.call(r, "init", map[string]any{})
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (a *App) bootstrapConfigDir(o Options) error {
-	world, err := config.InitWorld(o.ConfigDir)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(world.ConfigDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Join(world.ConfigDir, "libs"), 0o755); err != nil {
-		return err
-	}
-	if _, err := os.Stat(world.ConfigFile); os.IsNotExist(err) {
-		absSource, err := initSource(o.Source)
-		if err != nil {
-			return err
-		}
-		cfg := config.Config{ConfigFormat: "alpha", Source: absSource}
-		data, err := json.Marshal(cfg)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(world.ConfigFile, append(data, '\n'), 0o644); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-	if _, err := os.Stat(filepath.Join(world.ConfigDir, "libs.edn")); os.IsNotExist(err) {
-		if err := os.WriteFile(filepath.Join(world.ConfigDir, "libs.edn"), []byte("{:libs {}}\n"), 0o644); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-	if _, err := os.Stat(filepath.Join(world.ConfigDir, "init.clj")); os.IsNotExist(err) {
-		if err := os.WriteFile(filepath.Join(world.ConfigDir, "init.clj"), []byte(defaultInitCLJ), 0o644); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-	if _, err := os.Stat(filepath.Join(world.ConfigDir, ".gitignore")); os.IsNotExist(err) {
-		if err := os.WriteFile(filepath.Join(world.ConfigDir, ".gitignore"), []byte(defaultSkeinGitignore), 0o644); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-	if o.ConfigDirExplicit {
-		if _, err := os.Stat(filepath.Join(world.ConfigDir, ".git")); os.IsNotExist(err) {
-			if err := runGitInit(world.ConfigDir); err != nil {
-				return err
-			}
-		} else if err != nil {
-			return err
-		}
-	}
-	if _, _, err := config.Load(world.ConfigDir); err != nil {
-		return err
-	}
-	return nil
-}
-
-func initSource(flagSource string) (string, error) {
-	if flagSource != "" {
-		return config.ResolveSource(flagSource)
-	}
-	if env := os.Getenv("SKEIN_SOURCE"); env != "" {
-		return config.ResolveSource(env)
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return "", err
+		return err
 	}
-	if source, err := config.ResolveSource(cwd); err == nil {
-		return source, nil
+	source := o.Source
+	if source == "" {
+		source = os.Getenv("SKEIN_SOURCE")
 	}
-	return "", fmt.Errorf("could not resolve Skein source for config.json; run `strand init --source <skein-source>` or set SKEIN_SOURCE")
+	_, err = millCall("init", client.MillWorldRequest{CWD: cwd, ConfigDir: o.ConfigDir, Source: source})
+	return err
 }
 
 func incompleteDiscoveredWorldError(o Options) error {
