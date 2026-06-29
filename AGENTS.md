@@ -23,9 +23,7 @@ Common commands:
 
 ```sh
 go install ./cli/cmd/strand
-SKEIN_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/skein"
-mkdir -p "$SKEIN_CONFIG"
-printf '{"configFormat":"alpha","source":"%s"}\n' "$PWD" | jq . > "$SKEIN_CONFIG/config.json"
+strand init --source "$PWD"   # creates/completes repo-local .skein
 
 strand weaver start
 strand init
@@ -90,7 +88,7 @@ PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke
 
 The smoke demo builds a temporary `strand` CLI, creates disposable `--config-dir` worlds, starts disposable weaver runtimes, exercises CLI subprocess commands and `weaver repl --stdin`, exercises REPL helpers through a real weaver connection, then removes generated state, data, config, socket, metadata, and built CLI artifacts.
 
-Tests and smoke workflows must isolate weaver worlds with temporary config dirs. Do not start test weavers through the implicit default world.
+Tests and smoke workflows must isolate weaver worlds with temporary config dirs. Do not start test weavers through implicit repo discovery or any user-owned world.
 
 After validation, `git status --short` should not show generated SQLite or runtime metadata artifacts.
 

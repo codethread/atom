@@ -27,5 +27,5 @@ tasks:
   - id: 6
     description: Update docs and promote specs
     task_file: tasks/006-update-docs-and-promote-specs.md
-    status: pending
+    status: complete
     blocked_by: [5]

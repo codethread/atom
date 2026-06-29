@@ -16,7 +16,7 @@ Root specs are canonical for shipped behavior:
 ## Active features
 
 - `library-author-testing-support` — proposed library-author testing helpers and weaver storage support.
-- `repo-first-config` — proposed repo-local `.skein` world selection, layered shared/local config, and local library overrides.
+- `repo-first-config` — shipped repo-local `.skein` world selection, layered shared/local config, and local library overrides; ready for finish/archive when requested.
 
 ## Archived features
 

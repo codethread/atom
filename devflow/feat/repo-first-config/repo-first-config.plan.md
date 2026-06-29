@@ -131,3 +131,7 @@ Outcome: Clojure and Go tests cover repo discovery/init/layering/overrides, smok
 ### PLAN-RepoFirstConfig-001.DN9 Task 5 completed — 2026-06-29
 
 - Added a Go integration scenario for repo-first end-to-end behavior: `strand init --source` from a nested Git worktree creates the root `.skein`, no-flag `strand weaver start` from the subdirectory selects that world, and subsequent no-flag strand commands operate there. The same scenario writes `init.local.clj` before startup and verifies the local overlay registers a query visible through the CLI. Full Go, Clojure, and smoke validation passed with no generated runtime artifacts left in the worktree.
+
+### PLAN-RepoFirstConfig-001.DN10 Task 6 completed — 2026-06-29
+
+- Promoted repo-first config deltas into root CLI, weaver runtime, and REPL specs; marked feature-local deltas merged. Updated README, getting started, user reference, AGENTS, and devflow status to describe repo-local `.skein` as the ordinary path, with explicit `--config-dir` for disposable worlds and personal `init.local.clj`/`libs.local.edn` overlays for workflow libraries.

@@ -46,15 +46,35 @@ go install ./cli/cmd/strand
 
 ## Choosing a world
 
-By default `strand` reads and writes your standard config, data, and state
-world. The rest of this guide assumes that default world.
+By default `strand` is repo-first: without `--config-dir`, it searches upward
+from the current directory for the nearest `.skein` directory and uses that as
+the selected world. Runtime state lives in `.skein/state`, data in
+`.skein/data`, and local source config in `.skein/config.json`. If no `.skein`
+is found, non-init commands fail with remediation instead of falling back to a
+global personal world.
 
-To work in a separate, disposable world instead (recommended for learning and
-agent work), create one and target it with `--config-dir`:
+Initialize a repo world from the Skein checkout:
+
+```sh
+strand init --source "$PWD"
+```
+
+In another repo, pass the checkout path explicitly or set `SKEIN_SOURCE`:
+
+```sh
+strand init --source /path/to/skein-src
+# or
+SKEIN_SOURCE=/path/to/skein-src strand init
+```
+
+`strand init` without `--config-dir` creates or completes `.skein` at the Git
+root, or in cwd outside Git. To work in a separate, disposable world instead
+(recommended for tests and isolated agent work), create one and target it with
+`--config-dir`:
 
 ```sh
 world=$(mktemp -d)
-printf '{"configFormat":"alpha","source":"%s"}\n' "$PWD" | jq . > "$world/config.json"
+strand --config-dir "$world" init --source "$PWD"
 ```
 
 `--config-dir` is not sticky: pass the same path on **every** command that should
@@ -211,7 +231,24 @@ strand ready --query mine
 
 ## Startup config and runtime helpers
 
-Fresh `strand init` creates missing workspace files without overwriting existing files: `config.json` if absent, `libs/`, `libs.edn`, `init.clj`, and `.git` if absent. It then asks the running weaver to initialize storage. The generated `init.clj` is a small resilient bootstrap:
+Fresh `strand init` creates missing workspace files without overwriting existing files. For repo worlds, the usual layout is:
+
+```text
+.skein/
+  .gitignore       # commit: ignore local/runtime artifacts
+  init.clj         # commit: shared trusted startup config
+  libs.edn         # commit: shared approved local-root libraries
+  config.json      # gitignored: local Skein source checkout path
+  init.local.clj   # gitignored: personal startup overlay
+  libs.local.edn   # gitignored: personal approved-library overlay
+  state/           # gitignored: weaver metadata/socket
+  data/            # gitignored: SQLite data
+```
+
+Generated `.skein/.gitignore` ignores `config.json`, `init.local.clj`,
+`libs.local.edn`, `state/`, `data/`, `weaver.*`, and SQLite/runtime artifacts.
+`init.clj` and `libs.edn` are suitable to commit when the repo wants shared
+Skein behavior. The generated `init.clj` is a small resilient bootstrap:
 
 ```clojure
 (require '[skein.libs.alpha :as libs])
@@ -219,9 +256,36 @@ Fresh `strand init` creates missing workspace files without overwriting existing
 (libs/sync!)
 ```
 
-Create your own config or library files when you need runtime behavior. `init.clj` is the place to load approved libraries, register queries, register weave patterns, register views, register event handlers, or call your own install functions.
+Create your own config or library files when you need runtime behavior.
+`init.clj` is the place for shared repo behavior: load approved libraries,
+register queries, register weave patterns, register views, register event
+handlers, or call your own install functions. `init.local.clj` is loaded after
+`init.clj` for personal machine-specific behavior.
 
-Built-in `skein.graph.alpha`, `skein.patterns.alpha`, `skein.views.alpha`, `skein.events.alpha`, and `skein.batch.alpha` come from the configured Skein checkout. User/community libraries are approved separately in `libs.edn` and synced through `skein.libs.alpha`. Require `skein.batch.alpha` explicitly when you want `(batch/apply! payload)` for transactional graph mutations.
+Built-in `skein.graph.alpha`, `skein.patterns.alpha`, `skein.views.alpha`, `skein.events.alpha`, and `skein.batch.alpha` come from the configured Skein checkout. User/community libraries are approved separately in `libs.edn` and `libs.local.edn` and synced through `skein.libs.alpha`. `libs.local.edn` overlays `libs.edn` by coordinate, so a personal workflow library or fork can replace a shared entry without changing committed config:
+
+```clojure
+;; .skein/libs.edn, committed
+{:libs {team/workflows {:local/root "libs/team-workflows"}}}
+```
+
+```clojure
+;; .skein/libs.local.edn, gitignored
+{:libs {team/workflows {:local/root "~/dev/workflows/team-workflows"}
+        personal/ops   {:local/root "~/dev/workflows/personal-ops"}}}
+```
+
+```clojure
+;; .skein/init.local.clj, gitignored
+(require '[skein.libs.alpha :as libs])
+(libs/sync!)
+(libs/use! :personal/ops
+  {:ns 'personal.ops.alpha
+   :libs #{'personal/ops}
+   :call 'personal.ops.alpha/install!})
+```
+
+Require `skein.batch.alpha` explicitly when you want `(batch/apply! payload)` for transactional graph mutations. Package management, source fetching, and install commands are outside this MVP; local roots must already exist.
 
 Example pattern and view setup in your own startup-loaded library:
 
@@ -437,7 +501,7 @@ Hot-reload the selected config-dir `init.clj` from a connected REPL:
 (libs/reload!)
 ```
 
-Reload clears weaver-lifetime library sync state, module-use state, named queries, views, patterns, event handlers, queued events, and recent event failures, then re-runs `init.clj`.
+Reload clears weaver-lifetime library sync state, module-use state, named queries, views, patterns, event handlers, queued events, and recent event failures, then re-runs `init.clj` followed by `init.local.clj`.
 
 Use the connected stdin REPL for scripts:
 

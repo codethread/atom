@@ -3,7 +3,7 @@
 **Document ID:** `DELTA-DaemonRuntime-001`
 **Root spec:** [daemon-runtime.md](../../../specs/daemon-runtime.md)
 **Feature:** [../proposal.md](../proposal.md)
-**Status:** Draft
+**Status:** Merged
 **Last Updated:** 2026-06-29
 
 ## DELTA-DaemonRuntime-001.P1 Summary

@@ -3,7 +3,7 @@
 **Document ID:** `DELTA-ReplApi-001`
 **Root spec:** [repl-api.md](../../../specs/repl-api.md)
 **Feature:** [../proposal.md](../proposal.md)
-**Status:** Draft
+**Status:** Merged
 **Last Updated:** 2026-06-29
 
 ## DELTA-ReplApi-001.P1 Summary

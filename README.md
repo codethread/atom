@@ -11,14 +11,14 @@ Use it to:
 
 ## Quick start
 
-Install the `strand` command from this checkout and point your default Skein world at it:
+Install the `strand` command from this checkout, then initialize a repo-local `.skein` world in the repository you want to work in:
 
 ```sh
 go install ./cli/cmd/strand
-SKEIN_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/skein"
-mkdir -p "$SKEIN_CONFIG"
-printf '{"configFormat":"alpha","source":"%s"}\n' "$PWD" | jq . > "$SKEIN_CONFIG/config.json"
+strand init --source "$PWD"
 ```
+
+Without `--config-dir`, `strand` searches upward from the current directory for the nearest `.skein`. Outside a repo-local world, non-init commands fail loudly instead of using a global default.
 
 Start the weaver in one terminal:
 
@@ -86,7 +86,7 @@ Skein stores:
 
 Named queries, weave patterns, weaver-memory views, and runtime libraries are loaded into the selected Skein world, then consumed by helpers or by small CLI commands such as `list --query <name>` and `weave --pattern <name>`.
 
-Fresh `strand init` startup config creates a small resilient `init.clj` that syncs approved libraries. Add shared config to `init.clj` and personal overrides to `init.local.clj` when you need runtime queries, views, or workflow helpers.
+Fresh `strand init` creates `.skein/init.clj`, `.skein/libs.edn`, and `.skein/.gitignore` for shared repo config. It also writes local `.skein/config.json` when it can resolve the Skein source from `--source`, `SKEIN_SOURCE`, or the current Skein checkout. Keep shared workflow config in committed `init.clj`/`libs.edn`; keep personal workflow libraries in gitignored `init.local.clj`/`libs.local.edn`.
 
 Use `strand weaver repl` for trusted interactive work and `(skein.libs.alpha/reload!)` to hot-reload `init.clj` followed by `init.local.clj`.
 

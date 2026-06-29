@@ -17,10 +17,12 @@ This guide is written for Skein users and for agents working inside a user's Ske
 Skein is daemon-core-first. You start a weaver for a selected world, then clients talk to that weaver.
 
 ```text
-selected config-dir
-  config.json      -> points to the Skein source checkout
-  init.clj         -> trusted startup code loaded by the weaver
-  libs.edn         -> approved local library roots
+selected config-dir (normally repo .skein)
+  config.json      -> local, gitignored Skein source checkout path
+  init.clj         -> shared trusted startup code loaded by the weaver
+  init.local.clj   -> personal startup overlay loaded after init.clj
+  libs.edn         -> shared approved local library roots
+  libs.local.edn   -> personal approved-library overlay
   libs/            -> optional local libraries
 
 running weaver
@@ -40,13 +42,15 @@ Different config dirs are different worlds. Use `--config-dir <dir>` when you wa
 
 ## Worlds and config dirs
 
-The default world lives under your user config directory:
+The ordinary world is repo-local. Without `--config-dir`, `strand` searches upward from cwd for the nearest `.skein` directory and uses it as the selected config-dir. If none is found, non-init commands fail loudly. `strand init` creates or completes `.skein` at the Git root, or cwd outside Git:
 
 ```sh
-${XDG_CONFIG_HOME:-$HOME/.config}/skein
+strand init --source /path/to/skein-src
+# or
+SKEIN_SOURCE=/path/to/skein-src strand init
 ```
 
-A world is selected explicitly with:
+A world can also be selected explicitly with:
 
 ```sh
 strand --config-dir /path/to/world ...
@@ -71,10 +75,12 @@ The important file is `config.json`:
 
 ## Agent guidance files
 
-From a Skein source checkout, `make bootstrap` is a convenience setup path for the default user config dir (`${XDG_CONFIG_HOME:-$HOME/.config}/skein`, or `SKEIN_CONFIG=...` if passed to make). It:
+From a Skein source checkout, `strand init --source "$PWD"` is the normal repo bootstrap path. It creates or completes the repo `.skein` world, writes local `config.json` when source resolution succeeds, and leaves shared config files ready to commit.
+
+`make bootstrap` remains a convenience setup path for explicit make-driven config targets (`SKEIN_CONFIG=...` if passed to make). It:
 
 - runs `go install ./cli/cmd/strand`;
-- creates the config dir;
+- creates the configured directory;
 - writes `config.json` pointing `source` at the current checkout;
 - creates `AGENTS.md` only if absent;
 - creates `CLAUDE.md` as a symlink to `AGENTS.md` only if absent.
@@ -307,15 +313,15 @@ The REPL helper namespace includes common strand functions, but library-workspac
 
 `strand init` bootstraps missing workspace files in the selected config-dir without overwriting existing files, then asks the running weaver to initialize storage. If no weaver is running, the local file bootstrap may still remain even though the command fails to complete storage initialization.
 
-It creates or ensures:
+For the ordinary repo-local `.skein` world, it creates or ensures:
 
-- `config.json` only if absent;
-- `libs/` directory;
-- `libs.edn` only if absent, with `{:libs {}}`;
-- `init.clj` only if absent, with the default below;
-- a Git repository via `git init` only if `.git` is absent.
+- `.skein/config.json` only if absent and source resolution succeeds;
+- `.skein/libs/` directory;
+- `.skein/libs.edn` only if absent, with `{:libs {}}`;
+- `.skein/init.clj` only if absent, with the default below;
+- `.skein/.gitignore` only if absent, ignoring local/runtime files such as `config.json`, `init.local.clj`, `libs.local.edn`, `state/`, and `data/`.
 
-Existing `config.json`, `libs.edn`, `init.clj`, and `.git` are preserved.
+Explicit `--config-dir` standalone worlds preserve the older self-contained workspace behavior, including `git init` when `.git` is absent. Existing `config.json`, `libs.edn`, `init.clj`, `.gitignore`, and `.git` are preserved.
 
 The generated `init.clj` is intentionally small:
 
@@ -326,7 +332,7 @@ The generated `init.clj` is intentionally small:
 (libs/sync!)
 ```
 
-The weaver loads `init.clj` at startup when present. Use startup-loaded code to register queries, weave patterns, load approved libraries, register views, and install conventions for your world. Simple worlds can put registrations directly in `init.clj`; reusable or larger worlds should keep `init.clj` minimal and install behavior from a local library.
+The weaver loads startup files in order: `init.clj`, then `init.local.clj`. Missing files are skipped; present failing files fail loudly with file context. Use startup-loaded code to register queries, weave patterns, load approved libraries, register views, and install conventions for your world. Simple worlds can put shared registrations directly in `init.clj` and personal overlays in gitignored `init.local.clj`; reusable or larger worlds should keep `init.clj` minimal and install behavior from a local library.
 
 A direct `init.clj` query registration can look like this:
 
@@ -345,7 +351,7 @@ Use reload during development:
 (libs/reload!)
 ```
 
-Reload clears weaver-lifetime library sync state, module-use state, named queries, weave patterns, views, event handlers, queued events, and recent event failures, then reloads `init.clj`.
+Reload clears weaver-lifetime library sync state, module-use state, named queries, weave patterns, views, lifecycle hooks, event handlers, queued events, and recent event failures, then reloads `init.clj` followed by `init.local.clj`. Missing files are skipped; present failures fail loudly.
 
 ## Authoring your own library code
 
@@ -540,20 +546,18 @@ This is by design: the system is flexible because attributes and user code are o
 
 ## Practical bootstrap
 
-Install from a checkout and create a default world:
+Install from a checkout and create a repo-local world:
 
 ```sh
 go install ./cli/cmd/strand
-SKEIN_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/skein"
-mkdir -p "$SKEIN_CONFIG"
-printf '{"configFormat":"alpha","source":"%s"}\n' "$PWD" | jq . > "$SKEIN_CONFIG/config.json"
+strand init --source "$PWD"
 ```
 
 For experiments, use a disposable world:
 
 ```sh
 world=$(mktemp -d)
-printf '{"configFormat":"alpha","source":"%s"}\n' "$PWD" | jq . > "$world/config.json"
+strand --config-dir "$world" init --source "$PWD"
 strand --config-dir "$world" weaver start
 ```
 
