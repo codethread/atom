@@ -104,6 +104,10 @@
   (swap! hook-contexts conj ctx)
   :ok)
 
+(defn rejecting-hook [ctx]
+  (swap! hook-contexts conj ctx)
+  (throw (ex-info "mutation rejected" {:code "policy/rejected" :ctx ctx})))
+
 (defn parse-story-points-hook [ctx]
   (swap! hook-contexts conj ctx)
   (let [attrs (:hook/value ctx)
@@ -649,6 +653,119 @@
         (Thread/sleep 100)
         (is (= {:a "b"} (:attributes (api/show rt (:id strand)))))
         (is (empty? @delivered-events))))))
+
+(deftest strand-pre-commit-hooks-gate-add-update-and-burn
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! hook-contexts [])
+      (reset! delivered-events [])
+      (api/register-event-handler! rt :capture #{:strand/added :strand/updated :strand/burned} 'skein.weaver-test/capture-event {})
+      (api/register-hook! rt :capture-add #{:strand/add-before-commit} 'skein.weaver-test/capture-hook {})
+      (let [created (api/add rt {:title "Hooked" :attributes {:owner "agent"}})
+            add-event (first (wait-for-events 1))
+            add-context (first @hook-contexts)]
+        (is (= :strand/add-before-commit (:hook/type add-context)))
+        (is (= :weaver-api (:request/source add-context)))
+        (is (= :add (:request/operation add-context)))
+        (is (= :strand/add (:mutation/operation add-context)))
+        (is (nil? (:strand/before add-context)))
+        (is (= created (:strand/after add-context)))
+        (is (= {:owner "agent"} (get-in add-context [:strand/after :attributes])))
+        (is (= :strand/added (:event/type add-event)))
+        (is (= created (:strand add-event)))
+        (api/register-hook! rt :reject-add #{:strand/add-before-commit} 'skein.weaver-test/rejecting-hook {})
+        (try
+          (api/add rt {:title "Rejected" :attributes {:owner "blocked"}})
+          (is false "expected add hook rejection")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= "hook/failed" (:code (ex-data e))))
+            (is (= :strand/add-before-commit (:hook/type (ex-data e))))
+            (is (= :reject-add (:hook/key (ex-data e))))
+            (is (= 'skein.weaver-test/rejecting-hook (:hook/fn (ex-data e))))
+            (is (= "policy/rejected" (:hook/cause-code (ex-data e))))))
+        (Thread/sleep 100)
+        (is (nil? (some #(when (= "Rejected" (:title %)) %) (api/list rt))))
+        (is (= 1 (count @delivered-events)))
+        (api/unregister-hook! rt :reject-add)
+        (reset! hook-contexts [])
+        (reset! delivered-events [])
+        (let [target (api/add rt {:title "Target"})]
+          (wait-for-events 1)
+          (reset! hook-contexts [])
+          (reset! delivered-events [])
+          (api/register-hook! rt :capture-update #{:strand/update-before-commit} 'skein.weaver-test/capture-hook {})
+          (let [patch {:title "Updated"
+                       :state "closed"
+                       :attributes {:phase "done"}
+                       :edges [{:type "depends-on" :to (:id target)}]}
+                updated (api/update rt (:id created) patch)
+                update-event (first (wait-for-events 1))
+                update-context (first @hook-contexts)]
+            (is (= :strand/update-before-commit (:hook/type update-context)))
+            (is (= :update (:request/operation update-context)))
+            (is (= :strand/update (:mutation/operation update-context)))
+            (is (= (:id created) (:strand/id update-context)))
+            (is (= patch (:strand/patch update-context)))
+            (is (= created (:strand/before update-context)))
+            (is (= updated (:strand/after update-context)))
+            (is (= [{:type "depends-on" :to (:id target)}]
+                   (:strand/edge-ops update-context)))
+            (is (= :strand/updated (:event/type update-event)))
+            (is (= updated (:strand/after update-event)))
+            (api/register-hook! rt :reject-update #{:strand/update-before-commit} 'skein.weaver-test/rejecting-hook {})
+            (try
+              (api/update rt (:id created) {:title "Rejected update"
+                                            :attributes {:phase "blocked"}
+                                            :edges [{:type "parent-of" :to (:id target)}]})
+              (is false "expected update hook rejection")
+              (catch clojure.lang.ExceptionInfo e
+                (is (= "hook/failed" (:code (ex-data e))))
+                (is (= :strand/update-before-commit (:hook/type (ex-data e))))
+                (is (= :reject-update (:hook/key (ex-data e))))
+                (is (= "policy/rejected" (:hook/cause-code (ex-data e))))))
+            (Thread/sleep 100)
+            (is (= updated (api/show rt (:id created))))
+            (is (empty? (db/execute! (:datasource rt)
+                                     ["SELECT 1 FROM strand_edges WHERE from_strand_id = ? AND to_strand_id = ? AND edge_type = 'parent-of'"
+                                      (:id created) (:id target)])))
+            (is (= 1 (count @delivered-events)))
+            (api/unregister-hook! rt :reject-update)))
+        (reset! hook-contexts [])
+        (reset! delivered-events [])
+        (api/register-hook! rt :capture-burn #{:strand/burn-before-commit} 'skein.weaver-test/capture-hook {})
+        (let [requested [(:id created) (:id created)]
+              burn-result (api/burn-by-ids rt requested)
+              burn-event (first (wait-for-events 1))
+              burn-context (first @hook-contexts)]
+          (is (= {:burned [(:id created)] :count 1} burn-result))
+          (is (= :strand/burn-before-commit (:hook/type burn-context)))
+          (is (= :burn (:request/operation burn-context)))
+          (is (= :strand/burn (:mutation/operation burn-context)))
+          (is (= requested (:strand/requested-ids burn-context)))
+          (is (= (:strand/before burn-event) (:strand/before burn-context)))
+          (is (= :strand/burned (:event/type burn-event))))
+        (let [burn-target (api/add rt {:title "Burn reject"})
+              edge-target (api/add rt {:title "Burn edge target"})]
+          (api/update rt (:id burn-target) {:edges [{:type "depends-on" :to (:id edge-target)}]})
+          (Thread/sleep 100)
+          (reset! delivered-events [])
+          (api/register-hook! rt :reject-burn #{:strand/burn-before-commit} 'skein.weaver-test/rejecting-hook {})
+          (try
+            (api/burn-by-ids rt [(:id burn-target)])
+            (is false "expected burn hook rejection")
+            (catch clojure.lang.ExceptionInfo e
+              (is (= "hook/failed" (:code (ex-data e))))
+              (is (= :strand/burn-before-commit (:hook/type (ex-data e))))
+              (is (= :reject-burn (:hook/key (ex-data e))))
+              (is (= "policy/rejected" (:hook/cause-code (ex-data e))))))
+          (Thread/sleep 100)
+          (is (= burn-target (api/show rt (:id burn-target))))
+          (is (= [{:found 1}]
+                 (db/execute! (:datasource rt)
+                              ["SELECT 1 AS found FROM strand_edges WHERE from_strand_id = ? AND to_strand_id = ? AND edge_type = 'depends-on'"
+                               (:id burn-target) (:id edge-target)])))
+          (is (empty? @delivered-events)))))))
 
 (deftest weaver-query-registry-add-load-list-and-resolve
   (with-runtime

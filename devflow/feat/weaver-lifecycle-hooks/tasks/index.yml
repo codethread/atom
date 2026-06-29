@@ -12,7 +12,7 @@ tasks:
   - id: 3
     description: Gate simple strand mutations
     task_file: tasks/003-gate-simple-strand-mutations.md
-    status: pending
+    status: complete
     blocked_by: [2]
   - id: 4
     description: Gate supersession transaction

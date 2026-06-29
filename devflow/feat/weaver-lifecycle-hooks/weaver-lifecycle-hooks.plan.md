@@ -109,3 +109,9 @@ Append notes here. Do not rewrite earlier notes.
 - Added deterministic synchronous hook runners in `skein.weaver.api` and integrated `:attributes/normalize` for simple add/update attribute patches only.
 - Transform failures and thrown hook policy errors are wrapped as `hook/failed`; normalized attributes are rechecked through existing JSON attribute encoding before storage.
 - Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
+
+### WLH-PLAN-001.DN4 Task 3 implementation — 2026-06-29
+
+- Gated `api/add`, `api/update`, and `api/burn-by-ids` with validation-only pre-commit lifecycle hooks inside mutation transactions before event enqueue.
+- Update hook context includes edge operation candidates requested by update patches; hook rejection rolls back strand and edge writes and leaves post-commit event queues untouched.
+- Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.

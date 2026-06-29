@@ -522,16 +522,25 @@
 (defn add
   "Create a strand, enqueue a creation event, and return the normalized strand."
   [runtime strand]
-  (let [strand (if (some? (:attributes strand))
-                 (assoc strand :attributes (run-transform-hooks runtime
-                                                                 :attributes/normalize
-                                                                 {:hook/value (:attributes strand)
-                                                                  :request/source :weaver-api
-                                                                  :request/operation :add
-                                                                  :mutation/operation :strand/add
-                                                                  :strand/patch strand}))
-                 strand)
-        created (normalize (db/add-strand! (ds runtime) strand))]
+  (let [created (jdbc/with-transaction [tx (ds runtime)]
+                  (let [strand (if (some? (:attributes strand))
+                                 (assoc strand :attributes (run-transform-hooks runtime
+                                                                                 :attributes/normalize
+                                                                                 {:hook/value (:attributes strand)
+                                                                                  :request/source :weaver-api
+                                                                                  :request/operation :add
+                                                                                  :mutation/operation :strand/add
+                                                                                  :strand/patch strand}))
+                                 strand)
+                        created (normalize (db/add-strand! tx strand))]
+                    (run-validation-hooks! runtime
+                                           :strand/add-before-commit
+                                           {:request/source :weaver-api
+                                            :request/operation :add
+                                            :mutation/operation :strand/add
+                                            :strand/before nil
+                                            :strand/after created})
+                    created))]
     (enqueue-event! runtime (assoc (event-base :strand/added)
                                    :strand/id (:id created)
                                    :strand created))
@@ -616,6 +625,16 @@
                                                                      (contains? patch :title) (assoc :title title)
                                                                      (contains? patch :state) (assoc :state state)
                                                                      (contains? patch :attributes) (assoc :attributes attributes))))]
+                     (run-validation-hooks! runtime
+                                            :strand/update-before-commit
+                                            {:request/source :weaver-api
+                                             :request/operation :update
+                                             :mutation/operation :strand/update
+                                             :strand/id id
+                                             :strand/patch patch
+                                             :strand/before before
+                                             :strand/after after
+                                             :strand/edge-ops (vec edges)})
                      {:before before :after after :patch patch})))]
     (enqueue-event! runtime (assoc (event-base :strand/updated)
                                    :strand/id id
@@ -658,8 +677,16 @@
   [runtime ids]
   (let [requested-ids (vec ids)
         {:keys [before result]} (jdbc/with-transaction [tx (ds runtime)]
-                                  {:before (normalize (db/strands-by-ids tx requested-ids))
-                                   :result (db/burn-by-ids! tx requested-ids)})]
+                                  (let [before (normalize (db/strands-by-ids tx requested-ids))]
+                                    (run-validation-hooks! runtime
+                                                           :strand/burn-before-commit
+                                                           {:request/source :weaver-api
+                                                            :request/operation :burn
+                                                            :mutation/operation :strand/burn
+                                                            :strand/requested-ids requested-ids
+                                                            :strand/before before})
+                                    {:before before
+                                     :result (db/burn-by-ids! tx requested-ids)}))]
     (enqueue-event! runtime (assoc (event-base :strand/burned)
                                    :strand/requested-ids requested-ids
                                    :strand/burned-ids (:burned result)
