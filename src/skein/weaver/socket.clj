@@ -1,4 +1,5 @@
 (ns skein.weaver.socket
+  "Serve the weaver JSON protocol over a Unix-domain socket."
   (:require [clojure.data.json :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -9,10 +10,11 @@
            [java.nio.channels Channels ClosedChannelException ServerSocketChannel]
            [org.sqlite SQLiteException]))
 
-(def allowed-operations
+(def ^:private allowed-operations
   #{"init" "add" "update" "supersede" "show" "burn" "list" "ready" "list-query" "ready-query" "weave" "pattern-explain" "op" "status" "stop"})
 
-(def required-request-keys #{"protocol_version" "request_id" "weaver_id" "operation" "arguments" "options"})
+(def ^:private required-request-keys
+  #{"protocol_version" "request_id" "weaver_id" "operation" "arguments" "options"})
 
 (defn- protocol-error [request-id code message details]
   {"protocol_version" 1 "request_id" request-id "ok" false "result" nil
@@ -43,9 +45,13 @@
 (def ^:private generic-states #{"active" "closed"})
 (defn- valid-edge? [edge]
   (and (map? edge)
-       (= #{"type" "to"} (set (keys edge)))
+       (every? #{"type" "to" "attributes"} (keys edge))
+       (contains? edge "type")
+       (contains? edge "to")
        (string? (get edge "type"))
-       (string? (get edge "to"))))
+       (string? (get edge "to"))
+       (or (not (contains? edge "attributes"))
+           (map? (get edge "attributes")))))
 
 (defn- argument-error [req]
   (let [op (get req "operation")
@@ -69,8 +75,8 @@
                       (string? (get args "id"))
                       (or (not (contains? args "title")) (nil? (get args "title")) (string? (get args "title")))
                       (or (not (contains? args "state")) (nil? (get args "state")) (contains? generic-states (get args "state")))
-                      (or (not (contains? args "attributes")) (nil? (get args "attributes") ) (map? (get args "attributes")))
-                      (or (not (contains? args "edges")) (and (vector? (get args "edges")) (every? valid-edge? (get args "edges"))) ))
+                      (or (not (contains? args "attributes")) (nil? (get args "attributes")) (map? (get args "attributes")))
+                      (or (not (contains? args "edges")) (and (vector? (get args "edges")) (every? valid-edge? (get args "edges")))))
         "show" (and (= #{"id"} (set (keys args))) (string? (get args "id")))
         "supersede" (and (= #{"old_id" "replacement_id"} (set (keys args)))
                           (string? (get args "old_id"))
@@ -169,8 +175,10 @@
     "update" ((api 'update) runtime (get args "id")
               (cond-> {}
                 (contains? args "edges") (assoc :edges (mapv (fn [edge]
-                                                                {:type (get edge "type")
-                                                                 :to (get edge "to")})
+                                                                (cond-> {:type (get edge "type")
+                                                                         :to (get edge "to")}
+                                                                  (contains? edge "attributes")
+                                                                  (assoc :attributes (get edge "attributes"))))
                                                               (get args "edges")))
                 (some? (get args "title")) (assoc :title (get args "title"))
                 (some? (get args "state")) (assoc :state (get args "state"))
@@ -190,7 +198,12 @@
     "status" (status-result runtime)
     "stop" {"stopping" true "pid" (get-in runtime [:metadata :pid]) "weaver_id" (get-in runtime [:metadata :nonce])}))
 
-(defn handle-request [runtime line]
+(defn handle-request
+  "Handle one newline-delimited JSON protocol request.
+
+  Returns `[response stop?]`, where `stop?` asks the socket loop to stop the
+  runtime after the response is flushed."
+  [runtime line]
   (try
     (let [req (json/read-str line)
           request-id (get req "request_id")]
@@ -209,7 +222,9 @@
     (catch Exception _
       [(protocol-error nil "protocol/malformed-json" "Request must be one JSON object followed by newline" {}) false])))
 
-(defn start! [runtime-state socket-path stop-fn]
+(defn start!
+  "Start the JSON socket server for `runtime-state` at `socket-path`."
+  [runtime-state socket-path stop-fn]
   (let [file (io/file socket-path)
         _ (.mkdirs (.getParentFile file))
         _ (.delete file)
@@ -245,7 +260,9 @@
         (.delete file)
         (throw t)))))
 
-(defn stop! [socket-runtime]
+(defn stop!
+  "Stop a JSON socket server runtime and remove its socket file."
+  [socket-runtime]
   (when socket-runtime
     (reset! (:running? socket-runtime) false)
     (.close (:server socket-runtime))

@@ -8,7 +8,6 @@
             [skein.weaver.config :as weaver-config]
             [skein.weaver.metadata :as metadata]
             [skein.weaver.runtime :as runtime]
-            [skein.weaver.socket :as socket]
             [skein.db :as db]
             [skein.db-test :as db-test])
   (:import [java.io BufferedReader BufferedWriter InputStreamReader OutputStreamWriter]
@@ -525,9 +524,13 @@
                                                    [:edge/in "depends-on" [:= :state "active"]]])))
         (is (= {"blocked" edge-query} (api/queries rt)))))))
 
-(deftest json-socket-public-operation-allowlist-stays-thin
-  (is (= #{"init" "add" "update" "supersede" "show" "burn" "list" "ready" "list-query" "ready-query" "weave" "pattern-explain" "op" "status" "stop"}
-         socket/allowed-operations)))
+(deftest json-socket-operation-surface-stays-thin
+  (with-runtime
+    (fn [rt _]
+      (let [status (socket-request rt "status" {})
+            rejected (socket-request rt "queries" {})]
+        (is (true? (get status "ok")))
+        (is (= "protocol/operation-not-allowed" (get-in rejected ["error" "code"])))))))
 
 (deftest weaver-runtime-transformation-primitives
   (with-runtime
@@ -818,6 +821,7 @@
         (is (= (:socket-path status) (get json-disk "socket_path")))
         (is (= "127.0.0.1" (get-in json-disk ["nrepl" "host"])))
         (is (false? (metadata/stale-or-missing? status)))
+        (is (false? (metadata/stale-or-missing? (assoc status :pid (long (:pid status))))))
         (is (= "127.0.0.1" (get-in status [:endpoint :host])))
         (is (.isLoopbackAddress (.getInetAddress (:server-socket (:server rt)))))))))
 
@@ -839,12 +843,16 @@
                                                   "state" nil
                                                   "attributes" nil
                                                   "edges" [{"type" "depends-on"
-                                                            "to" (get-in target ["result" "id"])}]})]
+                                                            "to" (get-in target ["result" "id"])
+                                                            "attributes" {"reason" "socket"}}]})]
         (is (true? (get updated "ok")))
-        (is (= [{:to_strand_id (get-in target ["result" "id"]) :edge_type "depends-on"}]
-               (db/execute! (:datasource rt)
-                            ["SELECT to_strand_id, edge_type FROM strand_edges WHERE from_strand_id = ?"
-                             (get-in source ["result" "id"])]))))
+        (is (= [{:to_strand_id (get-in target ["result" "id"])
+                 :edge_type "depends-on"
+                 :attributes {:reason "socket"}}]
+               (mapv #(update % :attributes db/<-json)
+                     (db/execute! (:datasource rt)
+                                  ["SELECT to_strand_id, edge_type, attributes FROM strand_edges WHERE from_strand_id = ?"
+                                   (get-in source ["result" "id"])])))))
       (let [missing (socket-request rt "update" {"id" "missing" "title" nil "state" nil "attributes" nil "edges" []})]
         (is (false? (get missing "ok")))
         (is (= "domain" (get-in missing ["error" "type"]))))
