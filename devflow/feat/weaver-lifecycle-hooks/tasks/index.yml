@@ -27,7 +27,7 @@ tasks:
   - id: 6
     description: Gate pattern weave batches
     task_file: tasks/006-gate-pattern-weave-batches.md
-    status: pending
+    status: complete
     blocked_by: [5]
   - id: 7
     description: Add socket payload hooks

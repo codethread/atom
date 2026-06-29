@@ -162,6 +162,11 @@
       :attributes {:kind "review"}
       :edges [{:type "depends-on" :to 'impl}]}]))
 
+(defn points-pattern [{:keys [input]}]
+  [{:ref 'impl
+    :title (:title input)
+    :attributes {"storyPoints" "8"}}])
+
 (defn bad-edge-pattern [_]
   [{:title "Should roll back"
     :edges [{:type "depends-on" :to "missing"}]}])
@@ -1106,23 +1111,86 @@
                (db/execute! (:datasource rt)
                             ["SELECT from_strand_id, to_strand_id, edge_type FROM strand_edges"])))))))
 
+(deftest weaver-weave-runs-create-only-batch-hooks-once-and-normalizes-attributes
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! hook-contexts [])
+      (api/register-pattern! rt 'dev-task 'skein.weaver-test/test-pattern ::pattern-input)
+      (api/register-pattern! rt 'points 'skein.weaver-test/points-pattern ::pattern-input)
+      (api/register-hook! rt :parse #{:attributes/normalize} 'skein.weaver-test/parse-story-points-hook {})
+      (api/register-hook! rt :capture-batch #{:batch/apply-before-commit} 'skein.weaver-test/capture-hook {})
+      (let [points-result (api/weave! rt :points {:title "Pointed"})]
+        (is (= {:storyPoints 8} (get-in points-result [:created 0 :attributes])))
+        (is (= {:storyPoints 8}
+               (:attributes (some #(when (= "Pointed" (:title %)) %) (api/list rt))))))
+      (reset! hook-contexts [])
+      (let [result (api/weave! rt :dev-task {:title "Hooked weave"})
+            [impl review] (:created result)
+            contexts @hook-contexts
+            normalize-contexts (filter #(= :attributes/normalize (:hook/type %)) contexts)
+            batch-contexts (filter #(= :batch/apply-before-commit (:hook/type %)) contexts)
+            batch-context (first batch-contexts)]
+        (is (= 2 (count normalize-contexts)))
+        (is (= 1 (count batch-contexts)))
+        (is (= {:kind "implementation"} (:attributes impl)))
+        (is (= {:kind "review"} (:attributes review)))
+        (is (= :weave (:request/operation batch-context)))
+        (is (= :batch/apply (:mutation/operation batch-context)))
+        (is (= :weave (:batch/source batch-context)))
+        (is (= "dev-task" (:pattern/name batch-context)))
+        (is (= {:title "Hooked weave"} (:pattern/input batch-context)))
+        (is (= #{:refs :strands :edges :burn} (set (keys (:batch/payload batch-context)))))
+        (is (= #{{:kind "implementation"} {:kind "review"}}
+               (set (map :attributes (get-in batch-context [:batch/payload :strands])))))
+        (is (every? #(not (contains? % :edges)) (get-in batch-context [:batch/payload :strands])))
+        (is (= [{:op :upsert :from "review" :to "impl" :type "depends-on"}]
+               (get-in batch-context [:batch/payload :edges])))
+        (is (= (:refs result) (:batch/refs batch-context)))
+        (is (= (:created result) (:batch/created batch-context)))
+        (is (= [] (:batch/updated batch-context) (:batch/burned batch-context)))
+        (is (= 1 (count (:batch/edge-ops batch-context))))
+        (is (= "review" (get-in batch-context [:batch/edge-ops 0 :from])))
+        (is (= "impl" (get-in batch-context [:batch/edge-ops 0 :to])))
+        (is (= "depends-on" (get-in batch-context [:batch/edge-ops 0 :type])))))))
+
 (deftest weaver-pattern-failures-validate-before-code-and-rollback
   (with-runtime
     (fn [rt _]
       (api/init rt)
       (reset! pattern-call-count 0)
+      (reset! hook-contexts [])
+      (reset! delivered-events [])
+      (api/register-event-handler! rt :capture #{:strand/added :batch/applied} 'skein.weaver-test/capture-event {})
       (api/register-pattern! rt 'counting 'skein.weaver-test/counting-pattern ::never-valid)
+      (api/register-hook! rt :capture-batch #{:batch/apply-before-commit} 'skein.weaver-test/capture-hook {})
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"Pattern input failed spec validation"
                             (api/weave! rt :counting {:title "Nope"})))
       (is (= 0 @pattern-call-count))
+      (is (empty? @hook-contexts))
       (is (empty? (api/list rt)))
       (api/register-pattern! rt 'bad-edge 'skein.weaver-test/bad-edge-pattern ::pattern-input)
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"Batch target strand not found"
                             (api/weave! rt :bad-edge {:title "Rollback"})))
       (is (empty? (api/list rt)))
-      (is (empty? (db/execute! (:datasource rt) ["SELECT * FROM strand_edges"]))))))
+      (is (empty? (db/execute! (:datasource rt) ["SELECT * FROM strand_edges"])))
+      (api/register-pattern! rt 'dev-task 'skein.weaver-test/test-pattern ::pattern-input)
+      (api/unregister-hook! rt :capture-batch)
+      (api/register-hook! rt :reject-batch #{:batch/apply-before-commit} 'skein.weaver-test/rejecting-hook {})
+      (try
+        (api/weave! rt :dev-task {:title "Rejected weave"})
+        (is false "expected weave hook rejection")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "hook/failed" (:code (ex-data e))))
+          (is (= :batch/apply-before-commit (:hook/type (ex-data e))))
+          (is (= :reject-batch (:hook/key (ex-data e))))
+          (is (= "policy/rejected" (:hook/cause-code (ex-data e))))))
+      (Thread/sleep 100)
+      (is (empty? (api/list rt)))
+      (is (empty? (db/execute! (:datasource rt) ["SELECT * FROM strand_edges"])))
+      (is (empty? @delivered-events)))))
 
 (deftest weaver-reload-clears-patterns
   (with-runtime

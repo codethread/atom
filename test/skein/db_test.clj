@@ -244,6 +244,7 @@
       (let [result (db/add-strand-batch! ds [{:ref 'design :title "Design" :state "closed"}
                                              {:ref 'docs :title "Docs" :edges [{:type "depends-on" :to 'design}]}])
             refs (:refs result)]
+        (is (= #{:created :refs} (set (keys result))))
         (is (= #{"design" "docs"} (set (keys refs))))
         (is (= "closed" (:state (db/get-strand ds (get refs "design")))))
         (is (= [{:to_strand_id (get refs "design") :edge_type "depends-on"}]

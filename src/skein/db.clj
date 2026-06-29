@@ -260,42 +260,54 @@
                        :attributes attributes}))
       created-strand)))
 
+(defn ^:no-doc add-strand-batch-in-transaction!
+  [tx strands]
+  (validate-batch! strands)
+  (let [resolve-existing-ref (fn [refs value context]
+                               (cond
+                                 (symbol? value) (or (get refs (str value))
+                                                     (throw (ex-info "Batch ref not found; symbolic targets only resolve to batch refs, use a string for durable ids"
+                                                                     {:context context :value value})))
+                                 (string? value) (do
+                                                   (when-not (get-strand tx value)
+                                                     (throw (ex-info "Batch target strand not found" {:context context :value value})))
+                                                   value)))]
+    (loop [remaining strands
+           created []
+           refs {}]
+      (if-let [strand (first remaining)]
+        (let [{:keys [title state attributes]} strand
+              created-strand (add-strand! tx (cond-> {:title title :attributes attributes}
+                                               (contains? strand :state) (assoc :state state)))
+              refs (cond-> refs
+                     (:ref strand) (assoc (str (:ref strand)) (:id created-strand)))]
+          (recur (rest remaining) (conj created created-strand) refs))
+        (let [edge-outcomes (mapv (fn [[strand created-strand edge]]
+                                    (let [{:keys [to type attributes]} edge
+                                          resolved-to (resolve-existing-ref refs to :edge)]
+                                      {:op :upsert
+                                       :from (or (some-> (:ref strand) str) (:id created-strand))
+                                       :to (if (symbol? to) (str to) resolved-to)
+                                       :type type
+                                       :edge (add-edge! tx {:from (:id created-strand)
+                                                            :to resolved-to
+                                                            :type type
+                                                            :attributes attributes})}))
+                                  (for [[strand created-strand] (map vector strands created)
+                                        edge (:edges strand)]
+                                    [strand created-strand edge]))]
+          {:created created
+           :refs refs
+           :edges edge-outcomes})))))
+
 (defn add-strand-batch!
   "Create multiple strands and their batch-local edges in one transaction.
 
   Symbolic :ref values may be used by edge targets anywhere in the batch."
   [ds strands]
-  (validate-batch! strands)
-  (jdbc/with-transaction [tx ds]
-    (let [resolve-existing-ref (fn [refs value context]
-                                 (cond
-                                   (symbol? value) (or (get refs (str value))
-                                                       (throw (ex-info "Batch ref not found; symbolic targets only resolve to batch refs, use a string for durable ids"
-                                                                       {:context context :value value})))
-                                   (string? value) (do
-                                                     (when-not (get-strand tx value)
-                                                       (throw (ex-info "Batch target strand not found" {:context context :value value})))
-                                                     value)))]
-      (loop [remaining strands
-             created []
-             refs {}]
-        (if-let [strand (first remaining)]
-          (let [{:keys [title state attributes]} strand
-                created-strand (add-strand! tx (cond-> {:title title :attributes attributes}
-                                                 (contains? strand :state) (assoc :state state)))
-                refs (cond-> refs
-                       (:ref strand) (assoc (str (:ref strand)) (:id created-strand)))]
-            (recur (rest remaining) (conj created created-strand) refs))
-          (do
-            (doseq [[strand created-strand] (map vector strands created)
-                    {:keys [to type attributes]} (:edges strand)]
-              (let [resolved-to (resolve-existing-ref refs to :edge)]
-                (add-edge! tx {:from (:id created-strand)
-                               :to resolved-to
-                               :type type
-                               :attributes attributes})))
-            {:created created
-             :refs refs}))))))
+  (let [result (jdbc/with-transaction [tx ds]
+                 (add-strand-batch-in-transaction! tx strands))]
+    (select-keys result [:created :refs])))
 
 (defn- path-exists? [ds type from to]
   (boolean

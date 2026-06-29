@@ -1025,25 +1025,85 @@
          (when (seq problems)
            (str ": " (str/join "; " (map #(problem-message contract %) problems)))))))
 
+(defn- require-pattern-batch-vector! [batch]
+  (when-not (vector? batch)
+    (throw (ex-info "Pattern must return a batch strand vector" {:value batch})))
+  batch)
+
+(defn- normalize-weave-strand-attributes [runtime pattern-name input batch]
+  (mapv (fn [{:keys [ref attributes] :as strand}]
+          (if (nil? attributes)
+            strand
+            (assoc strand :attributes
+                   (run-transform-hooks runtime
+                                        :attributes/normalize
+                                        {:hook/value attributes
+                                         :request/source :weaver-api
+                                         :request/operation :weave
+                                         :mutation/operation :batch/apply
+                                         :batch/ref ref
+                                         :strand/patch strand
+                                         :pattern/name pattern-name
+                                         :pattern/input input}))))
+        (require-pattern-batch-vector! batch)))
+
+(defn- weave-payload [strands]
+  {:refs {}
+   :strands (mapv #(dissoc % :edges) strands)
+   :edges (into []
+                (mapcat (fn [{:keys [ref edges]}]
+                          (map (fn [edge]
+                                 (merge {:op :upsert
+                                         :from (some-> ref str)
+                                         :to (cond-> (:to edge)
+                                               (symbol? (:to edge)) str)}
+                                        (select-keys edge [:type :attributes])))
+                               edges)))
+                strands)
+   :burn []})
+
+(defn- weave-batch-context [pattern-name input payload result]
+  {:request/source :weaver-api
+   :request/operation :weave
+   :mutation/operation :batch/apply
+   :batch/source :weave
+   :batch/payload payload
+   :batch/refs (:refs result)
+   :batch/created (:created result)
+   :batch/updated []
+   :batch/burned []
+   :batch/edge-ops (:edges result)
+   :pattern/name pattern-name
+   :pattern/input input})
+
 (defn weave!
   "Validate pattern input, invoke the pattern, and apply its create-only batch."
   [runtime pattern-name input]
-  (let [{fn-sym :fn input-spec :input-spec} (resolve-pattern runtime pattern-name)]
+  (let [{fn-sym :fn input-spec :input-spec} (resolve-pattern runtime pattern-name)
+        canonical-name (canonical-pattern-name pattern-name)]
     (spec-form input-spec)
     (when-not (s/valid? input-spec input)
       (let [explain (s/explain-data input-spec input)
             contract (pattern-input-contract input-spec)]
         (throw (ex-info (pattern-validation-message pattern-name contract explain)
                         {:code "pattern/input-invalid"
-                         :pattern (canonical-pattern-name pattern-name)
+                         :pattern canonical-name
                          :input-spec (str input-spec)
                          :contract contract
                          :problems (mapv #(problem-message contract %) (::s/problems explain))
                          :explain explain}))))
     (let [batch (with-library-classloader
                   runtime
-                  #((requiring-resolve fn-sym) {:input input}))]
-      (normalize (db/add-strand-batch! (ds runtime) batch)))))
+                  #((requiring-resolve fn-sym) {:input input}))
+          normalized-batch (normalize-weave-strand-attributes runtime canonical-name input batch)
+          normalized-payload (weave-payload normalized-batch)
+          result (jdbc/with-transaction [tx (ds runtime)]
+                   (let [result (normalize (db/add-strand-batch-in-transaction! tx normalized-batch))]
+                     (run-validation-hooks! runtime
+                                            :batch/apply-before-commit
+                                            (weave-batch-context canonical-name input normalized-payload result))
+                     result))]
+      (select-keys result [:created :refs]))))
 
 (declare data-first-value?)
 

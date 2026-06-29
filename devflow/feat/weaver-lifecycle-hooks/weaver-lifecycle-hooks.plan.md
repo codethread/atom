@@ -128,3 +128,10 @@ Append notes here. Do not rewrite earlier notes.
 - Batch hook context uses the common apply schema with normalized payload/result data; hook rejection rolls back mixed create/update/edge/burn work atomically.
 - Kept the MVP seam narrow: direct `db/apply-batch!` behavior remains unchanged and no CLI batch surface was added.
 - Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
+
+### WLH-PLAN-001.DN7 Task 6 implementation — 2026-06-29
+
+- Factored create-only pattern batch storage with `db/add-strand-batch-in-transaction!` so `api/weave!` can normalize attributes, run storage mutation in an API-owned transaction, invoke `:batch/apply-before-commit`, then commit only after hook approval.
+- Pattern weave hook context uses the common batch schema with `:batch/source :weave`, normalized create-only payload, final refs/created rows/edge operations, empty updated/burned vectors, and pattern name/input.
+- Direct `db/add-strand-batch!` preserves its public `{:created ... :refs ...}` result shape; hook-rejected weave rolls back created rows/edges and emits no events.
+- Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
