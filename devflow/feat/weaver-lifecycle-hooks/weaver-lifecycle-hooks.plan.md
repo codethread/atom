@@ -142,3 +142,10 @@ Append notes here. Do not rewrite earlier notes.
 - Payload context preserves string-keyed decoded request arguments/options before socket dispatch reshaping; hook failures propagate as domain `hook/failed` socket envelopes and prevent dispatch.
 - Confirmed setup, admin, read-only, query, and pattern explanation operations stay ungated, including `stop`.
 - Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
+
+### WLH-PLAN-001.DN9 Task 8 final promotion — 2026-06-29
+
+- Promoted lifecycle hook contracts into root CLI, REPL API, and Weaver Runtime specs; marked feature-local deltas as merged and refreshed the devflow spec index text.
+- Extended smoke coverage so an isolated config-dir installs a hook from trusted startup config and rejects a CLI mutation with `hook/failed`.
+- No cut scope in this slice; archiving the feature folder remains outside Task 8.
+- Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`. `git status --short` showed no generated SQLite/runtime metadata artifacts.

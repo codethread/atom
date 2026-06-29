@@ -2,7 +2,7 @@
 
 **Document ID:** `SPEC-003`
 **Status:** Implemented
-**Last Updated:** 2026-06-28
+**Last Updated:** 2026-06-29
 **Code:** `src/skein/repl.clj`, `src/skein/batch/alpha.clj`
 
 ## SPEC-003.P1 Purpose
@@ -73,12 +73,15 @@ Skein ships blessed source-visible runtime transformation namespaces for trusted
 - `skein.graph.alpha` exposes `(query-ids! query params)`, `(burn-by-id! id)`, `(burn-by-ids! ids)`, `(strands-by-ids ids)`, `(ancestor-root-ids seed-ids)`, `(ancestor-root-ids seed-ids opts)`, `(subgraph root-ids)`, and `(subgraph root-ids opts)`. Traversal opts may include `:type` for the declared acyclic relation to walk and default to `"parent-of"`; annotation relations fail loudly. `ancestor-root-ids` also preserves `:where`/`:params` filtering.
 - `skein.views.alpha` exposes `(register-view! name fn-sym)`, `(view! name params)`, and `(views)`. View registration accepts a simple view name and a fully qualified function symbol, not an arbitrary client-side function value.
 - `skein.patterns.alpha` exposes `(register-pattern! name fn-sym input-spec)`, `(register-pattern! name doc fn-sym input-spec)`, `(patterns)`, `(pattern name)`, `(explain name)`, and `(weave! name input)`. Pattern functions are weaver-loadable function symbols called with `{:input input}` after input spec validation.
-- `skein.events.alpha` exposes `(register! key types fn-sym)`, `(register! key types fn-sym metadata)`, `(unregister! key)`, `(handlers)`, and `(recent-failures)`. Event registration accepts a stable handler key, a non-empty set of event type keywords, and a fully qualified function symbol resolvable in the weaver JVM.
+- `skein.events.alpha` exposes `(register! key types fn-sym)`, `(register! key types fn-sym metadata)`, `(unregister! key)`, `(handlers)`, and `(recent-failures)`.
+- `skein.hooks.alpha` exposes `(register! key types fn-sym)`, `(register! key types fn-sym opts)`, `(unregister! key)`, and `(hooks)`. Hook keys are stable keywords, symbols, or non-blank strings; hook type sets are non-empty keyword sets; function symbols are fully qualified and weaver-resolvable; `opts` may include `:order` and data-first metadata. Registration replaces by key, `hooks` returns deterministic data-first entries, validation hooks return normally or throw, and transform hooks return `{:hook/value replacement}`.
 - `skein.batch.alpha` exposes `(apply! payload)` for transactional batch graph mutation payloads with `:refs`, `:strands`, `:edges`, and `:burn`. It returns normalized Clojure data from the weaver operation, including final refs, created rows, updated before/after rows, burned rows, and edge outcomes, without a JSON envelope.
 
-Helpers execute weaver-side when called from `init.clj` or activated runtime libraries, and route to the selected weaver world when called from connected REPL clients. Connected helper REPL users who want to register new view, pattern, or event handler functions should place them in weaver-loadable config/library code and register their symbols. View, pattern, and event registrations are weaver-lifetime runtime state unless user config reloads them on startup.
+Helpers execute weaver-side when called from `init.clj` or activated runtime libraries, and route to the selected weaver world when called from connected REPL clients. Connected helper REPL users who want to register new view, pattern, event handler, or hook functions should place them in weaver-loadable config/library code and register their symbols. View, pattern, event, and hook registrations are weaver-lifetime runtime state unless user config reloads them on startup.
 
-User config may require `skein.graph.alpha`, `skein.patterns.alpha`, `skein.views.alpha`, `skein.events.alpha`, and `skein.batch.alpha` so users can inspect and extend the blessed path. These built-in namespaces come from the Skein checkout on the weaver classpath; they do not require `libs.edn` approval.
+User config may require `skein.graph.alpha`, `skein.patterns.alpha`, `skein.views.alpha`, `skein.events.alpha`, `skein.hooks.alpha`, and `skein.batch.alpha` so users can inspect and extend the blessed path. These built-in namespaces come from the Skein checkout on the weaver classpath; they do not require `libs.edn` approval.
+
+Hook functions receive one context map and run synchronously at the lifecycle gates specified by the Weaver Runtime contract. They may reject by throwing; only explicit transform hook families may replace values. Hook registration, unregistration, and introspection are trusted Clojure workflows and are not public JSON socket operations.
 
 Event handlers receive one event map and may perform trusted side effects, including calling Skein APIs. They are dispatched asynchronously after successful mutation commits; handler return values are ignored. `(events/recent-failures)` returns bounded, data-first failure records for handler exceptions. Handler exceptions do not fail the already-committed mutation.
 

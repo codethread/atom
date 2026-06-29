@@ -73,6 +73,18 @@
                (str message ": " (pr-str command) "\n" output))
        output))))
 
+(defn run-process-fails!
+  [message cwd command]
+  (let [builder (doto (ProcessBuilder. command)
+                  (.redirectErrorStream true))
+        _ (when cwd (.directory builder cwd))
+        process (.start builder)
+        output (slurp (.getInputStream process))
+        exit-code (.waitFor process)]
+    (assert (not= 0 exit-code)
+            (str message ": expected failure from " (pr-str command) "\n" output))
+    output))
+
 (defn build-cli! []
   (run-process! "Go CLI build succeeds" ["go" "build" "-o" "./cli/bin/strand" "./cli/cmd/strand"])
   strand-bin)
@@ -115,6 +127,9 @@
 
 (defn run-cli-config-stdin! [config-dir stdin & args]
   (run-process! "Go CLI stdin command succeeds" (outside-repo-dir) stdin (into [strand-bin "--config-dir" config-dir] args)))
+
+(defn run-cli-config-fails! [config-dir & args]
+  (run-process-fails! "Go CLI command fails" (outside-repo-dir) (into [strand-bin "--config-dir" config-dir] args)))
 
 (defn run-cli! [db-file & args]
   (apply run-cli-config! (write-client-config! db-file) args))
@@ -266,11 +281,13 @@
     (write-client-config-to-dir! config-dir)
     (spit (java.io.File. config-dir "libs.edn") "{:libs {}}\n")
     (spit init-path
-          (str "(ns smoke.startup\n  (:require [clojure.spec.alpha :as s]\n            [skein.libs.alpha :as libs]\n            [skein.events.alpha :as events]\n            [skein.graph.alpha :as graph]\n            [skein.views.alpha :as views]\n            [skein.weaver.api :as api]))\n(libs/sync!)\n(api/register-query! 'smoke-owned [:= [:attr :owner] \"smoke\"])\n(s/def ::title string?)\n(s/def ::review-input (s/keys :req-un [::title]))\n(defn review-pattern [{:keys [input]}]\n  (let [title (:title input)]\n    [{:ref 'impl :title title :attributes {:owner \"smoke\"}}\n     {:ref 'review :title (str \"Review: \" title) :attributes {:kind \"review\"} :edges [{:type \"depends-on\" :to 'impl}]}]))\n(api/register-pattern! 'review-task 'smoke.startup/review-pattern ::review-input)\n(def event-marker " (pr-str (.getCanonicalPath event-marker)) ")\n(defn record-added! [event]\n  (spit event-marker (:title (:strand event))))\n(defn smoke-owned-view [{:keys [params]}]\n  (let [ids (graph/query-ids! 'smoke-owned {})]\n    {:params params\n     :ids ids\n     :strands (graph/strands-by-ids ids)}))\n(views/register-view! 'smoke-owned-view 'smoke.startup/smoke-owned-view)\n(events/register! :smoke/record-added #{:strand/added} 'smoke.startup/record-added! {:source :smoke})\n"))
+          (str "(ns smoke.startup\n  (:require [clojure.spec.alpha :as s]\n            [skein.libs.alpha :as libs]\n            [skein.events.alpha :as events]\n            [skein.graph.alpha :as graph]\n            [skein.hooks.alpha :as hooks]\n            [skein.views.alpha :as views]\n            [skein.weaver.api :as api]))\n(libs/sync!)\n(api/register-query! 'smoke-owned [:= [:attr :owner] \"smoke\"])\n(s/def ::title string?)\n(s/def ::review-input (s/keys :req-un [::title]))\n(defn reject-blocked-owner [ctx]\n  (when (= \"blocked\" (get-in ctx [:strand/after :attributes :owner]))\n    (throw (ex-info \"smoke hook rejected blocked owner\" {:code :smoke/blocked-owner}))))\n(hooks/register! :smoke/reject-blocked-owner #{:strand/add-before-commit} 'smoke.startup/reject-blocked-owner)\n(defn review-pattern [{:keys [input]}]\n  (let [title (:title input)]\n    [{:ref 'impl :title title :attributes {:owner \"smoke\"}}\n     {:ref 'review :title (str \"Review: \" title) :attributes {:kind \"review\"} :edges [{:type \"depends-on\" :to 'impl}]}]))\n(api/register-pattern! 'review-task 'smoke.startup/review-pattern ::review-input)\n(def event-marker " (pr-str (.getCanonicalPath event-marker)) ")\n(defn record-added! [event]\n  (spit event-marker (:title (:strand event))))\n(defn smoke-owned-view [{:keys [params]}]\n  (let [ids (graph/query-ids! 'smoke-owned {})]\n    {:params params\n     :ids ids\n     :strands (graph/strands-by-ids ids)}))\n(views/register-view! 'smoke-owned-view 'smoke.startup/smoke-owned-view)\n(events/register! :smoke/record-added #{:strand/added} 'smoke.startup/record-added! {:source :smoke})\n"))
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
         (run-cli-config! config-dir "init")
         (let [strand-id (cli-add-config! config-dir "Startup transformed strand" "--attr" "owner=smoke")
+              rejected-output (run-cli-config-fails! config-dir "add" "Hook rejected strand" "--attr" "owner=blocked")
+              _ (assert-contains rejected-output "hook/failed" "startup hook rejection reaches CLI as hook/failed")
               _ (loop [attempts 50]
                   (when-not (.isFile event-marker)
                     (when (zero? attempts)

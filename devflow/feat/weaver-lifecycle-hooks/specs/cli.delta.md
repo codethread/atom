@@ -3,7 +3,7 @@
 **Document ID:** `WLH-DELTA-003`
 **Root spec:** [cli.md](../../../specs/cli.md)
 **Feature:** [../proposal.md](../proposal.md)
-**Status:** Reviewed
+**Status:** Merged
 **Last Updated:** 2026-06-29
 
 ## WLH-DELTA-003.P1 Summary
