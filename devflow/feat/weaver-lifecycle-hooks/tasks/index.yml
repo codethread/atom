@@ -32,7 +32,7 @@ tasks:
   - id: 7
     description: Add socket payload hooks
     task_file: tasks/007-add-socket-payload-hooks.md
-    status: pending
+    status: complete
     blocked_by: [2]
   - id: 8
     description: Promote specs and validate

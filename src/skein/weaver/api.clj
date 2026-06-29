@@ -486,6 +486,11 @@
     (invoke-hook! runtime hook-type hook (assoc ctx :hook/type hook-type)))
   nil)
 
+(defn run-payload-received-hooks!
+  "Run validation-only hooks for a decoded JSON socket request payload."
+  [runtime ctx]
+  (run-validation-hooks! runtime :payload/received ctx))
+
 (defn- require-transform-wrapper! [hook-type hook result]
   (when-not (and (map? result) (contains? result :hook/value))
     (throw (ex-info "Transform hook must return {:hook/value replacement}"

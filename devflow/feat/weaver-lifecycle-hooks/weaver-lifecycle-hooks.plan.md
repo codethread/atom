@@ -135,3 +135,10 @@ Append notes here. Do not rewrite earlier notes.
 - Pattern weave hook context uses the common batch schema with `:batch/source :weave`, normalized create-only payload, final refs/created rows/edge operations, empty updated/burned vectors, and pattern name/input.
 - Direct `db/add-strand-batch!` preserves its public `{:created ... :refs ...}` result shape; hook-rejected weave rolls back created rows/edges and emits no events.
 - Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
+
+### WLH-PLAN-001.DN8 Task 7 implementation — 2026-06-29
+
+- Added JSON socket `:payload/received` validation hooks after protocol/identity/allowlist/argument-shape validation and before dispatch for `add`, `update`, `supersede`, `burn`, `weave`, and `op` only.
+- Payload context preserves string-keyed decoded request arguments/options before socket dispatch reshaping; hook failures propagate as domain `hook/failed` socket envelopes and prevent dispatch.
+- Confirmed setup, admin, read-only, query, and pattern explanation operations stay ungated, including `stop`.
+- Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.

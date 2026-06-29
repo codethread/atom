@@ -192,14 +192,8 @@
     (spit (io/file root "deps.edn") "{:paths [\"src\"]}\n")
     root))
 
-(defn socket-request [rt operation arguments]
-  (let [m (:metadata rt)
-        req {"protocol_version" 1
-             "request_id" "test-request"
-             "weaver_id" (:nonce m)
-             "operation" operation
-             "arguments" arguments
-             "options" {}}]
+(defn socket-request-envelope [rt req]
+  (let [m (:metadata rt)]
     (with-open [ch (doto (SocketChannel/open StandardProtocolFamily/UNIX)
                      (.connect (UnixDomainSocketAddress/of (:socket-path m))))
                 rdr (BufferedReader. (InputStreamReader. (Channels/newInputStream ch)))
@@ -208,6 +202,15 @@
       (.newLine wrt)
       (.flush wrt)
       (json/read-str (.readLine rdr)))))
+
+(defn socket-request [rt operation arguments]
+  (let [m (:metadata rt)]
+    (socket-request-envelope rt {"protocol_version" 1
+                                 "request_id" "test-request"
+                                 "weaver_id" (:nonce m)
+                                 "operation" operation
+                                 "arguments" arguments
+                                 "options" {}})))
 
 (deftest weaver-world-resolution
   (let [home (System/getProperty "user.home")
@@ -1233,6 +1236,84 @@
         (is (false? (get bad "ok")))
         (is (= "protocol/malformed-request" (get-in bad ["error" "code"])))))))
 
+(deftest json-socket-payload-hooks-gate-selected-operations
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! hook-contexts [])
+      (api/register-pattern! rt 'dev-task 'skein.weaver-test/test-pattern ::pattern-input)
+      (api/register-op! rt 'custom 'skein.weaver-test/test-op)
+      (let [source (api/add rt {:title "Payload source"})
+            target (api/add rt {:title "Payload target"})
+            replacement (api/add rt {:title "Payload replacement"})]
+        (api/register-hook! rt :payload #{:payload/received} 'skein.weaver-test/capture-hook {})
+        (is (true? (get (socket-request rt "add" {"title" "Payload add" "state" "active" "attributes" {"owner" "agent"}}) "ok")))
+        (is (true? (get (socket-request rt "update" {"id" (:id source) "attributes" {"priority" "high"}}) "ok")))
+        (is (true? (get (socket-request rt "supersede" {"old_id" (:id target) "replacement_id" (:id replacement)}) "ok")))
+        (is (true? (get (socket-request rt "burn" {"id" (:id source)}) "ok")))
+        (is (true? (get (socket-request rt "weave" {"pattern" "dev-task" "input" {"title" "Payload weave"}}) "ok")))
+        (is (true? (get (socket-request rt "op" {"name" "custom" "args" ["--flag"]}) "ok")))
+        (is (= [:add :update :supersede :burn :weave :op]
+               (mapv :request/operation @hook-contexts)))
+        (let [add-context (first @hook-contexts)
+              update-context (second @hook-contexts)]
+          (is (= :payload/received (:hook/type add-context)))
+          (is (= :json-socket (:request/source add-context)))
+          (is (= "test-request" (:request/id add-context)))
+          (is (= {"title" "Payload add" "state" "active" "attributes" {"owner" "agent"}}
+                 (:request/args add-context)))
+          (is (= {} (:request/options add-context)))
+          (is (= {"priority" "high"} (get-in update-context [:request/args "attributes"]))))))))
+
+(deftest json-socket-payload-hooks-skip-exempt-operations-and-protocol-errors
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! hook-contexts [])
+      (api/register-hook! rt :payload #{:payload/received} 'skein.weaver-test/capture-hook {})
+      (api/register-pattern! rt 'dev-task 'skein.weaver-test/test-pattern ::pattern-input)
+      (api/register-query rt 'all [:= :state "active"])
+      (let [strand-id (get-in (socket-request rt "add" {"title" "Exempt target" "attributes" {}}) ["result" "id"])]
+        (reset! hook-contexts [])
+        (doseq [[op args] [["init" {}]
+                           ["status" {}]
+                           ["show" {"id" strand-id}]
+                           ["list" {}]
+                           ["ready" {}]
+                           ["list-query" {"query" "all" "params" {}}]
+                           ["ready-query" {"query" "all" "params" {}}]
+                           ["pattern-explain" {"pattern" "dev-task"}]]]
+          (is (true? (get (socket-request rt op args) "ok")) op))
+        (is (empty? @hook-contexts))
+        (let [bad (socket-request rt "op" {"name" "custom" "args" [1]})]
+          (is (= "protocol/malformed-request" (get-in bad ["error" "code"])))
+          (is (empty? @hook-contexts)))
+        (let [wrong-identity (socket-request-envelope rt {"protocol_version" 1
+                                                          "request_id" "wrong-identity"
+                                                          "weaver_id" "wrong"
+                                                          "operation" "add"
+                                                          "arguments" {"title" "No hook" "attributes" {}}
+                                                          "options" {}})]
+          (is (= "protocol/identity-mismatch" (get-in wrong-identity ["error" "code"])))
+          (is (empty? @hook-contexts)))
+        (let [disallowed (socket-request rt "queries" {})]
+          (is (= "protocol/operation-not-allowed" (get-in disallowed ["error" "code"])))
+          (is (empty? @hook-contexts)))))))
+
+(deftest json-socket-payload-hook-rejection-is-domain-error-before-dispatch
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! hook-contexts [])
+      (api/register-hook! rt :reject-payload #{:payload/received} 'skein.weaver-test/rejecting-hook {})
+      (let [response (socket-request rt "add" {"title" "Rejected payload" "attributes" {}})]
+        (is (false? (get response "ok")))
+        (is (= "domain" (get-in response ["error" "type"])))
+        (is (= "hook/failed" (get-in response ["error" "code"])))
+        (is (= "policy/rejected" (get-in response ["error" "details" "cause-code"])))
+        (is (= "Rejected payload" (get-in response ["error" "details" "data" "ctx" "args" "title"])))
+        (is (empty? (api/list rt)))))))
+
 (deftest weaver-query-registry-fails-clearly
   (with-runtime
     (fn [rt _]
@@ -1465,9 +1546,12 @@
         world (temp-world)
         rt (runtime/start! db-file {:world world})]
     (try
+      (reset! hook-contexts [])
+      (api/register-hook! rt :payload #{:payload/received} 'skein.weaver-test/capture-hook {})
       (let [response (socket-request rt "stop" {})]
         (is (true? (get response "ok")))
-        (is (= true (get-in response ["result" "stopping"]))))
+        (is (= true (get-in response ["result" "stopping"])))
+        (is (empty? @hook-contexts)))
       (Thread/sleep 250)
       (is (nil? @runtime/current-runtime))
       (is (false? (.exists (metadata/socket-file (:metadata rt)))))

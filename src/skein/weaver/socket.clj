@@ -16,6 +16,9 @@
 (def ^:private required-request-keys
   #{"protocol_version" "request_id" "weaver_id" "operation" "arguments" "options"})
 
+(def ^:private payload-hook-operations
+  #{"add" "update" "supersede" "burn" "weave" "op"})
+
 (defn- protocol-error [request-id code message details]
   {"protocol_version" 1 "request_id" request-id "ok" false "result" nil
    "error" {"type" "protocol" "code" code "message" message "details" (or details {})}})
@@ -139,6 +142,14 @@
 (defn- api [sym]
   (requiring-resolve (symbol "skein.weaver.api" (name sym))))
 
+(defn- run-payload-hooks! [runtime req]
+  (when (payload-hook-operations (get req "operation"))
+    ((api 'run-payload-received-hooks!) runtime {:request/source :json-socket
+                                                 :request/operation (keyword (get req "operation"))
+                                                 :request/id (get req "request_id")
+                                                 :request/args (get req "arguments")
+                                                 :request/options (get req "options")})))
+
 (defn- query-name [name]
   (let [trimmed (str/trim name)
         canonical (if (str/starts-with? trimmed ":") (subs trimmed 1) trimmed)]
@@ -210,6 +221,7 @@
       (if-let [err (validate-request (:metadata runtime) req)]
         [err false]
         (try
+          (run-payload-hooks! runtime req)
           [(success request-id (dispatch runtime (get req "operation") (get req "arguments")))
            (= "stop" (get req "operation"))]
           (catch clojure.lang.ExceptionInfo e
