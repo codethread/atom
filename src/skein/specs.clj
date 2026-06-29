@@ -1,18 +1,41 @@
 (ns skein.specs
+  "Shared clojure.spec contracts for Skein boundary data.
+
+  These specs describe public data shapes consumed by the database, query,
+  daemon, and CLI-facing layers. They capture reusable boundary contracts such
+  as non-blank ids, relation names, lifecycle states, and JSON-object-encodable
+  attributes."
   (:require [clojure.spec.alpha :as s]
             [clojure.string :as str]))
 
-(defn non-blank-string? [x]
+(defn- non-blank-string? [x]
   (and (string? x) (not (str/blank? x))))
 
-(def generated-id-pattern #"[a-z0-9]+")
+(defn- json-compatible? [value]
+  (cond
+    (nil? value) true
+    (string? value) true
+    (number? value) true
+    (true? value) true
+    (false? value) true
+    (map? value) (and (every? #(or (keyword? %) (string? %)) (keys value))
+                      (every? json-compatible? (vals value)))
+    (vector? value) (every? json-compatible? value)
+    (sequential? value) (every? json-compatible? value)
+    :else false))
 
-(defn generated-id? [x]
+(defn- json-object-encodable-attributes? [x]
+  (or (nil? x)
+      (and (map? x) (json-compatible? x))))
+
+(def ^:private generated-id-pattern #"[a-z0-9]+")
+
+(defn- generated-id? [x]
   (and (string? x) (boolean (re-matches generated-id-pattern x))))
 
-(def relation-name-pattern #"[a-z0-9][a-z0-9._/-]*")
+(def ^:private relation-name-pattern #"[a-z0-9][a-z0-9._/-]*")
 
-(defn relation-name? [x]
+(defn- relation-name? [x]
   (and (string? x) (boolean (re-matches relation-name-pattern x))))
 
 (s/def ::id non-blank-string?)
@@ -25,7 +48,7 @@
 (s/def ::attr-key keyword?)
 (s/def ::cli-attr-value string?)
 (s/def ::cli-attributes (s/map-of ::attr-key ::cli-attr-value))
-(s/def ::attributes (s/nilable map?))
+(s/def ::attributes json-object-encodable-attributes?)
 (s/def ::state #{"active" "closed" "replaced"})
 (s/def ::generic-state #{"active" "closed"})
 (s/def ::format #{"human" "edn" "json"})

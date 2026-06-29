@@ -48,6 +48,7 @@
                             (db/add-strand! ds {:title "Old" :final_at "now"})))
       (is (s/valid? ::specs/state "replaced"))
       (is (not (s/valid? ::specs/strand-input {:title "Bad" :state "replaced"})))
+      (is (not (s/valid? ::specs/strand-input {:title "Bad" :attributes {:owner (Object.)}})))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid strand"
                             (db/add-strand! ds {:title "Bad" :state "true"})))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid strand"
