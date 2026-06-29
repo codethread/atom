@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -293,6 +294,9 @@ func TestInitBootstrapsWorkspaceWhenMissingAndCallsInit(t *testing.T) {
 	if got := string(mustReadFile(t, initPath)); got != defaultInitCLJ {
 		t.Fatalf("unexpected init.clj contents: %q", got)
 	}
+	if got := string(mustReadFile(t, filepath.Join(cfg, ".gitignore"))); got != defaultSkeinGitignore {
+		t.Fatalf("unexpected .gitignore contents: %q", got)
+	}
 	realCfg, err := filepath.EvalSymlinks(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -524,18 +528,193 @@ func TestSourceValidationForWeaverStart(t *testing.T) {
 	}
 }
 
-func TestNoConfigDirFailsWithoutRepoWorld(t *testing.T) {
-	cwd, err := os.Getwd()
+func TestRepoWorldDiscoveryFromSubdirectory(t *testing.T) {
+	repo := t.TempDir()
+	cfg := filepath.Join(repo, ".skein")
+	if err := os.MkdirAll(filepath.Join(repo, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"/tmp/source"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withChdir(t, filepath.Join(repo, "a", "b"))
+	orig := newClient
+	var captured Options
+	newClient = func(o Options) Caller {
+		captured = o
+		return &fakeClient{result: []any{}}
+	}
+	t.Cleanup(func() { newClient = orig })
+	if _, err := run("list"); err != nil {
+		t.Fatal(err)
+	}
+	realCfg, err := filepath.EvalSymlinks(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp := t.TempDir()
-	if err := os.Chdir(tmp); err != nil {
+	if captured.ConfigDir != realCfg || captured.Source != "/tmp/source" || captured.ConfigDirExplicit {
+		t.Fatalf("unexpected discovered options: %#v", captured)
+	}
+}
+
+func TestNoConfigDirFailsWithoutRepoWorld(t *testing.T) {
+	withChdir(t, t.TempDir())
+	if _, err := run("list"); err == nil || !strings.Contains(err.Error(), "no .skein directory found") || !strings.Contains(err.Error(), "strand init") || !strings.Contains(err.Error(), "--config-dir") {
+		t.Fatalf("expected no .skein remediation failure, got %v", err)
+	}
+}
+
+func TestDiscoveredIncompleteWorldRemediatesWeaverLifecycle(t *testing.T) {
+	repo := t.TempDir()
+	cfg := filepath.Join(repo, ".skein")
+	if err := os.MkdirAll(cfg, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if _, err := run("list"); err == nil || !strings.Contains(err.Error(), "no .skein directory found") {
-		t.Fatalf("expected no .skein failure, got %v", err)
+	withChdir(t, repo)
+	if _, err := run("weaver", "start"); err == nil || !strings.Contains(err.Error(), cfg) || !strings.Contains(err.Error(), "strand init --source <skein-source>") {
+		t.Fatalf("expected incomplete world remediation, got %v", err)
+	}
+}
+
+func TestDiscoveredWeaverStartLaunchesWithRepoConfigDir(t *testing.T) {
+	repo := t.TempDir()
+	cfg := filepath.Join(repo, ".skein")
+	subdir := filepath.Join(repo, "pkg")
+	source := tempSource(t)
+	if err := os.MkdirAll(cfg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withChdir(t, subdir)
+	orig := runWeaverProcess
+	var launched Options
+	runWeaverProcess = func(o Options, out, errOut io.Writer) error {
+		launched = o
+		return nil
+	}
+	t.Cleanup(func() { runWeaverProcess = orig })
+	if _, err := run("weaver", "start"); err != nil {
+		t.Fatal(err)
+	}
+	realCfg, err := filepath.EvalSymlinks(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launched.ConfigDir != realCfg || launched.ConfigDirExplicit || launched.Source != source {
+		t.Fatalf("unexpected discovered launch options: %#v", launched)
+	}
+	if !reflect.DeepEqual(weaverArgs(launched), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg}) {
+		t.Fatalf("unexpected discovered weaver args: %#v", weaverArgs(launched))
+	}
+}
+
+func TestInitUsesGitRootForImplicitRepoWorld(t *testing.T) {
+	repo := t.TempDir()
+	runGitCommand(t, repo, "init")
+	nested := filepath.Join(repo, "nested", "dir")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := tempSource(t)
+	withChdir(t, nested)
+	origClient := newClient
+	origGit := runGitInit
+	newClient = func(o Options) Caller { return &fakeClient{} }
+	runGitInit = func(configDir string) error {
+		t.Fatalf("implicit repo .skein should not get nested git init: %s", configDir)
+		return nil
+	}
+	t.Cleanup(func() { newClient = origClient; runGitInit = origGit })
+	if _, err := run("init", "--source", source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".skein", "config.json")); err != nil {
+		t.Fatalf("expected repo-root config.json: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(nested, ".skein")); !os.IsNotExist(err) {
+		t.Fatalf("did not expect nested .skein, stat err=%v", err)
+	}
+}
+
+func TestInitOutsideGitUsesCwd(t *testing.T) {
+	dir := t.TempDir()
+	source := tempSource(t)
+	withChdir(t, dir)
+	origClient := newClient
+	newClient = func(o Options) Caller { return &fakeClient{} }
+	t.Cleanup(func() { newClient = origClient })
+	if _, err := run("init", "--source", source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".skein", "config.json")); err != nil {
+		t.Fatalf("expected cwd .skein config.json: %v", err)
+	}
+}
+
+func TestInitSourcePrecedenceAndNoOverwriteBootstrap(t *testing.T) {
+	cwdSource := tempSource(t)
+	envSource := tempSource(t)
+	flagSource := tempSource(t)
+	withChdir(t, cwdSource)
+	t.Setenv("SKEIN_SOURCE", envSource)
+	cfg := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfg, "libs.edn"), []byte("custom libs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "init.clj"), []byte("custom init"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, ".gitignore"), []byte("custom ignore"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origClient := newClient
+	origGit := runGitInit
+	newClient = func(o Options) Caller { return &fakeClient{} }
+	runGitInit = func(configDir string) error { return os.Mkdir(filepath.Join(configDir, ".git"), 0o755) }
+	t.Cleanup(func() { newClient = origClient; runGitInit = origGit })
+	if _, err := run("--config-dir", cfg, "init", "--source", flagSource); err != nil {
+		t.Fatal(err)
+	}
+	var c configFileForTest
+	readJSONFile(t, filepath.Join(cfg, "config.json"), &c)
+	if c.Source != flagSource {
+		t.Fatalf("expected flag source precedence, got %q", c.Source)
+	}
+	for path, want := range map[string]string{"libs.edn": "custom libs", "init.clj": "custom init", ".gitignore": "custom ignore"} {
+		if got := string(mustReadFile(t, filepath.Join(cfg, path))); got != want {
+			t.Fatalf("%s overwritten: %q", path, got)
+		}
+	}
+
+	envCfg := t.TempDir()
+	if _, err := run("--config-dir", envCfg, "init"); err != nil {
+		t.Fatal(err)
+	}
+	readJSONFile(t, filepath.Join(envCfg, "config.json"), &c)
+	if c.Source != envSource {
+		t.Fatalf("expected env source precedence, got %q", c.Source)
+	}
+
+	t.Setenv("SKEIN_SOURCE", "")
+	cwdCfg := t.TempDir()
+	if _, err := run("--config-dir", cwdCfg, "init"); err != nil {
+		t.Fatal(err)
+	}
+	readJSONFile(t, filepath.Join(cwdCfg, "config.json"), &c)
+	realCwdSource, err := filepath.EvalSymlinks(cwdSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Source != realCwdSource {
+		t.Fatalf("expected cwd source fallback, got %q", c.Source)
 	}
 }
 
@@ -546,6 +725,55 @@ func mustReadFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return raw
+}
+
+func withChdir(t *testing.T, dir string) {
+	t.Helper()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+}
+
+func tempSource(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "deps.edn"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func runGitCommand(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out.String())
+	}
+}
+
+type configFileForTest struct {
+	ConfigFormat string `json:"configFormat"`
+	Source       string `json:"source"`
+}
+
+func readJSONFile(t *testing.T, path string, into any) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, into); err != nil {
+		t.Fatal(err)
+	}
 }
 
 type fakeClient struct {

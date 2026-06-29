@@ -2,7 +2,7 @@ tasks:
   - id: 1
     description: Implement repo-first CLI world selection
     task_file: tasks/001-repo-first-cli-world-selection.md
-    status: in_progress
+    status: complete
     blocked_by: []
   - id: 2
     description: Align Clojure world selection

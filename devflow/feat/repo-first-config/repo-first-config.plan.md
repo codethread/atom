@@ -111,3 +111,7 @@ Outcome: Clojure and Go tests cover repo discovery/init/layering/overrides, smok
 ### PLAN-RepoFirstConfig-001.DN4 Task 1 started — 2026-06-29
 
 - Began Go CLI world-selection work: added repo `.skein` discovery/init world helpers, `strand init --source`, `SKEIN_SOURCE` fallback, default `.skein/.gitignore`, and subprocess config-dir propagation. Initial `(cd cli && go test ./...)` passes after updating old default-world expectations. Task 1 remains in progress because focused repo-discovery/Git-root/incomplete-world test coverage still needs to be completed.
+
+### PLAN-RepoFirstConfig-001.DN5 Task 1 completed — 2026-06-29
+
+- Completed focused Go coverage for explicit/no-flag world selection: parent `.skein` discovery from subdirectories, no-world remediation, incomplete discovered lifecycle remediation, Git-root implicit init without nested `.git`, outside-Git cwd init, `--source`/`SKEIN_SOURCE`/cwd source precedence, and no-overwrite bootstrap behavior. Weaver lifecycle errors for discovered worlds missing local source now name the selected config-dir and direct users to `strand init --source <skein-source>` or `SKEIN_SOURCE`.

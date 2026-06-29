@@ -27,33 +27,6 @@ type Config struct {
 	Source       string `json:"source"`
 }
 
-func DefaultWorld() (World, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return World{}, err
-	}
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		configHome = filepath.Join(home, ".config")
-	}
-	stateHome := os.Getenv("XDG_STATE_HOME")
-	if stateHome == "" {
-		stateHome = filepath.Join(home, ".local", "state")
-	}
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if dataHome == "" {
-		dataHome = filepath.Join(home, ".local", "share")
-	}
-	return world(filepath.Join(configHome, "skein"), filepath.Join(stateHome, "skein"), filepath.Join(dataHome, "skein")), nil
-}
-
-func ExplicitWorld(configDir string) (World, error) {
-	if configDir == "" {
-		return DefaultWorld()
-	}
-	return isolatedWorld(configDir)
-}
-
 func RepoWorld() (World, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -92,8 +65,10 @@ func InitWorld(configDir string) (World, error) {
 	root := cwd
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	cmd.Dir = cwd
-	if out, err := cmd.Output(); err == nil {
+	if out, err := cmd.CombinedOutput(); err == nil {
 		root = strings.TrimSpace(string(out))
+	} else if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 128 || !strings.Contains(string(out), "not a git repository") {
+		return World{}, fmt.Errorf("failed to discover Git root for init: %w", err)
 	}
 	return isolatedWorld(filepath.Join(root, ".skein"))
 }

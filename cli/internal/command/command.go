@@ -335,34 +335,6 @@ func (a *App) call(o Options, op string, args map[string]any) error {
 	_, err = fmt.Fprintln(a.Stdout, string(b))
 	return err
 }
-func (a *App) writeHumanJSON(result any) error {
-	if result == nil {
-		return nil
-	}
-	b, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(a.Stdout, string(b))
-	return err
-}
-func (a *App) writeHumanRows(result any) error {
-	rows, ok := result.([]any)
-	if !ok {
-		return a.writeHumanJSON(result)
-	}
-	if len(rows) == 0 {
-		_, err := fmt.Fprintln(a.Stdout, "(no rows)")
-		return err
-	}
-	for _, row := range rows {
-		if err := a.writeHumanJSON(row); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func weaverArgs(o Options) []string {
 	args := []string{"-M:skein", "-m", "skein.weaver.runtime"}
 	if o.ConfigDir != "" {
@@ -513,9 +485,16 @@ func initSource(flagSource string) (string, error) {
 	return "", fmt.Errorf("could not resolve Skein source for config.json; run `strand init --source <skein-source>` or set SKEIN_SOURCE")
 }
 
+func incompleteDiscoveredWorldError(o Options) error {
+	return fmt.Errorf("selected config-dir %s is missing local source config; run `strand init --source <skein-source>` or set SKEIN_SOURCE", o.ConfigDir)
+}
+
 func (a *App) launchWeaver(o Options) error {
 	source, err := config.ResolveSource(o.Source)
 	if err != nil {
+		if o.Source == "" {
+			return incompleteDiscoveredWorldError(o)
+		}
 		return err
 	}
 	o.Source = source
@@ -525,6 +504,9 @@ func (a *App) launchWeaver(o Options) error {
 func (a *App) launchRepl(o Options, stdin bool) error {
 	source, err := config.ResolveSource(o.Source)
 	if err != nil {
+		if o.Source == "" {
+			return incompleteDiscoveredWorldError(o)
+		}
 		return err
 	}
 	o.Source = source
