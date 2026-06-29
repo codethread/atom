@@ -112,14 +112,6 @@ func TestResolveSourceSupportsLeadingHomeExpansion(t *testing.T) {
 	if resolved != homeSource {
 		t.Fatalf("unexpected resolved source: %q", resolved)
 	}
-
-	resolved, err = ResolveSource("~" + string(filepath.Separator) + "skein")
-	if err != nil {
-		t.Fatalf("expected leading ~/ path to resolve, got %v", err)
-	}
-	if resolved != homeSource {
-		t.Fatalf("unexpected resolved source: %q", resolved)
-	}
 }
 
 func TestResolveSourceRejectsRelativePath(t *testing.T) {

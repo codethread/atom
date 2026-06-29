@@ -465,22 +465,18 @@ func (a *App) bootstrapConfigDir(o Options) error {
 }
 
 func initSource(flagSource string) (string, error) {
-	candidates := []string{}
 	if flagSource != "" {
-		candidates = append(candidates, flagSource)
-	} else if env := os.Getenv("SKEIN_SOURCE"); env != "" {
-		candidates = append(candidates, env)
-	} else if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, cwd)
-	} else {
+		return config.ResolveSource(flagSource)
+	}
+	if env := os.Getenv("SKEIN_SOURCE"); env != "" {
+		return config.ResolveSource(env)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
 		return "", err
 	}
-	for _, candidate := range candidates {
-		if source, err := config.ResolveSource(candidate); err == nil {
-			return source, nil
-		} else if flagSource != "" || os.Getenv("SKEIN_SOURCE") != "" {
-			return "", err
-		}
+	if source, err := config.ResolveSource(cwd); err == nil {
+		return source, nil
 	}
 	return "", fmt.Errorf("could not resolve Skein source for config.json; run `strand init --source <skein-source>` or set SKEIN_SOURCE")
 }

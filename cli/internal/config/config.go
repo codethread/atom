@@ -134,36 +134,25 @@ func ResolveSource(source string) (string, error) {
 		return "", fmt.Errorf("client config source is required for weaver lifecycle commands; set source in %s", ConfigFileName)
 	}
 	resolvedSource := source
-	if strings.HasPrefix(source, "~") {
+	if source == "~" || strings.HasPrefix(source, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", err
 		}
 		if source == "~" {
 			resolvedSource = home
-		} else if strings.HasPrefix(source, "~/") {
-			resolvedSource = filepath.Join(home, source[2:])
-		} else if strings.HasPrefix(source, `~\\`) {
+		} else {
 			resolvedSource = filepath.Join(home, source[2:])
 		}
 	}
 	if !filepath.IsAbs(resolvedSource) {
 		return "", fmt.Errorf("client config source must be an absolute path: %s", resolvedSource)
 	}
-	st, err := os.Stat(resolvedSource)
-	if err != nil {
-		return "", fmt.Errorf("client config source must be an existing directory: %s", resolvedSource)
-	}
-	if !st.IsDir() {
+	if st, err := os.Stat(resolvedSource); err != nil || !st.IsDir() {
 		return "", fmt.Errorf("client config source must be an existing directory: %s", resolvedSource)
 	}
 	if st, err := os.Stat(filepath.Join(resolvedSource, "deps.edn")); err != nil || st.IsDir() {
 		return "", fmt.Errorf("client config source must contain deps.edn: %s", resolvedSource)
 	}
 	return resolvedSource, nil
-}
-
-func ValidateSource(source string) error {
-	_, err := ResolveSource(source)
-	return err
 }
