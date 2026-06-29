@@ -3,10 +3,10 @@
 **Document ID:** `WLH-PLAN-001`
 **Feature:** `weaver-lifecycle-hooks`
 **Proposal:** [proposal.md](./proposal.md)
-**RFC:** [RFC-008 Weaver Lifecycle Hooks](../../rfcs/2026-06-29-weaver-lifecycle-hooks.md)
+**RFC:** [RFC-008 Weaver Lifecycle Hooks](rfcs/2026-06-29-weaver-lifecycle-hooks.md)
 **Root specs:** [Weaver Runtime](../../specs/daemon-runtime.md), [REPL API](../../specs/repl-api.md), [CLI Surface](../../specs/cli.md), [Strand Model](../../specs/strand-model.md)
 **Feature specs:** [Weaver Runtime delta](specs/daemon-runtime.delta.md), [REPL API delta](specs/repl-api.delta.md), [CLI Surface delta](specs/cli.delta.md)
-**Status:** Reviewed
+**Status:** Shipped
 **Last Updated:** 2026-06-29
 
 ## WLH-PLAN-001.P1 Goal and scope
@@ -149,3 +149,9 @@ Append notes here. Do not rewrite earlier notes.
 - Extended smoke coverage so an isolated config-dir installs a hook from trusted startup config and rejects a CLI mutation with `hook/failed`.
 - No cut scope in this slice; archiving the feature folder remains outside Task 8.
 - Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`. `git status --short` showed no generated SQLite/runtime metadata artifacts.
+
+### WLH-PLAN-001.DN10 Finish/archive — 2026-06-29
+
+- Shipped scope: synchronous trusted lifecycle hook registry, `skein.hooks.alpha` helpers, JSON socket payload gates for mutation/userland operations, attribute normalization transforms, pre-commit policy hooks for strand and batch/pattern mutation paths, and `hook/failed` propagation.
+- Promoted durable contracts into canonical root specs before archive; feature-local deltas remain marked `Merged` as historical staging artifacts.
+- Archived implemented RFC-008 with this feature. No cut, deferred, or unpromoted scope.

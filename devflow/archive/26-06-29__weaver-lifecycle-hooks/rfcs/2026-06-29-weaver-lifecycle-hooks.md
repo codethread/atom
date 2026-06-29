@@ -1,7 +1,7 @@
 # Weaver Lifecycle Hooks
 
 **Document ID:** `RFC-008`
-**Status:** Open
+**Status:** Implemented
 **Created:** 2026-06-29
 **Related specs:** [Weaver Runtime](../specs/daemon-runtime.md), [CLI Surface](../specs/cli.md), [Strand Model](../specs/strand-model.md), [REPL API](../specs/repl-api.md)
 **Related code:** `src/skein/weaver/api.clj`, `src/skein/weaver/runtime.clj`, `src/skein/events/alpha.clj`, `src/skein/db.clj`, `cli/`
@@ -183,4 +183,4 @@ This matches the daemon-core-first architecture: the CLI remains a thin JSON con
 
 ## RFC-008.P14 Outcome
 
-- **RFC-008.OUT1:** Open for review. If accepted, follow-up work should create a feature folder for weaver lifecycle hooks, write daemon-runtime and REPL API spec deltas, then implement the hook registry and mutation/payload integration with focused tests.
+- **RFC-008.OUT1:** Implemented by `weaver-lifecycle-hooks` and archived with the shipped feature on 2026-06-29. Durable contracts live in the canonical root specs.

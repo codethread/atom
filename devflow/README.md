@@ -17,7 +17,6 @@ Root specs are canonical for shipped behavior:
 
 - `library-author-testing-support` — proposed library-author testing helpers and weaver storage support.
 - `repo-first-config` — proposed repo-local `.skein` world selection, layered shared/local config, and local library overrides.
-- `weaver-lifecycle-hooks` — shipped in root specs and awaiting the separate finish/archive procedure.
 
 ## Archived features
 
@@ -40,3 +39,4 @@ Archived feature folders preserve historical planning context. Current shipped c
 - `26-06-28__cli-attribute-inputs` — shipped file, stdin, and bulk JSON attribute input sources for `strand add`.
 - `26-06-28__batch-graph-upsert` — shipped transactional trusted Clojure batch graph mutation primitive with local refs, create/update/burn/edge upsert support, weaver events, and `skein.batch.alpha/apply!`.
 - `26-06-29__edge-relation-families` — shipped state lifecycle model, declared acyclic relation families, core supersession, edge predicates, relation-scoped traversal, and annotation catalog.
+- `26-06-29__weaver-lifecycle-hooks` — shipped synchronous trusted lifecycle hooks for payload gating, attribute normalization, and pre-commit mutation policy.
