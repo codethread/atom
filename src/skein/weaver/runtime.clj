@@ -173,6 +173,7 @@
      (.mkdirs (clojure.java.io/file (:state-dir world)))
      (.mkdirs (clojure.java.io/file (:data-dir world)))
      (let [ds (db/datasource canonical-path)
+           _ (db/init! ds)
            server (nrepl/start-server :bind loopback-host :port 0)
            port (:port server)
            nonce (metadata/new-nonce)
@@ -236,22 +237,36 @@
     (metadata/delete! {:state-dir state-dir}))
   {:stopped true})
 
+(defn- require-main-dir! [opts k flag]
+  (or (get opts k)
+      (throw (ex-info (str flag " is required") {:args opts :missing flag}))))
+
 (defn- parse-main-args [args]
   (loop [remaining args
          opts {}]
     (case (first remaining)
-      nil opts
+      nil {:config-dir (require-main-dir! opts :config-dir "--config-dir")
+           :state-dir (require-main-dir! opts :state-dir "--state-dir")
+           :data-dir (require-main-dir! opts :data-dir "--data-dir")}
       "--config-dir" (let [[_ dir & more] remaining]
                        (when-not dir
                          (throw (ex-info "--config-dir requires a directory" {:args args})))
                        (recur more (assoc opts :config-dir dir)))
-      (throw (ex-info "Usage: skein.weaver.runtime [--config-dir <dir>]" {:args args})))))
+      "--state-dir" (let [[_ dir & more] remaining]
+                      (when-not dir
+                        (throw (ex-info "--state-dir requires a directory" {:args args})))
+                      (recur more (assoc opts :state-dir dir)))
+      "--data-dir" (let [[_ dir & more] remaining]
+                     (when-not dir
+                       (throw (ex-info "--data-dir requires a directory" {:args args})))
+                     (recur more (assoc opts :data-dir dir)))
+      (throw (ex-info "Usage: skein.weaver.runtime --config-dir <dir> --state-dir <dir> --data-dir <dir>" {:args args})))))
 
 (defn -main
   "Start a foreground weaver process from command-line arguments."
   [& args]
-  (let [{:keys [config-dir]} (parse-main-args args)]
-    (start! nil {:world (config/world config-dir)})
+  (let [{:keys [config-dir state-dir data-dir]} (parse-main-args args)]
+    (start! nil {:world (config/world config-dir state-dir data-dir)})
     (println "weaver started")
     (while @current-runtime
       (Thread/sleep 100))))

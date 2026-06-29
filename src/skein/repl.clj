@@ -14,6 +14,7 @@
 
 (def ^:private no-connection ::no-connection)
 (defonce ^:private active-config-dir (atom no-connection))
+(defonce ^:private active-state-dir (atom no-connection))
 
 (defn connected-config-dir
   "Return the selected weaver config directory for connected helper routing.
@@ -30,6 +31,10 @@
 (defn- config-dir []
   (connected-config-dir))
 
+(defn- state-dir []
+  (when-not (= no-connection @active-state-dir)
+    @active-state-dir))
+
 (defn connect!
   "Select the active weaver world for helper calls.
 
@@ -41,19 +46,28 @@
    (throw (ex-info "connect! requires an explicit config-dir; use `strand weaver repl` from a repo world or call (connect! \"/path/to/config-dir\")"
                    {:helper 'connect! :code :skein.repl/no-selected-world})))
   ([config-dir]
+   (connect! config-dir nil))
+  ([config-dir state-dir]
    (reset! active-config-dir no-connection)
+   (reset! active-state-dir no-connection)
    (when (and config-dir (.isFile (java.io.File. config-dir)))
      (throw (ex-info "connect! expects a daemon config directory, not a database file" {:config-dir config-dir})))
-   (let [world (daemon-config/world config-dir)]
-     (client/status-world (:config-dir world))
+   (let [world (if state-dir
+                 (daemon-config/world config-dir state-dir (str state-dir "/data"))
+                 (daemon-config/world config-dir))]
+     (client/status-world (:config-dir world) (cond-> {}
+                                                state-dir (assoc :state-dir (:state-dir world))))
      (reset! active-config-dir (:config-dir world))
+     (when state-dir
+       (reset! active-state-dir (:state-dir world)))
      (:config-dir world))))
 
 (declare call-daemon)
 
 (defn- daemon [op & args]
   (let [dir (config-dir)]
-    (call-daemon #(apply client/call-world dir {} op args))))
+    (call-daemon #(apply client/call-world dir (cond-> {}
+                                                 (state-dir) (assoc :state-dir (state-dir))) op args))))
 
 (defn init!
   "Initialize the active weaver store schema."
@@ -264,20 +278,23 @@
 (defn -main
   "Start a connected Skein helper REPL or evaluate stdin forms.
 
-  Usage: `skein.repl [--stdin] [config-dir]`. Interactive mode starts a plain
+  Usage: `skein.repl [--stdin] [config-dir] [state-dir]`. Interactive mode starts a plain
   Clojure REPL in this namespace. Stdin mode evaluates each top-level form in
   order, prints one result per form, and exits non-zero on evaluation failure."
   [& args]
-  (let [[mode config-dir] (case (count args)
-                            0 [:repl nil]
-                            1 (if (= "--stdin" (first args))
-                                [:stdin nil]
-                                [:repl (first args)])
-                            2 (if (= "--stdin" (first args))
-                                [:stdin (second args)]
-                                (throw (ex-info "Usage: skein.repl [--stdin] [config-dir]" {:args args})))
-                            (throw (ex-info "Usage: skein.repl [--stdin] [config-dir]" {:args args})))]
-    (connect! config-dir)
+  (let [[mode config-dir state-dir] (case (count args)
+                                      0 [:repl nil nil]
+                                      1 (if (= "--stdin" (first args))
+                                          [:stdin nil nil]
+                                          [:repl (first args) nil])
+                                      2 (if (= "--stdin" (first args))
+                                          [:stdin (second args) nil]
+                                          [:repl (first args) (second args)])
+                                      3 (if (= "--stdin" (first args))
+                                          [:stdin (second args) (nth args 2)]
+                                          (throw (ex-info "Usage: skein.repl [--stdin] [config-dir] [state-dir]" {:args args})))
+                                      (throw (ex-info "Usage: skein.repl [--stdin] [config-dir] [state-dir]" {:args args})))]
+    (connect! config-dir state-dir)
     (binding [*ns* (the-ns 'skein.repl)]
       (case mode
         :stdin (try

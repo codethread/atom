@@ -94,6 +94,18 @@ func ReadMillMetadata() (MillMetadata, error) {
 	return metadata, nil
 }
 
+func samePath(a, b string) bool {
+	ca, errA := filepath.EvalSymlinks(filepath.Clean(a))
+	if errA != nil {
+		ca = filepath.Clean(a)
+	}
+	cb, errB := filepath.EvalSymlinks(filepath.Clean(b))
+	if errB != nil {
+		cb = filepath.Clean(b)
+	}
+	return ca == cb
+}
+
 func readMillMetadata() (MillMetadata, error) {
 	file, err := config.MillMetadataPath()
 	if err != nil {
@@ -117,10 +129,10 @@ func readMillMetadata() (MillMetadata, error) {
 	if m.ProtocolVersion != MillProtocolVersion || m.PID == 0 || m.MillID == "" || m.StateRoot == "" || m.SocketPath == "" || m.StartedAt == "" {
 		return MillMetadata{}, errors.New("malformed mill metadata: missing required fields")
 	}
-	if filepath.Clean(m.StateRoot) != root {
+	if !samePath(m.StateRoot, root) {
 		return MillMetadata{}, fmt.Errorf("mill metadata state root mismatch: %s", m.StateRoot)
 	}
-	if filepath.Clean(m.SocketPath) != filepath.Join(root, config.MillSocketFileName) {
+	if !samePath(m.SocketPath, filepath.Join(root, config.MillSocketFileName)) {
 		return MillMetadata{}, fmt.Errorf("mill metadata socket mismatch: %s", m.SocketPath)
 	}
 	if !pidAlive(m.PID) {

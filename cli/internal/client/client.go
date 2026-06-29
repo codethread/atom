@@ -177,10 +177,10 @@ func (c *SocketClient) metadata() (Metadata, string, error) {
 	if m.ProtocolVersion != protocolVersion || m.PID == 0 || m.DatabasePath == "" || m.DaemonID == "" || m.ConfigDir == "" || m.DataDir == "" || m.SocketPath == "" || m.StartedAt == "" || m.NREPL.Host == "" || m.NREPL.Port == 0 {
 		return Metadata{}, "", c.daemonStateError("malformed weaver metadata: missing required fields")
 	}
-	if c.Config.ConfigDir != "" && filepath.Clean(m.ConfigDir) != filepath.Clean(c.Config.ConfigDir) {
+	if c.Config.ConfigDir != "" && !samePath(m.ConfigDir, c.Config.ConfigDir) {
 		return Metadata{}, "", c.daemonStateError("weaver metadata config dir mismatch: %s", m.ConfigDir)
 	}
-	if filepath.Clean(m.SocketPath) != filepath.Join(c.Config.StateDir, "weaver.sock") {
+	if !samePath(m.SocketPath, filepath.Join(c.Config.StateDir, "weaver.sock")) {
 		return Metadata{}, "", c.daemonStateError("weaver metadata socket mismatch: %s", m.SocketPath)
 	}
 	if !pidAlive(m.PID) {

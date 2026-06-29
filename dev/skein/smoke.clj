@@ -157,10 +157,11 @@
 (defn start-cli-daemon-config!
   ([config-dir] (start-cli-daemon-config! config-dir []))
   ([config-dir daemon-args]
-   (let [process (-> (ProcessBuilder. (into [strand-bin "--config-dir" config-dir "weaver" "start"] daemon-args))
-                     (.directory (outside-repo-dir))
-                     (.redirectErrorStream true)
-                     (.start))]
+   (let [builder (doto (ProcessBuilder. (into [strand-bin "--config-dir" config-dir "weaver" "start"] daemon-args))
+                   (.directory (outside-repo-dir))
+                   (.redirectErrorStream true))
+         _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))
+         process (.start builder)]
      (loop [attempts 50]
        (when-not (.isAlive process)
          (throw (ex-info "CLI weaver exited before becoming ready" {:output (slurp (.getInputStream process))})))
@@ -240,7 +241,7 @@
                   [strand-bin "--config-dir" config-dir "init"])
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
-        (run-cli-config-stdin! config-dir "(init!)\n" "weaver" "repl" "--stdin")
+        (run-cli-config! config-dir "weaver" "status")
         (assert (.isFile config-file) "clean bootstrap preserves/creates config.json")
         (assert-file-contents (java.io.File. config-dir "libs.edn") "{:libs {}}\n" "clean bootstrap creates empty libs.edn")
         (assert-file-contents (java.io.File. config-dir "init.clj") "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n" "clean bootstrap creates libs sync init.clj template")
@@ -271,7 +272,7 @@
     (run-cli-config! config-dir "init")
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
-        (run-cli-config-stdin! config-dir "(init!)\n" "weaver" "repl" "--stdin")
+        (run-cli-config! config-dir "weaver" "status")
         (assert-file-contents config-path original-config "dirty bootstrap does not rewrite existing config.json")
         (assert-file-contents libs-path original-libs "dirty bootstrap does not rewrite existing libs.edn")
         (assert-file-contents init-path original-init "dirty bootstrap does not rewrite existing init.clj")
@@ -295,7 +296,7 @@
           (str "(ns smoke.startup\n  (:require [clojure.spec.alpha :as s]\n            [skein.libs.alpha :as libs]\n            [skein.events.alpha :as events]\n            [skein.graph.alpha :as graph]\n            [skein.hooks.alpha :as hooks]\n            [skein.views.alpha :as views]\n            [skein.weaver.api :as api]))\n(libs/sync!)\n(api/register-query! 'smoke-owned [:= [:attr :owner] \"smoke\"])\n(s/def ::title string?)\n(s/def ::review-input (s/keys :req-un [::title]))\n(defn reject-blocked-owner [ctx]\n  (when (= \"blocked\" (get-in ctx [:strand/after :attributes :owner]))\n    (throw (ex-info \"smoke hook rejected blocked owner\" {:code :smoke/blocked-owner}))))\n(hooks/register! :smoke/reject-blocked-owner #{:strand/add-before-commit} 'smoke.startup/reject-blocked-owner)\n(defn review-pattern [{:keys [input]}]\n  (let [title (:title input)]\n    [{:ref 'impl :title title :attributes {:owner \"smoke\"}}\n     {:ref 'review :title (str \"Review: \" title) :attributes {:kind \"review\"} :edges [{:type \"depends-on\" :to 'impl}]}]))\n(api/register-pattern! 'review-task 'smoke.startup/review-pattern ::review-input)\n(def event-marker " (pr-str (.getCanonicalPath event-marker)) ")\n(defn record-added! [event]\n  (spit event-marker (:title (:strand event))))\n(defn smoke-owned-view [{:keys [params]}]\n  (let [ids (graph/query-ids! 'smoke-owned {})]\n    {:params params\n     :ids ids\n     :strands (graph/strands-by-ids ids)}))\n(views/register-view! 'smoke-owned-view 'smoke.startup/smoke-owned-view)\n(events/register! :smoke/record-added #{:strand/added} 'smoke.startup/record-added! {:source :smoke})\n"))
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
-        (run-cli-config-stdin! config-dir "(init!)\n" "weaver" "repl" "--stdin")
+        (run-cli-config! config-dir "weaver" "status")
         (let [strand-id (cli-add-config! config-dir "Startup transformed strand" "--attr" "owner=smoke")
               rejected-output (run-cli-config-fails! config-dir "add" "Hook rejected strand" "--attr" "owner=blocked")
               _ (assert-contains rejected-output "hook/failed" "startup hook rejection reaches CLI as hook/failed")

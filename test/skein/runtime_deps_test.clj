@@ -4,6 +4,11 @@
             [nrepl.core :as nrepl]
             [skein.weaver.config :as daemon-config]
             [skein.weaver.runtime :as runtime]))
+(defn test-world [config-dir]
+  (daemon-config/world config-dir
+                       (str config-dir "/state")
+                       (str config-dir "/data")))
+
 
 (defn- temp-dir [prefix]
   (.toFile (java.nio.file.Files/createTempDirectory
@@ -41,7 +46,7 @@
   (let [config-dir (temp-dir "skein-runtime-deps-config")
         suffix (str "s" (.replace (str (java.util.UUID/randomUUID)) "-" ""))]
     (try
-      (let [world (daemon-config/world (.getCanonicalPath config-dir))
+      (let [world (test-world (.getCanonicalPath config-dir))
             rt (runtime/start! nil {:world world})
             {:keys [root lib ns marker]} (write-hot-lib! config-dir suffix)]
         (try

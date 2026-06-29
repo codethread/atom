@@ -76,9 +76,14 @@
   "Return validated runtime metadata for config-dir's weaver world.
 
   Fails when metadata is missing, stale, for another config dir, or points at a
-  non-loopback endpoint. Requires an explicit selected config dir."
-  [config-dir]
-  (let [world (config/world config-dir)
+  non-loopback endpoint. Requires an explicit selected config dir. An explicit
+  state dir may be supplied by mill-routed helpers."
+  ([config-dir]
+   (metadata-for-world config-dir nil))
+  ([config-dir state-dir]
+   (let [world (if state-dir
+                 (config/world config-dir state-dir (str state-dir "/data"))
+                 (config/world config-dir))
          meta (metadata/read-metadata world)]
      (when (metadata/stale-or-missing? meta)
        (fail "Weaver metadata is missing or stale" {:type :skein.client/missing-or-stale-metadata
@@ -92,7 +97,7 @@
      (when-not (loopback-host? (get-in meta [:endpoint :host]))
        (fail "Weaver metadata endpoint is not loopback" {:type :skein.client/non-local-endpoint
                                                           :endpoint (:endpoint meta)}))
-     meta))
+     meta)))
 
 (def ^:private hooked-operation-request-contexts
   {:add {:request/source :nrepl :request/operation :add}
@@ -196,8 +201,8 @@
 
 (defn call-world
   "Call a weaver API operation in config-dir's world and return Clojure data."
-  [config-dir {:keys [timeout-ms] :or {timeout-ms default-timeout-ms}} op & args]
-  (let [meta (metadata-for-world config-dir)]
+  [config-dir {:keys [timeout-ms state-dir] :or {timeout-ms default-timeout-ms}} op & args]
+  (let [meta (metadata-for-world config-dir state-dir)]
     (with-open [conn (connect meta timeout-ms)]
       (verify-identity! conn meta timeout-ms)
       (eval-form conn (fixed-form op args) timeout-ms {:operation op
@@ -207,7 +212,7 @@
   "Return identity metadata for the running weaver in config-dir's world."
   [config-dir & [opts]]
   (let [timeout-ms (:timeout-ms (or opts {}) default-timeout-ms)
-        meta (metadata-for-world config-dir)]
+        meta (metadata-for-world config-dir (:state-dir opts))]
     (with-open [conn (connect meta timeout-ms)]
       (verify-identity! conn meta timeout-ms))))
 
@@ -215,7 +220,7 @@
   "Stop the running weaver in config-dir's world."
   [config-dir & [opts]]
   (let [timeout-ms (:timeout-ms (or opts {}) default-timeout-ms)
-        meta (metadata-for-world config-dir)]
+        meta (metadata-for-world config-dir (:state-dir opts))]
     (with-open [conn (connect meta timeout-ms)]
       (verify-identity! conn meta timeout-ms)
       (eval-form conn (stop-form) timeout-ms {:operation :stop

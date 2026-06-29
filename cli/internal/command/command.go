@@ -19,8 +19,8 @@ type App struct {
 	Stdin          io.Reader
 }
 type Options struct {
-	ConfigDir, StateDir, Source string
-	ConfigDirExplicit           bool
+	ConfigDir, StateDir, DataDir, Source string
+	ConfigDirExplicit                    bool
 }
 type ExitError struct {
 	Code int
@@ -316,6 +316,7 @@ func resolveOptions(o Options) (Options, error) {
 	o.Source = cfg.Source
 	o.ConfigDir = world.ConfigDir
 	o.StateDir = world.StateDir
+	o.DataDir = world.DataDir
 	if !o.ConfigDirExplicit && o.Source == "" {
 		return o, incompleteDiscoveredWorldError(o)
 	}
@@ -339,6 +340,12 @@ func weaverArgs(o Options) []string {
 	if o.ConfigDir != "" {
 		args = append(args, "--config-dir", o.ConfigDir)
 	}
+	if o.StateDir != "" {
+		args = append(args, "--state-dir", o.StateDir)
+	}
+	if o.DataDir != "" {
+		args = append(args, "--data-dir", o.DataDir)
+	}
 	return args
 }
 
@@ -349,6 +356,9 @@ func replArgs(o Options, stdin bool) []string {
 	}
 	if o.ConfigDir != "" {
 		args = append(args, o.ConfigDir)
+	}
+	if o.StateDir != "" {
+		args = append(args, o.StateDir)
 	}
 	return args
 }

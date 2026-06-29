@@ -114,3 +114,8 @@ Outcome: Go, Clojure, integration, smoke, README, getting-started, Makefile, and
 
 - `strand init` now sends cwd, optional config-dir, and optional source to the reachable mill and no longer contacts a weaver or runs `git init`. Mill owns repo/config bootstrap and requires implicit init callers to be inside a Git worktree.
 - Bootstrap preserves existing config files and creates only missing workspace files. Smoke uses `strand init` for config bootstrap and trusted REPL `init!` where existing smoke flows still need database initialization until later slices move storage initialization into weaver startup.
+
+### PLAN-MillRouterRuntime-001.DN5 Task 4 blocked notes — 2026-06-29
+
+- Implemented explicit weaver config/state/data dirs, XDG metadata/socket/data placement, startup schema initialization, and JSON socket init removal. `clojure -M:test` and `go test ./...` pass.
+- Full smoke remains blocked in the startup-transform connected REPL path: `strand weaver repl --stdin` reports stale/missing metadata after XDG weaver startup. Finishing that likely belongs to the later REPL attachment slice rather than storage startup.

@@ -12,20 +12,27 @@
    :config-file (str config-dir "/config.json")
    :db-path (str data-dir "/skein.sqlite")})
 
+(defn- require-dir! [value label]
+  (when-not (seq (str value))
+    (throw (ex-info (str "No Skein " label " selected; pass explicit config, state, and data dirs")
+                    {:code :skein.config/missing-world-dir
+                     :dir label})))
+  (canonical-path value))
+
 (defn world
   "Return the config, state, and data paths for an explicit weaver world.
 
-  `config-dir` is the selected Skein world directory supplied by the CLI or by
-  tests/helpers that intentionally construct disposable worlds. State and data
-  directories are derived below the canonical config directory. Calling without a
-  config dir fails loudly so Clojure helpers do not silently target XDG global
-  state when ordinary CLI use is repo-first."
+  `config-dir`, `state-dir`, and `data-dir` are independent selected-world
+  inputs supplied by mill or by tests/helpers that intentionally construct
+  disposable worlds. Calling without all three dirs fails loudly so Clojure
+  entry points cannot silently derive runtime state from config-dir."
   ([]
-   (throw (ex-info "No Skein config dir selected; pass an explicit config-dir from the CLI, repo discovery, or a disposable test world"
+   (throw (ex-info "No Skein config dir selected; pass explicit config, state, and data dirs"
                    {:code :skein.config/no-selected-world})))
   ([config-dir]
-   (when-not (seq (str config-dir))
-     (throw (ex-info "No Skein config dir selected; pass an explicit config-dir from the CLI, repo discovery, or a disposable test world"
-                     {:code :skein.config/no-selected-world})))
-   (let [dir (canonical-path config-dir)]
-     (world-map dir (str dir "/state") (str dir "/data")))))
+   (let [dir (require-dir! config-dir "config-dir")]
+     (world-map dir (str dir "/state") (str dir "/data"))))
+  ([config-dir state-dir data-dir]
+   (world-map (require-dir! config-dir "config-dir")
+              (require-dir! state-dir "state-dir")
+              (require-dir! data-dir "data-dir"))))

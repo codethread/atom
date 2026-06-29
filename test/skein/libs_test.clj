@@ -9,6 +9,11 @@
             [skein.weaver.runtime :as runtime]
             [skein.db-test :as db-test]
             [skein.repl :as repl]))
+(defn test-world [config-dir]
+  (daemon-config/world config-dir
+                       (str config-dir "/state")
+                       (str config-dir "/data")))
+
 
 (defn- temp-config-dir []
   (doto (.toFile (java.nio.file.Files/createTempDirectory
@@ -30,7 +35,7 @@
   (let [db-file (db-test/temp-db-file)
         config-dir (temp-config-dir)]
     (try
-      (let [rt (runtime/start! db-file {:world (daemon-config/world (.getCanonicalPath config-dir))})]
+      (let [rt (runtime/start! db-file {:world (test-world (.getCanonicalPath config-dir))})]
         (try
           (f rt config-dir)
           (finally
@@ -362,7 +367,7 @@
                  "  (require '" ns-sym ")\n"
                  "  (spit " (pr-str (str result-file))
                  " (pr-str ((requiring-resolve '" (symbol (str ns-sym "/marker")) ")))))\n"))
-      (let [rt (runtime/start! db-file {:world (daemon-config/world (.getCanonicalPath config-dir))})]
+      (let [rt (runtime/start! db-file {:world (test-world (.getCanonicalPath config-dir))})]
         (try
           (is (= :synced-lib-loaded (read-string (slurp result-file))))
           (is (= :loaded (get-in (libs/syncs) [:libs lib :status])))

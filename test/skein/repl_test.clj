@@ -6,6 +6,11 @@
             [skein.weaver.runtime :as runtime]
             [skein.db-test :as db-test]
             [skein.repl :as repl]))
+(defn test-world [config-dir]
+  (daemon-config/world config-dir
+                       (str config-dir "/state")
+                       (str config-dir "/data")))
+
 
 (defn reset-open-state! []
   (reset! (var-get (ns-resolve 'skein.repl 'active-config-dir))
@@ -15,7 +20,7 @@
   (let [db-file (db-test/temp-db-file)
         config-dir (str "/tmp/td-" (java.util.UUID/randomUUID))]
     (.mkdirs (java.io.File. config-dir))
-    (let [world (daemon-config/world config-dir)
+    (let [world (test-world config-dir)
           rt (runtime/start! db-file {:world world})]
       (try
         (f rt db-file)
@@ -178,7 +183,7 @@
                (repl/queries)))
         (is (= [agent] (mapv :id (repl/strands 'mine))))
         (runtime/stop! rt)
-        (let [fresh-rt (runtime/start! db-file {:world (daemon-config/world (:config-dir (:metadata rt)))})]
+        (let [fresh-rt (runtime/start! db-file {:world (test-world (:config-dir (:metadata rt)))})]
           (try
             (is (= {} (repl/queries)))
             (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -203,7 +208,7 @@
   (let [db-file (db-test/temp-db-file)
         config-dir (str "/tmp/td-" (java.util.UUID/randomUUID))]
     (.mkdirs (java.io.File. config-dir))
-    (let [world (daemon-config/world config-dir)
+    (let [world (test-world config-dir)
           rt (runtime/start! db-file {:world world})]
       (try
         (repl/connect! (:config-dir (:metadata rt)))

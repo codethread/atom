@@ -20,10 +20,16 @@
     (.delete f)))
 
 (defn temp-world []
-  (let [file (java.io.File/createTempFile "tdx" "")]
-    (.delete file)
-    (.mkdirs file)
-    (weaver-config/world (.getCanonicalPath file))))
+  (let [root (java.io.File/createTempFile "tdx" "")]
+    (.delete root)
+    (.mkdirs root)
+    (let [config-dir (io/file root "config")
+          state-dir (io/file root "state")
+          data-dir (io/file root "data")]
+      (.mkdirs config-dir)
+      (weaver-config/world (.getCanonicalPath config-dir)
+                           (.getCanonicalPath state-dir)
+                           (.getCanonicalPath data-dir)))))
 
 (defn with-runtime
   ([f] (with-runtime nil f))
@@ -223,15 +229,61 @@
                         #"No Skein config dir selected"
                         (weaver-config/world)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"No Skein config dir selected"
+                        #"No Skein config-dir selected"
                         (weaver-config/world nil)))
-  (let [dir (.getCanonicalPath (.toFile (java.nio.file.Files/createTempDirectory "tdx" (make-array java.nio.file.attribute.FileAttribute 0))))]
-    (is (= {:config-dir dir
-            :state-dir (str dir "/state")
-            :data-dir (str dir "/data")
-            :config-file (str dir "/config.json")
-            :db-path (str dir "/data/skein.sqlite")}
-           (weaver-config/world dir)))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"state-dir"
+                        (weaver-config/world "/tmp/config" nil "/tmp/data")))
+  (let [root (.getCanonicalFile (.toFile (java.nio.file.Files/createTempDirectory "tdx" (make-array java.nio.file.attribute.FileAttribute 0))))
+        config-dir (.getPath (io/file root "config"))
+        state-dir (.getPath (io/file root "state"))
+        data-dir (.getPath (io/file root "data"))]
+    (is (= {:config-dir config-dir
+            :state-dir state-dir
+            :data-dir data-dir
+            :config-file (str config-dir "/config.json")
+            :db-path (str data-dir "/skein.sqlite")}
+           (weaver-config/world config-dir state-dir data-dir)))))
+
+(deftest startup-uses-independent-xdg-world-dirs-and-initializes-storage
+  (let [world (temp-world)
+        rt (runtime/start! nil {:world world})]
+    (try
+      (let [metadata (:metadata rt)]
+        (is (= (:config-dir world) (:config-dir metadata)))
+        (is (= (:state-dir world) (:state-dir metadata)))
+        (is (= (:data-dir world) (:data-dir metadata)))
+        (is (= (:db-path world) (:canonical-db-path metadata)))
+        (is (.isFile (io/file (:state-dir world) "weaver.edn")))
+        (is (.isFile (io/file (:state-dir world) "weaver.json")))
+        (is (.exists (io/file (:state-dir world) "weaver.sock")))
+        (is (.isFile (io/file (:data-dir world) "skein.sqlite")))
+        (is (= ["depends-on" "parent-of" "supersedes"] (api/acyclic-relations rt)))
+        (is (seq (db/execute! (:datasource rt) ["SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'strands'"]))))
+      (finally
+        (runtime/stop! rt)
+        (delete-tree! (io/file (:config-dir world) ".."))))))
+
+(deftest startup-fails-clearly-when-required-main-dirs-are-missing
+  (let [parse-main-args (ns-resolve 'skein.weaver.runtime 'parse-main-args)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--config-dir is required"
+                          (parse-main-args [])))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--state-dir is required"
+                          (parse-main-args ["--config-dir" "/tmp/c" "--data-dir" "/tmp/d"])))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--data-dir is required"
+                          (parse-main-args ["--config-dir" "/tmp/c" "--state-dir" "/tmp/s"])))))
+
+(deftest startup-failing-init-aborts-before-ready-metadata
+  (let [world (temp-world)]
+    (try
+      (spit (io/file (:config-dir world) "init.clj")
+            "(throw (ex-info \"init boom\" {:source :shared}))\n")
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"startup file failed"
+                            (runtime/start! nil {:world world})))
+      (is (nil? (metadata/read-metadata world)))
+      (is (not (.exists (io/file (:state-dir world) "weaver.json"))))
+      (finally
+        (delete-tree! (io/file (:config-dir world) ".."))))))
 
 (deftest startup-loads-layered-init-files-in-order
   (let [db-file (db-test/temp-db-file)
@@ -1403,8 +1455,7 @@
       (api/register-query rt 'all [:= :state "active"])
       (let [strand-id (get-in (socket-request rt "add" {"title" "Exempt target" "attributes" {}}) ["result" "id"])]
         (reset! hook-contexts [])
-        (doseq [[op args] [["init" {}]
-                           ["status" {}]
+        (doseq [[op args] [["status" {}]
                            ["show" {"id" strand-id}]
                            ["list" {}]
                            ["ready" {}]
@@ -1590,7 +1641,9 @@
 (deftest json-socket-dispatches-success-domain-and-protocol-errors
   (with-runtime
     (fn [rt _]
-      (is (= true (get (socket-request rt "init" {}) "ok")))
+      (let [removed-init (socket-request rt "init" {})]
+        (is (false? (get removed-init "ok")))
+        (is (= "protocol/operation-not-allowed" (get-in removed-init ["error" "code"]))))
       (let [added (socket-request rt "add" {"title" "Socket task" "state" "active" "attributes" {"owner" "go"}})]
         (is (true? (get added "ok")))
         (is (= "Socket task" (get-in added ["result" "title"])))
@@ -1653,15 +1706,12 @@
           (is (= :strand/updated (:event/type event)))
           (is (= {:state "closed"} (:strand/patch event))))))))
 
-(deftest json-socket-reports-uninitialized-database
+(deftest json-socket-store-is-ready-after-startup
   (with-runtime
     (fn [rt _]
       (let [response (socket-request rt "list" {})]
-        (is (= false (get response "ok")))
-        (is (= "domain" (get-in response ["error" "type"])))
-        (is (= "database/not-initialized" (get-in response ["error" "code"])))
-        (is (= "Database is not initialized; run `strand init` first"
-               (get-in response ["error" "message"])))))))
+        (is (= true (get response "ok")))
+        (is (= [] (get response "result")))))))
 
 (deftest json-socket-rejects-identity-mismatch
   (with-runtime

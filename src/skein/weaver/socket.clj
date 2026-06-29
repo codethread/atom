@@ -11,7 +11,7 @@
            [org.sqlite SQLiteException]))
 
 (def ^:private allowed-operations
-  #{"init" "add" "update" "supersede" "show" "burn" "list" "ready" "list-query" "ready-query" "weave" "pattern-explain" "op" "status" "stop"})
+  #{"add" "update" "supersede" "show" "burn" "list" "ready" "list-query" "ready-query" "weave" "pattern-explain" "op" "status" "stop"})
 
 (def ^:private required-request-keys
   #{"protocol_version" "request_id" "weaver_id" "operation" "arguments" "options"})
@@ -72,7 +72,6 @@
         args (get req "arguments")]
     (when-not
       (case op
-        "init" (= {} args)
         "list" (and (every? #{"state"} (keys args))
                     (or (not (contains? args "state")) (contains? readable-states (get args "state"))))
         "ready" (= {} args)
@@ -143,6 +142,7 @@
      "pid" (:pid m)
      "protocol_version" (:protocol-version m)
      "config_dir" (:config-dir m)
+     "state_dir" (:state-dir m)
      "data_dir" (:data-dir m)
      "database_path" (:canonical-db-path m)
      "weaver_id" (:nonce m)
@@ -194,7 +194,6 @@
 
 (defn- dispatch [runtime op args]
   (case op
-    "init" ((api 'init) runtime)
     "add" ((api 'add) runtime (cond-> {:title (get args "title")
                                          :attributes (get args "attributes")}
                                   (contains? args "state") (assoc :state (get args "state")))

@@ -8,6 +8,11 @@
             [skein.weaver.metadata :as metadata]
             [skein.weaver.runtime :as runtime]
             [skein.db-test :as db-test]))
+(defn test-world [config-dir]
+  (daemon-config/world config-dir
+                       (str config-dir "/state")
+                       (str config-dir "/data")))
+
 
 (defn delete-tree! [file]
   (doseq [f (reverse (file-seq file))]
@@ -18,7 +23,7 @@
                       (.toPath (java.io.File. "/tmp"))
                       "tcw"
                       (make-array java.nio.file.attribute.FileAttribute 0)))]
-    (daemon-config/world (.getCanonicalPath dir))))
+    (test-world (.getCanonicalPath dir))))
 
 (defn client-test-view [{:keys [params]}]
   {:client-view params})

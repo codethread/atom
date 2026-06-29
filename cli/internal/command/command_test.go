@@ -371,12 +371,12 @@ func TestWeaverStartLaunchesFromConfiguredSource(t *testing.T) {
 	if launched.Source != source || launched.ConfigDir != realCfg || !launched.ConfigDirExplicit {
 		t.Fatalf("unexpected launch options: %#v", launched)
 	}
-	if !reflect.DeepEqual(weaverArgs(launched), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg}) {
+	if !reflect.DeepEqual(weaverArgs(launched), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg, "--state-dir", launched.StateDir, "--data-dir", launched.DataDir}) {
 		t.Fatalf("unexpected explicit weaver args: %#v", weaverArgs(launched))
 	}
 	defaultLaunch := launched
 	defaultLaunch.ConfigDirExplicit = false
-	if !reflect.DeepEqual(weaverArgs(defaultLaunch), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg}) {
+	if !reflect.DeepEqual(weaverArgs(defaultLaunch), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg, "--state-dir", launched.StateDir, "--data-dir", launched.DataDir}) {
 		t.Fatalf("unexpected discovered weaver args: %#v", weaverArgs(defaultLaunch))
 	}
 }
@@ -412,7 +412,7 @@ func TestWeaverReplVerifiesWeaverAndLaunchesFromConfiguredSource(t *testing.T) {
 	if launched.Source != source || launched.ConfigDir != realCfg || !launched.ConfigDirExplicit || !launchedStdin {
 		t.Fatalf("unexpected repl launch: %#v stdin=%v", launched, launchedStdin)
 	}
-	if !reflect.DeepEqual(replArgs(launched, true), []string{"-M", "-m", "skein.repl", "--stdin", realCfg}) {
+	if !reflect.DeepEqual(replArgs(launched, true), []string{"-M", "-m", "skein.repl", "--stdin", realCfg, launched.StateDir}) {
 		t.Fatalf("unexpected repl args: %#v", replArgs(launched, true))
 	}
 	if len(fc.calls) != 1 || fc.calls[0].op != "status" {
@@ -608,7 +608,7 @@ func TestDiscoveredWeaverStartLaunchesWithRepoConfigDir(t *testing.T) {
 	if launched.ConfigDir != realCfg || launched.ConfigDirExplicit || launched.Source != source {
 		t.Fatalf("unexpected discovered launch options: %#v", launched)
 	}
-	if !reflect.DeepEqual(weaverArgs(launched), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg}) {
+	if !reflect.DeepEqual(weaverArgs(launched), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg, "--state-dir", launched.StateDir, "--data-dir", launched.DataDir}) {
 		t.Fatalf("unexpected discovered weaver args: %#v", weaverArgs(launched))
 	}
 }

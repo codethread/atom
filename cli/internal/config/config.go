@@ -74,11 +74,7 @@ func InitWorld(configDir string) (World, error) {
 }
 
 func isolatedWorld(configDir string) (World, error) {
-	identity, err := CanonicalConfigIdentity(configDir)
-	if err != nil {
-		return World{}, err
-	}
-	return world(identity, filepath.Join(identity, "state"), filepath.Join(identity, "data")), nil
+	return RuntimeWorld(configDir)
 }
 
 func world(configDir, stateDir, dataDir string) World {

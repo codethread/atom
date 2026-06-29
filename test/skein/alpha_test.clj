@@ -10,6 +10,11 @@
             [skein.weaver.runtime :as runtime]
             [skein.db-test :as db-test]
             [skein.repl :as repl]))
+(defn test-world [config-dir]
+  (daemon-config/world config-dir
+                       (str config-dir "/state")
+                       (str config-dir "/data")))
+
 
 (defn reset-repl-state! []
   (reset! (var-get (ns-resolve 'skein.repl 'active-config-dir))
@@ -19,7 +24,7 @@
   (let [db-file (db-test/temp-db-file)
         config-dir (str "/tmp/skein-alpha-" (java.util.UUID/randomUUID))]
     (.mkdirs (java.io.File. config-dir))
-    (let [rt (runtime/start! db-file {:world (daemon-config/world config-dir)})]
+    (let [rt (runtime/start! db-file {:world (test-world config-dir)})]
       (try
         (f rt)
         (finally
