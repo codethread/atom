@@ -103,3 +103,9 @@ Append notes here. Do not rewrite earlier notes.
 
 - Added hook registry state/API/helpers without mutation invocation. Registry stores resolved callables internally and returns data-first introspection only.
 - Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
+
+### WLH-PLAN-001.DN3 Task 2 implementation — 2026-06-29
+
+- Added deterministic synchronous hook runners in `skein.weaver.api` and integrated `:attributes/normalize` for simple add/update attribute patches only.
+- Transform failures and thrown hook policy errors are wrapped as `hook/failed`; normalized attributes are rechecked through existing JSON attribute encoding before storage.
+- Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.

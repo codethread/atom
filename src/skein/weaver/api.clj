@@ -450,10 +450,88 @@
    :event/at (str (Instant/now))
    :event/source :skein.weaver.api})
 
+(defn- hooks-for-type [runtime hook-type]
+  (filter #(contains? (:types %) hook-type)
+          (sort-by (juxt :order (comp pr-str :key)) (vals @(hook-registry runtime)))))
+
+(defn- cause-code [throwable]
+  (loop [t throwable]
+    (when t
+      (let [data (ex-data t)]
+        (or (:code data)
+            (recur (ex-cause t)))))))
+
+(defn- hook-failure-data [hook-type {:keys [key fn]} throwable]
+  (let [data (ex-data throwable)
+        code (cause-code throwable)]
+    (cond-> {:code "hook/failed"
+             :hook/type hook-type
+             :hook/key key
+             :hook/fn fn
+             :exception/class (str (class throwable))
+             :exception/message (ex-message throwable)}
+      data (assoc :exception/data data)
+      code (assoc :hook/cause-code code))))
+
+(defn- invoke-hook! [runtime hook-type hook ctx]
+  (try
+    (with-library-classloader runtime #((:fn-value hook) ctx))
+    (catch Throwable t
+      (throw (ex-info "Lifecycle hook failed"
+                      (hook-failure-data hook-type hook t)
+                      t)))))
+
+(defn- run-validation-hooks! [runtime hook-type ctx]
+  (doseq [hook (hooks-for-type runtime hook-type)]
+    (invoke-hook! runtime hook-type hook (assoc ctx :hook/type hook-type)))
+  nil)
+
+(defn- require-transform-wrapper! [hook-type hook result]
+  (when-not (and (map? result) (contains? result :hook/value))
+    (throw (ex-info "Transform hook must return {:hook/value replacement}"
+                    {:code "hook/invalid-return"
+                     :hook/type hook-type
+                     :hook/key (:key hook)
+                     :hook/fn (:fn hook)
+                     :hook/return result})))
+  result)
+
+(defn- require-json-attributes! [attrs]
+  (db/->json attrs)
+  attrs)
+
+(defn- invoke-transform-hook! [runtime hook-type hook ctx]
+  (try
+    (require-json-attributes!
+     (:hook/value
+      (require-transform-wrapper!
+       hook-type
+       hook
+       (with-library-classloader runtime #((:fn-value hook) ctx)))))
+    (catch Throwable t
+      (throw (ex-info "Lifecycle hook failed"
+                      (hook-failure-data hook-type hook t)
+                      t)))))
+
+(defn- run-transform-hooks [runtime hook-type ctx]
+  (reduce (fn [value hook]
+            (invoke-transform-hook! runtime hook-type hook (assoc ctx :hook/type hook-type :hook/value value)))
+          (require-json-attributes! (:hook/value ctx))
+          (hooks-for-type runtime hook-type)))
+
 (defn add
   "Create a strand, enqueue a creation event, and return the normalized strand."
   [runtime strand]
-  (let [created (normalize (db/add-strand! (ds runtime) strand))]
+  (let [strand (if (some? (:attributes strand))
+                 (assoc strand :attributes (run-transform-hooks runtime
+                                                                 :attributes/normalize
+                                                                 {:hook/value (:attributes strand)
+                                                                  :request/source :weaver-api
+                                                                  :request/operation :add
+                                                                  :mutation/operation :strand/add
+                                                                  :strand/patch strand}))
+                 strand)
+        created (normalize (db/add-strand! (ds runtime) strand))]
     (enqueue-event! runtime (assoc (event-base :strand/added)
                                    :strand/id (:id created)
                                    :strand created))
@@ -517,19 +595,31 @@
   "Update a strand and/or add edges atomically, then enqueue an update event."
   [runtime id patch]
   (reject-unknown-update-keys! patch)
-  (let [{:keys [title state attributes edges]} patch
+  (let [{:keys [title state edges]} patch
         result (jdbc/with-transaction [tx (ds runtime)]
                  (let [before (or (some-> (db/get-strand tx id) normalize)
-                                  (throw (ex-info "Strand not found" {:strand-id id})))]
+                                  (throw (ex-info "Strand not found" {:strand-id id})))
+                       patch (if (some? (:attributes patch))
+                               (assoc patch :attributes (run-transform-hooks runtime
+                                                                              :attributes/normalize
+                                                                              {:hook/value (:attributes patch)
+                                                                               :request/source :weaver-api
+                                                                               :request/operation :update
+                                                                               :mutation/operation :strand/update
+                                                                               :strand/id id
+                                                                               :strand/before before
+                                                                               :strand/patch patch}))
+                               patch)
+                       attributes (:attributes patch)]
                    (apply-edges! tx id edges)
                    (let [after (normalize (db/update-strand! tx id (cond-> {}
                                                                      (contains? patch :title) (assoc :title title)
                                                                      (contains? patch :state) (assoc :state state)
                                                                      (contains? patch :attributes) (assoc :attributes attributes))))]
-                     {:before before :after after})))]
+                     {:before before :after after :patch patch})))]
     (enqueue-event! runtime (assoc (event-base :strand/updated)
                                    :strand/id id
-                                   :strand/patch patch
+                                   :strand/patch (:patch result)
                                    :strand/before (:before result)
                                    :strand/after (:after result)))
     (:after result)))

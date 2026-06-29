@@ -98,8 +98,47 @@
 
 (def not-callable-event-handler 42)
 
-(defn capture-hook [_ctx]
+(def hook-contexts (atom []))
+
+(defn capture-hook [ctx]
+  (swap! hook-contexts conj ctx)
   :ok)
+
+(defn parse-story-points-hook [ctx]
+  (swap! hook-contexts conj ctx)
+  (let [attrs (:hook/value ctx)
+        value (or (get attrs "storyPoints") (get attrs :storyPoints))]
+    {:hook/value (cond-> (dissoc attrs "storyPoints" :storyPoints)
+                   value (assoc :storyPoints (parse-long value)))}))
+
+(defn add-normalized-flag-hook [ctx]
+  {:hook/value (assoc (:hook/value ctx) :normalized true)})
+
+(defn noop-normalize-hook [ctx]
+  {:hook/value (:hook/value ctx)})
+
+(defn nil-normalize-hook [_ctx]
+  nil)
+
+(defn non-wrapper-normalize-hook [ctx]
+  (:hook/value ctx))
+
+(defn invalid-attributes-hook [_ctx]
+  {:hook/value {:opaque (Object.)}})
+
+(defn rejecting-normalize-hook [_ctx]
+  (throw (ex-info "normalize rejected" {:code "policy/rejected" :reason :test})))
+
+(defn wrapping-rejecting-normalize-hook [_ctx]
+  (throw (ex-info "wrapped" {:outer true}
+                  (ex-info "inner" {:code "policy/inner"}))))
+
+(def expected-hook-loader (atom nil))
+
+(defn asserting-classloader-hook [ctx]
+  (when-not (identical? @expected-hook-loader (.getContextClassLoader (Thread/currentThread)))
+    (throw (ex-info "wrong classloader" {:code "test/wrong-classloader"})))
+  {:hook/value (:hook/value ctx)})
 
 (def not-callable-hook 42)
 
@@ -528,6 +567,88 @@
                  :order 2
                  :metadata {}}]
                (api/hooks rt)))))))
+
+(deftest attribute-normalize-hooks-thread-transform-results-for-add-and-update
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! hook-contexts [])
+      (reset! delivered-events [])
+      (api/register-event-handler! rt :capture #{:strand/added :strand/updated} 'skein.weaver-test/capture-event {})
+      (api/register-hook! rt :parse #{:attributes/normalize} 'skein.weaver-test/parse-story-points-hook {:order 0})
+      (api/register-hook! rt :flag #{:attributes/normalize} 'skein.weaver-test/add-normalized-flag-hook {:order 1})
+      (let [added (api/add rt {:title "Normalize" :attributes {"storyPoints" "3"}})
+            _add-event (first (wait-for-events 1))
+            updated (api/update rt (:id added) {:attributes {:storyPoints "5"}})
+            update-event (second (wait-for-events 2))]
+        (is (= {:storyPoints 3 :normalized true} (:attributes added)))
+        (is (= {:storyPoints 5 :normalized true} (:attributes updated)))
+        (is (= {:attributes {:storyPoints 5 :normalized true}} (:strand/patch update-event)))
+        (is (= [:weaver-api :weaver-api] (mapv :request/source @hook-contexts)))
+        (is (= [:add :update] (mapv :request/operation @hook-contexts)))
+        (is (= [:strand/add :strand/update] (mapv :mutation/operation @hook-contexts)))
+        (is (= (:id added) (:strand/id (second @hook-contexts))))))))
+
+(deftest attribute-normalize-hooks-run-through-runtime-library-classloader
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! expected-hook-loader (:library-classloader rt))
+      (api/register-hook! rt :classloader #{:attributes/normalize} 'skein.weaver-test/asserting-classloader-hook {})
+      (is (= {:a "b"} (:attributes (api/add rt {:title "Classloader" :attributes {:a "b"}})))))))
+
+(deftest attribute-normalize-hooks-require-wrapper-and-json-compatible-values
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (api/register-hook! rt :noop #{:attributes/normalize} 'skein.weaver-test/noop-normalize-hook {})
+      (is (= {:a "b"} (:attributes (api/add rt {:title "Noop" :attributes {:a "b"}}))))
+      (doseq [[k f] [[:nil 'skein.weaver-test/nil-normalize-hook]
+                     [:plain 'skein.weaver-test/non-wrapper-normalize-hook]
+                     [:invalid 'skein.weaver-test/invalid-attributes-hook]]]
+        (api/register-hook! rt k #{:attributes/normalize} f {})
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (api/add rt {:title (str "Bad " k) :attributes {:a "b"}})))
+        (api/unregister-hook! rt k)))))
+
+(deftest attribute-normalize-hook-failures-rollback-and-preserve-cause-data
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! delivered-events [])
+      (api/register-event-handler! rt :capture #{:strand/added :strand/updated} 'skein.weaver-test/capture-event {})
+      (api/register-hook! rt :reject #{:attributes/normalize} 'skein.weaver-test/rejecting-normalize-hook {})
+      (try
+        (api/add rt {:title "Rejected" :attributes {:a "b"}})
+        (is false "expected hook rejection")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "hook/failed" (:code (ex-data e))))
+          (is (= :attributes/normalize (:hook/type (ex-data e))))
+          (is (= :reject (:hook/key (ex-data e))))
+          (is (= 'skein.weaver-test/rejecting-normalize-hook (:hook/fn (ex-data e))))
+          (is (= "policy/rejected" (:hook/cause-code (ex-data e))))
+          (is (= {:code "policy/rejected" :reason :test} (:exception/data (ex-data e))))))
+      (Thread/sleep 100)
+      (is (empty? (api/list rt)))
+      (is (empty? @delivered-events))
+      (api/unregister-hook! rt :reject)
+      (api/register-hook! rt :wrapped #{:attributes/normalize} 'skein.weaver-test/wrapping-rejecting-normalize-hook {})
+      (try
+        (api/add rt {:title "Wrapped" :attributes {:a "b"}})
+        (is false "expected wrapped hook rejection")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "hook/failed" (:code (ex-data e))))
+          (is (= "policy/inner" (:hook/cause-code (ex-data e))))))
+      (api/unregister-hook! rt :wrapped)
+      (let [strand (api/add rt {:title "Stored" :attributes {:a "b"}})]
+        (wait-for-events 1)
+        (reset! delivered-events [])
+        (api/register-hook! rt :reject #{:attributes/normalize} 'skein.weaver-test/rejecting-normalize-hook {})
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (api/update rt (:id strand) {:attributes {:c "d"}})))
+        (Thread/sleep 100)
+        (is (= {:a "b"} (:attributes (api/show rt (:id strand)))))
+        (is (empty? @delivered-events))))))
 
 (deftest weaver-query-registry-add-load-list-and-resolve
   (with-runtime
