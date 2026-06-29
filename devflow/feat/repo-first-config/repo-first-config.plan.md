@@ -127,3 +127,7 @@ Outcome: Clojure and Go tests cover repo discovery/init/layering/overrides, smok
 ### PLAN-RepoFirstConfig-001.DN8 Task 4 completed — 2026-06-29
 
 - Approved library config now reads `libs.edn` and `libs.local.edn` as one effective overlay, with local coordinates replacing shared coordinates. Normalized approved entries and sync outcomes include data-first `:source` metadata naming shared vs local and the contributing file. Existing path normalization and sync failure behavior remains over the effective config.
+
+### PLAN-RepoFirstConfig-001.DN9 Task 5 completed — 2026-06-29
+
+- Added a Go integration scenario for repo-first end-to-end behavior: `strand init --source` from a nested Git worktree creates the root `.skein`, no-flag `strand weaver start` from the subdirectory selects that world, and subsequent no-flag strand commands operate there. The same scenario writes `init.local.clj` before startup and verifies the local overlay registers a query visible through the CLI. Full Go, Clojure, and smoke validation passed with no generated runtime artifacts left in the worktree.

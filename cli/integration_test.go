@@ -116,6 +116,59 @@ func TestGoWeaverLifecycleCommands(t *testing.T) {
 	}
 }
 
+func TestRepoLocalDiscoveryAndInitLocalOverlay(t *testing.T) {
+	repo := shortTempDir(t)
+	if err := exec.Command("git", "init", repo).Run(); err != nil {
+		t.Fatalf("git init repo: %v", err)
+	}
+	subdir := filepath.Join(repo, "work", "nested")
+	if err := os.MkdirAll(subdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	source, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := buildStrand(t)
+	out, err := outputStrand(bin, "", subdir, "init", "--source", source)
+	if err == nil || (!strings.Contains(out, "weaver socket unreachable") && !strings.Contains(out, "no running weaver")) {
+		t.Fatalf("expected init to bootstrap then fail before weaver start, got out=%q err=%v", out, err)
+	}
+	configDir := filepath.Join(repo, ".skein")
+	if _, err := os.Stat(filepath.Join(configDir, "config.json")); err != nil {
+		t.Fatalf("expected repo .skein config.json: %v", err)
+	}
+	initLocal := `(require '[skein.weaver.api :as api] '[skein.weaver.runtime :as runtime])
+(api/register-query @runtime/current-runtime 'local-owner {:params [:owner] :where [:= [:attr :owner] [:param :owner]]})`
+	if err := os.WriteFile(filepath.Join(configDir, "init.local.clj"), []byte(initLocal), 0644); err != nil {
+		t.Fatal(err)
+	}
+	weaver := exec.Command(bin, "weaver", "start")
+	weaver.Dir = subdir
+	var weaverOut bytes.Buffer
+	weaver.Stdout = &weaverOut
+	weaver.Stderr = &weaverOut
+	if err := weaver.Start(); err != nil {
+		t.Fatalf("start repo-local weaver: %v", err)
+	}
+	t.Cleanup(func() { _ = weaver.Process.Kill(); _, _ = weaver.Process.Wait() })
+	waitForStatus(t, bin, "", subdir, &weaverOut)
+	if err := runStrand(bin, "", subdir, "init"); err != nil {
+		t.Fatal(err)
+	}
+	strand := addJSON(t, bin, "", subdir, "Repo local strand", "owner=local")
+	other := addJSON(t, bin, "", subdir, "Other repo strand", "owner=other")
+	if out, err := outputStrand(bin, "", subdir, "list", "--query", "local-owner", "--param", "owner=local"); err != nil || !strings.Contains(out, strand) || strings.Contains(out, other) {
+		t.Fatalf("local overlay query output/error = %q/%v", out, err)
+	}
+	if err := runStrand(bin, "", subdir, "weaver", "stop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := weaver.Wait(); err != nil {
+		t.Fatalf("weaver did not exit cleanly: %v\n%s", err, weaverOut.String())
+	}
+}
+
 func TestTaskAndQueryCommandsRunOutsideCheckoutWithoutSource(t *testing.T) {
 	dir := shortTempDir(t)
 	writeClientConfig(t, dir)
@@ -212,6 +265,11 @@ func addJSON(t *testing.T, bin, configDir, cwd, title, attr string) string {
 	if err != nil {
 		t.Fatalf("add %s: %v\n%s", title, err, out)
 	}
+	return parseAddedID(t, out)
+}
+
+func parseAddedID(t *testing.T, out string) string {
+	t.Helper()
 	var row map[string]any
 	if err := json.Unmarshal([]byte(out), &row); err != nil {
 		t.Fatalf("add output is not json: %v\n%s", err, out)
@@ -267,8 +325,10 @@ func runStrand(bin, configDir, cwd string, args ...string) error {
 	return err
 }
 func outputStrand(bin, configDir, cwd string, args ...string) (string, error) {
-	full := append([]string{"--config-dir", configDir}, args...)
-	cmd := exec.Command(bin, full...)
+	if configDir != "" {
+		args = append([]string{"--config-dir", configDir}, args...)
+	}
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = cwd
 	var out bytes.Buffer
 	cmd.Stdout = &out

@@ -22,7 +22,7 @@ tasks:
   - id: 5
     description: Align integration tests and smoke
     task_file: tasks/005-align-integration-tests-and-smoke.md
-    status: pending
+    status: complete
     blocked_by: [1, 2, 3, 4]
   - id: 6
     description: Update docs and promote specs
