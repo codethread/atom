@@ -98,13 +98,7 @@
                "WHERE " candidate-clause " AND e.edge_type = ? AND " (:sql endpoint) ")")
      :params (vec (cons relation (:params endpoint)))}))
 
-(defn compile-expr
-  "Compile a query expression into a SQL predicate fragment.
-
-  Returns a map with `:sql` and positional `:params` suitable for use against the
-  strands table. Optional params resolve `[:param :name]` references in the query
-  expression. Throws ex-info for malformed expressions, missing params, unknown
-  fields, unknown operators, or invalid nested edge predicates."
+(defn- compile-expr
   ([expr] (compile-expr expr {}))
   ([expr params]
    (when-not (vector? expr)
@@ -163,12 +157,15 @@
 (defn read-edn-file
   "Read exactly one EDN form from path.
 
-  Throws ex-info when the file contains trailing forms after the first value."
+  Throws ex-info when the file is empty or contains trailing forms after the
+  first value."
   [path]
   (let [eof ::eof]
     (with-open [r (io/reader (io/file path))]
       (let [reader (java.io.PushbackReader. r)
-            value (edn/read {:eof nil} reader)]
+            value (edn/read {:eof eof} reader)]
+        (when (= eof value)
+          (fail! "EDN file must contain exactly one form" {:path path}))
         (when-not (= eof (edn/read {:eof eof} reader))
           (fail! "EDN file must contain exactly one form" {:path path}))
         value))))
@@ -205,6 +202,14 @@
                                    :canonical-query canonical-name
                                    :available (sort (keys normalized-registry))}))))
 
+(defn- declared-param-names [query-def]
+  (let [declared (:params query-def)]
+    (when-not (or (nil? declared) (sequential? declared))
+      (fail! "Query :params must be a sequential collection of keyword names" {:params declared}))
+    (when-not (every? keyword? declared)
+      (fail! "Query :params must be keyword names" {:params declared}))
+    (set declared)))
+
 (defn query-expr
   "Return the query expression for a vector or map query definition.
 
@@ -215,10 +220,8 @@
   (cond
     (vector? query-def) query-def
     (map? query-def) (do
-                       (let [declared (set (:params query-def))
+                       (let [declared (declared-param-names query-def)
                              provided (set (keys params))]
-                         (when-not (every? keyword? declared)
-                           (fail! "Query :params must be keyword names" {:params (:params query-def)}))
                          (when-let [unknown (seq (remove declared provided))]
                            (fail! "Unknown query parameters" {:unknown (vec unknown)})))
                        (or (:where query-def)
@@ -235,7 +238,7 @@
   values during validation."
   [query-def]
   (let [params (if (map? query-def)
-                 (zipmap (:params query-def) (repeat ["skein-query-param"]))
+                 (zipmap (declared-param-names query-def) (repeat ["skein-query-param"]))
                  {})]
     (binding [*validating-query-def* true]
       (compile-query query-def params)))
