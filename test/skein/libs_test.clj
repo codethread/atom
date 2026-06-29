@@ -362,16 +362,20 @@
                    ":reload-return\n"))
         (let [result (libs/reload!)]
           (is (= :loaded (:status result)))
-          (is (= (.getCanonicalPath (io/file config-dir "init.clj")) (:file result)))
-          (is (= :reload-return (:return result)))
+          (is (= [{:name "init.clj"
+                   :file (.getCanonicalPath (io/file config-dir "init.clj"))
+                   :return :reload-return}]
+                 (:files result)))
+          (is (= [:reload-return] (:returns result)))
           (is (= :reloaded (read-string (slurp result-file)))))))))
 
-(deftest reload-fails-loudly-when-init-file-is-missing
+(deftest reload-skips-missing-startup-files
   (with-runtime
     (fn [_ _]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"no init\.clj"
-                            (libs/reload!))))))
+      (is (= {:status :loaded
+              :files []
+              :returns []}
+             (libs/reload!))))))
 
 (deftest reload-clears-prior-runtime-config-state-before-loading
   (with-runtime

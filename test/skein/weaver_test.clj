@@ -233,6 +233,124 @@
             :db-path (str dir "/data/skein.sqlite")}
            (weaver-config/world dir)))))
 
+(deftest startup-loads-layered-init-files-in-order
+  (let [db-file (db-test/temp-db-file)
+        world (temp-world)
+        order-file (io/file (:config-dir world) "startup-order.edn")]
+    (try
+      (spit (io/file (:config-dir world) "init.clj")
+            (str "(spit " (pr-str (str order-file)) " (pr-str [:shared]))\n:shared\n"))
+      (spit (io/file (:config-dir world) "init.local.clj")
+            (str "(let [xs (read-string (slurp " (pr-str (str order-file)) "))]\n"
+                 "  (spit " (pr-str (str order-file)) " (pr-str (conj xs :local))))\n:local\n"))
+      (let [rt (runtime/start! db-file {:world world})]
+        (try
+          (is (= [:shared :local] (read-string (slurp order-file))))
+          (finally
+            (runtime/stop! rt))))
+      (finally
+        (db-test/delete-sqlite-family! db-file)
+        (delete-tree! (io/file (:config-dir world)))))))
+
+(deftest startup-skips-missing-local-init-file
+  (let [db-file (db-test/temp-db-file)
+        world (temp-world)
+        marker (io/file (:config-dir world) "shared.edn")]
+    (try
+      (spit (io/file (:config-dir world) "init.clj")
+            (str "(spit " (pr-str (str marker)) " (pr-str :shared))\n"))
+      (let [rt (runtime/start! db-file {:world world})]
+        (try
+          (is (= :shared (read-string (slurp marker))))
+          (finally
+            (runtime/stop! rt))))
+      (finally
+        (db-test/delete-sqlite-family! db-file)
+        (delete-tree! (io/file (:config-dir world)))))))
+
+(deftest startup-fails-loudly-when-local-init-file-fails
+  (let [db-file (db-test/temp-db-file)
+        world (temp-world)]
+    (try
+      (spit (io/file (:config-dir world) "init.local.clj")
+            "(throw (ex-info \"local boom\" {:source :local}))\n")
+      (try
+        (runtime/start! db-file {:world world})
+        (is false "expected startup failure")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "Selected config-dir startup file failed to load" (ex-message e)))
+          (is (= (.getCanonicalPath (io/file (:config-dir world) "init.local.clj"))
+                 (:file (ex-data e))))
+          (is (nil? (metadata/read-metadata world)))))
+      (finally
+        (db-test/delete-sqlite-family! db-file)
+        (delete-tree! (io/file (:config-dir world)))))))
+
+(deftest reload-loads-layered-init-files-in-order
+  (with-runtime
+    (fn [rt _]
+      (let [config-dir (get-in rt [:metadata :config-dir])
+            order-file (io/file config-dir "reload-order.edn")]
+        (spit (io/file config-dir "init.clj")
+              (str "(spit " (pr-str (str order-file)) " (pr-str [:shared]))\n:shared\n"))
+        (spit (io/file config-dir "init.local.clj")
+              (str "(let [xs (read-string (slurp " (pr-str (str order-file)) "))]\n"
+                   "  (spit " (pr-str (str order-file)) " (pr-str (conj xs :local))))\n:local\n"))
+        (is (= {:status :loaded
+                :files [{:name "init.clj"
+                         :file (.getCanonicalPath (io/file config-dir "init.clj"))
+                         :return :shared}
+                        {:name "init.local.clj"
+                         :file (.getCanonicalPath (io/file config-dir "init.local.clj"))
+                         :return :local}]
+                :returns [:shared :local]}
+               (api/reload-config! rt)))
+        (is (= [:shared :local] (read-string (slurp order-file))))))))
+
+(deftest reload-failing-local-init-fails-loudly-without-shared-only-state
+  (with-runtime
+    (fn [rt _]
+      (let [config-dir (get-in rt [:metadata :config-dir])]
+        (api/register-query rt 'prior [:= [:attr :owner] "prior"])
+        (reset! delivered-events [])
+        (api/register-event-handler! rt :prior #{:strand/added} 'skein.weaver-test/capture-event {})
+        (api/register-hook! rt :prior #{:payload/received} 'skein.weaver-test/capture-hook {})
+        (spit (io/file config-dir "init.clj")
+              "(require '[skein.weaver.api :as api] '[skein.weaver.runtime :as runtime] '[skein.events.alpha :as events])\n(api/register-query @runtime/current-runtime 'shared [:= [:attr :owner] \"shared\"])\n(events/register! :shared #{:strand/added} 'skein.weaver-test/capture-event)\n(api/enqueue-event! @runtime/current-runtime {:event/type :strand/added :event/id \"shared-only\" :event/at \"2026-06-29T00:00:00Z\" :event/source :test})\n")
+        (spit (io/file config-dir "init.local.clj")
+              "(throw (ex-info \"local boom\" {:source :local}))\n")
+        (try
+          (api/reload-config! rt)
+          (is false "expected reload failure")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= (.getCanonicalPath (io/file config-dir "init.local.clj"))
+                   (:file (ex-data e))))))
+        (is (= {} (api/queries rt)))
+        (is (= [] (api/event-handlers rt)))
+        (is (= [] (api/hooks rt)))
+        (is (= ["help"] (mapv :name (api/ops rt))))
+        (is (not (wait-until #(some (fn [event] (= "shared-only" (:event/id event)))
+                                    @delivered-events))))))))
+
+(deftest reload-layering-clears-events-and-hooks-before-local-overlay
+  (with-runtime
+    (fn [rt _]
+      (let [config-dir (get-in rt [:metadata :config-dir])]
+        (api/register-event-handler! rt :stale #{:strand/added} 'skein.weaver-test/capture-event {})
+        (api/register-hook! rt :stale #{:payload/received} 'skein.weaver-test/capture-hook {})
+        (api/register-event-handler! rt :fails #{:strand/added} 'skein.weaver-test/failing-event {})
+        (api/enqueue-event! rt (test-event :strand/added "before-reload"))
+        (Thread/sleep 250)
+        (is (seq (api/recent-event-failures rt)))
+        (spit (io/file config-dir "init.clj")
+              "(require '[skein.events.alpha :as events] '[skein.hooks.alpha :as hooks])\n(events/register! :shared #{:strand/added} 'skein.weaver-test/capture-event)\n(hooks/register! :shared #{:payload/received} 'skein.weaver-test/capture-hook)\n")
+        (spit (io/file config-dir "init.local.clj")
+              "(require '[skein.events.alpha :as events] '[skein.hooks.alpha :as hooks])\n(events/register! :local #{:strand/updated} 'skein.weaver-test/capture-event)\n(hooks/register! :local #{:strand/add-before-commit} 'skein.weaver-test/capture-hook)\n")
+        (api/reload-config! rt)
+        (is (= #{:shared :local} (set (mapv :key (api/event-handlers rt)))))
+        (is (= #{:shared :local} (set (mapv :key (api/hooks rt)))))
+        (is (= [] (api/recent-event-failures rt)))))))
+
 (deftest weaver-api-delegates-to-db-and-normalizes-results
   (with-runtime
     (fn [rt _]

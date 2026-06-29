@@ -86,9 +86,9 @@ Skein stores:
 
 Named queries, weave patterns, weaver-memory views, and runtime libraries are loaded into the selected Skein world, then consumed by helpers or by small CLI commands such as `list --query <name>` and `weave --pattern <name>`.
 
-Fresh `strand init` startup config creates a small resilient `init.clj` that syncs approved libraries. Add your own config or library files when you need runtime queries, views, or workflow helpers.
+Fresh `strand init` startup config creates a small resilient `init.clj` that syncs approved libraries. Add shared config to `init.clj` and personal overrides to `init.local.clj` when you need runtime queries, views, or workflow helpers.
 
-Use `strand weaver repl` for trusted interactive work and `(skein.libs.alpha/reload!)` to hot-reload `init.clj`.
+Use `strand weaver repl` for trusted interactive work and `(skein.libs.alpha/reload!)` to hot-reload `init.clj` followed by `init.local.clj`.
 
 ## Documentation
 

@@ -198,28 +198,32 @@
   [runtime]
   {:libs (into (sorted-map) @(approved-lib-sync-state runtime))})
 
+(defn- clear-reload-state! [runtime]
+  (reset! (approved-lib-sync-state runtime) {})
+  (reset! (module-use-state runtime) {})
+  (reset! (query-registry runtime) {})
+  (reset! (view-registry runtime) {})
+  (reset! (pattern-registry runtime) {})
+  (reset! (op-registry runtime) {})
+  (reset! (hook-registry runtime) {})
+  (runtime/clear-event-system-for-reload! runtime)
+  (register-built-in-ops! runtime))
+
 (defn reload-config!
-  "Reload config-dir init.clj after clearing runtime registries and event handlers."
+  "Reload selected config-dir startup files after clearing runtime registries."
   [runtime]
-  (let [file (io/file (config-dir runtime) "init.clj")]
-    (when-not (.isFile file)
-      (throw (ex-info "Selected config-dir has no init.clj to reload"
-                      {:config-dir (config-dir runtime)
-                       :file (.getPath file)})))
-    (let [canonical-file (.getCanonicalPath file)]
-      (reset! (approved-lib-sync-state runtime) {})
-      (reset! (module-use-state runtime) {})
-      (reset! (query-registry runtime) {})
-      (reset! (view-registry runtime) {})
-      (reset! (pattern-registry runtime) {})
-      (reset! (op-registry runtime) {})
-      (reset! (hook-registry runtime) {})
-      (register-built-in-ops! runtime)
-      (runtime/restart-event-system! runtime)
-      (let [result (with-library-classloader runtime #(load-file canonical-file))]
-        {:status :loaded
-         :file canonical-file
-         :return result}))))
+  (try
+    (clear-reload-state! runtime)
+    (let [world {:config-dir (config-dir runtime)}
+          files (runtime/load-startup-files! runtime world)]
+      (runtime/resume-event-system! runtime)
+      {:status :loaded
+       :files files
+       :returns (mapv :return files)})
+    (catch Throwable t
+      (clear-reload-state! runtime)
+      (runtime/resume-event-system! runtime)
+      (throw t))))
 
 (def ^:private allowed-use-keys #{:ns :file :libs :after :call :required?})
 

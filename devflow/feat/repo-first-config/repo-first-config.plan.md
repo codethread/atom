@@ -119,3 +119,7 @@ Outcome: Clojure and Go tests cover repo discovery/init/layering/overrides, smok
 ### PLAN-RepoFirstConfig-001.DN6 Task 2 completed — 2026-06-29
 
 - Clojure world construction now requires an explicit selected config-dir and no-arg `connect!` fails loudly, preventing helper code from silently targeting XDG global state. CLI-launched helper REPL flows continue to pass the selected config-dir into `skein.repl`, and Clojure tests retain deterministic disposable world construction via `(skein.weaver.config/world config-dir)`. Clojure client coverage now exercises `call-world`/selected config-dir metadata discovery; old database-path client wrappers were removed rather than retained as failing compatibility shims.
+
+### PLAN-RepoFirstConfig-001.DN7 Task 3 completed — 2026-06-29
+
+- Weaver startup and runtime reload now share ordered startup-file loading for `init.clj` then `init.local.clj`. Missing files are skipped, present failing files throw with selected config-dir and file path context, and reload returns loaded file metadata plus final return values. Reload clears query/view/pattern/op/hook/library/module/event state before loading the layered config and keeps event dispatch stopped until both layers succeed; failed reloads clear partial shared-only registrations and fail loudly.

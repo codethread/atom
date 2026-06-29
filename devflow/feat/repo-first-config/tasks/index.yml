@@ -12,7 +12,7 @@ tasks:
   - id: 3
     description: Implement layered init reload semantics
     task_file: tasks/003-layered-init-reload-semantics.md
-    status: pending
+    status: complete
     blocked_by: [2]
   - id: 4
     description: Implement local library overrides

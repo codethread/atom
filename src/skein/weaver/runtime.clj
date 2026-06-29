@@ -79,29 +79,66 @@
     (run-event-worker! runtime* event-system)
     runtime*))
 
-(defn restart-event-system!
-  "Reset handlers, failures, and worker state for the runtime event system."
+(defn resume-event-system!
+  "Start event dispatch for the runtime's current event system."
   [runtime]
-  (let [{:keys [handler-registry recent-failures queue running?] :as event-system} (:event-system runtime)]
+  (let [{:keys [running?] :as event-system} (:event-system runtime)]
+    (reset! running? true)
+    (run-event-worker! runtime event-system)
+    nil))
+
+(defn clear-event-system-for-reload!
+  "Stop event dispatch and clear handlers, queued events, and failures."
+  [runtime]
+  (let [{:keys [handler-registry recent-failures queue running?]} (:event-system runtime)]
     (stop-event-system! runtime)
     (reset! handler-registry {})
     (reset! recent-failures [])
     (.clear queue)
-    (reset! running? true)
-    (run-event-worker! runtime event-system)
+    (reset! running? false)
     nil))
+
+(defn restart-event-system!
+  "Reset handlers, failures, and worker state for the runtime event system."
+  [runtime]
+  (clear-event-system-for-reload! runtime)
+  (resume-event-system! runtime))
 
 (defn- current-pid
   "Return the current OS process id."
   []
   (.pid (ProcessHandle/current)))
 
-(defn- init-file
-  "Return the canonical init.clj path for `world`, or nil when absent."
+(def ^:private startup-file-names
+  ["init.clj" "init.local.clj"])
+
+(defn startup-files
+  "Return present selected-config-dir startup files in load order."
   [world]
-  (let [file (clojure.java.io/file (:config-dir world) "init.clj")]
-    (when (.isFile file)
-      (.getCanonicalPath file))))
+  (into []
+        (keep (fn [name]
+                (let [file (clojure.java.io/file (:config-dir world) name)]
+                  (when (.isFile file)
+                    {:name name
+                     :file (.getCanonicalPath file)}))))
+        startup-file-names))
+
+(defn load-startup-files!
+  "Load present selected-config-dir startup files in startup order.
+
+  Missing startup files are skipped. Present files that fail to read or evaluate
+  throw with file path context so startup/reload abort loudly. Returns entries
+  containing each loaded file path and its final return value."
+  [runtime world]
+  (mapv (fn [{:keys [file] :as startup-file}]
+          (try
+            (assoc startup-file :return (with-library-classloader runtime #(load-file file)))
+            (catch Throwable t
+              (throw (ex-info "Selected config-dir startup file failed to load"
+                              {:config-dir (:config-dir world)
+                               :file file}
+                              t)))))
+        (startup-files world)))
 
 (defn- with-library-classloader [runtime f]
   (let [thread (Thread/currentThread)
@@ -166,8 +203,7 @@
            (reset! runtime-state runtime)
            (reset! current-runtime runtime)
            ((requiring-resolve 'skein.weaver.api/register-built-in-ops!) runtime)
-           (when-let [init (init-file world)]
-             (with-library-classloader runtime #(load-file init)))
+           (load-startup-files! runtime world)
            (let [published-runtime (assoc runtime :metadata-file (metadata/publish! meta))]
              (reset! runtime-state published-runtime)
              (reset! current-runtime published-runtime)
