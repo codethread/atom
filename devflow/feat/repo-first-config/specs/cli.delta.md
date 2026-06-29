@@ -18,11 +18,14 @@ The CLI changes from default global-world selection to repo-first world selectio
 - **DELTA-Cli-001.CC4:** If no `.skein` is found, all commands except `strand init` fail non-zero with remediation to run `strand init` or pass `--config-dir`.
 - **DELTA-Cli-001.CC5:** `strand init` without `--config-dir` creates or completes `.skein` at the nearest Git repository root. Outside a Git repository, it creates or completes `.skein` in cwd.
 - **DELTA-Cli-001.CC6:** `strand init --config-dir <dir>` keeps explicit bootstrap behavior for the selected directory and does not perform repo-root discovery.
-- **DELTA-Cli-001.CC7:** Repo bootstrap creates missing shared config files `init.clj`, `libs.edn`, and `.gitignore`, creates local `config.json` for the current machine's Skein source checkout, and creates supporting directories as needed. It never overwrites existing files.
+- **DELTA-Cli-001.CC7:** Repo bootstrap creates missing shared config files `init.clj`, `libs.edn`, and `.gitignore`, creates local `config.json` for the selected machine's Skein source checkout when source resolution succeeds, and creates supporting directories as needed. It never overwrites existing files.
+- **DELTA-Cli-001.CC7a:** `strand init` source resolution uses this precedence: an explicit `--source <path>` init flag, `SKEIN_SOURCE`, cwd when cwd is the Skein source checkout, then failure with remediation to pass `--source` or set `SKEIN_SOURCE`. The resolved source must satisfy the existing source validation contract.
+- **DELTA-Cli-001.CC7b:** A discovered `.skein` without local `config.json` is an incomplete local world for commands that require source or a running weaver. Errors should name the selected config-dir and tell the user to run `strand init --source <skein-source>` or set `SKEIN_SOURCE`.
 - **DELTA-Cli-001.CC8:** Repo bootstrap `.skein/.gitignore` ignores `config.json`, `init.local.clj`, `libs.local.edn`, `state/`, `data/`, `weaver.*`, and SQLite/runtime artifacts by default.
 - **DELTA-Cli-001.CC9:** `.skein/config.json` remains the client config file for source checkout resolution and must declare `"configFormat":"alpha"`; it is treated as local machine config and is ignored by repo bootstrap defaults.
 - **DELTA-Cli-001.CC10:** Public CLI requests still send only the selected world/socket operation data to the weaver. Repo path, Git root, and cwd are not added to strand operation JSON payloads.
 - **DELTA-Cli-001.CC11:** `strand weaver status` continues to report the selected config-dir, state dir, data dir, database path, socket, pid, and identity so callers can see which repo world was selected.
+- **DELTA-Cli-001.CC12:** `strand weaver start` and `strand weaver repl` pass the resolved selected config-dir to the launched Clojure process even when selection came from repo discovery rather than an explicit `--config-dir` flag.
 
 ## DELTA-Cli-001.P3 Design decisions
 

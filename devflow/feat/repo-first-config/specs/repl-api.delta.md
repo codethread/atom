@@ -15,8 +15,8 @@ The REPL/helper surface keeps the same explicit helper namespaces, but selected-
 - **DELTA-ReplApi-001.CC1:** `skein.libs.alpha/approved` returns the effective approved library config after applying `libs.local.edn` over `libs.edn`.
 - **DELTA-ReplApi-001.CC2:** Effective approved entries may include source metadata indicating whether the winning entry came from `libs.edn` or `libs.local.edn`.
 - **DELTA-ReplApi-001.CC3:** `skein.libs.alpha/sync!`, `syncs`, `use!`, `uses`, and `use` operate over the effective approved library config, so local overrides affect sync and module activation without additional calls.
-- **DELTA-ReplApi-001.CC4:** `skein.libs.alpha/reload!` reloads selected config-dir startup files in startup order: `init.clj`, then `init.local.clj`. Missing files are skipped; present failing files throw.
-- **DELTA-ReplApi-001.CC5:** `connect!` with no explicit config-dir follows the selected-world behavior of the launching CLI/helper process. When used outside `strand weaver repl`, explicit config-dir remains the reliable way to choose a world.
+- **DELTA-ReplApi-001.CC4:** `skein.libs.alpha/reload!` reloads selected config-dir startup files in startup order: `init.clj`, then `init.local.clj`. Missing files are skipped; present failing files throw. Reload keeps event dispatch semantics consistent with the Weaver Runtime delta by clearing event state before layered reload and only exposing the fully reloaded configuration afterward.
+- **DELTA-ReplApi-001.CC5:** `strand weaver repl` and `strand weaver repl --stdin` pass the selected config-dir into `skein.repl` whether it came from explicit `--config-dir` or repo discovery. Direct `connect!` with no argument remains suitable only when the process has an intentional default-world context; explicit config-dir remains the reliable standalone way to choose a world.
 - **DELTA-ReplApi-001.CC6:** Direct helper-REPL `require` remains local to the helper JVM; approved library sync and activation still happen in the weaver runtime.
 
 ## DELTA-ReplApi-001.P3 Design decisions

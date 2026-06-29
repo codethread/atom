@@ -1,0 +1,31 @@
+tasks:
+  - id: 1
+    description: Implement repo-first CLI world selection
+    task_file: tasks/001-repo-first-cli-world-selection.md
+    status: in_progress
+    blocked_by: []
+  - id: 2
+    description: Align Clojure world selection
+    task_file: tasks/002-align-clojure-world-selection.md
+    status: pending
+    blocked_by: [1]
+  - id: 3
+    description: Implement layered init reload semantics
+    task_file: tasks/003-layered-init-reload-semantics.md
+    status: pending
+    blocked_by: [2]
+  - id: 4
+    description: Implement local library overrides
+    task_file: tasks/004-local-library-overrides.md
+    status: pending
+    blocked_by: [3]
+  - id: 5
+    description: Align integration tests and smoke
+    task_file: tasks/005-align-integration-tests-and-smoke.md
+    status: pending
+    blocked_by: [1, 2, 3, 4]
+  - id: 6
+    description: Update docs and promote specs
+    task_file: tasks/006-update-docs-and-promote-specs.md
+    status: pending
+    blocked_by: [5]

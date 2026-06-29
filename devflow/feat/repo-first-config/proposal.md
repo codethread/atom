@@ -33,7 +33,7 @@ The existing explicit config-dir model also makes ordinary CLI use noisy. Agents
 
 - **PROP-RepoFirstConfig-001.S1:** Change default CLI world resolution so `--config-dir` wins; otherwise the CLI searches upward from cwd for the nearest `.skein` directory; if none exists, non-init commands fail loudly.
 - **PROP-RepoFirstConfig-001.S2:** Change `strand init` without `--config-dir` to create or complete `.skein` at the nearest Git root; outside Git, create or complete `.skein` in cwd.
-- **PROP-RepoFirstConfig-001.S3:** Treat `.skein/config.json` as local machine config and gitignore it by default because it contains the Skein source checkout path.
+- **PROP-RepoFirstConfig-001.S3:** Treat `.skein/config.json` as local machine config and gitignore it by default because it contains the Skein source checkout path; `strand init` resolves that source from an explicit `--source`, `SKEIN_SOURCE`, or cwd when cwd is the Skein checkout, and otherwise fails with clear remediation.
 - **PROP-RepoFirstConfig-001.S4:** Bootstrap shared files suitable for commit (`init.clj`, `libs.edn`, `.gitignore`) and local/runtime ignore rules for `config.json`, `init.local.clj`, `libs.local.edn`, `state/`, `data/`, and weaver artifacts.
 - **PROP-RepoFirstConfig-001.S5:** Extend weaver startup and config reload to load `init.clj` then `init.local.clj` from the selected config-dir when present, with missing files accepted and present failing files aborting loudly.
 - **PROP-RepoFirstConfig-001.S6:** Extend approved library config so effective approved libs are `libs.edn` overlaid by `libs.local.edn`, with local entries replacing shared entries by coordinate.

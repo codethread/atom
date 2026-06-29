@@ -6,7 +6,7 @@
 **RFC:** none
 **Root specs:** [CLI Surface](../../specs/cli.md), [Weaver Runtime](../../specs/daemon-runtime.md), [REPL API](../../specs/repl-api.md)
 **Feature specs:** [cli.delta.md](./specs/cli.delta.md), [daemon-runtime.delta.md](./specs/daemon-runtime.delta.md), [repl-api.delta.md](./specs/repl-api.delta.md)
-**Status:** Draft
+**Status:** Reviewed
 **Last Updated:** 2026-06-29
 
 ## PLAN-RepoFirstConfig-001.P1 Goal and scope
@@ -17,6 +17,7 @@ Deliver repo-first Skein configuration by making the CLI select the nearest pare
 
 - **PLAN-RepoFirstConfig-001.A1:** Update durable contracts first through feature-local deltas, then implement from the selection boundary inward: CLI world resolution and bootstrap, Clojure world/config resolution, weaver startup/reload layering, and library config overlay.
 - **PLAN-RepoFirstConfig-001.A2:** Treat `--config-dir` as the compatibility and test escape hatch. All current tests/smoke that need hermetic worlds should keep passing explicit config dirs rather than depending on cwd discovery.
+- **PLAN-RepoFirstConfig-001.A2a:** Make local `config.json` source selection explicit for arbitrary repos: `strand init` accepts `--source`, then `SKEIN_SOURCE`, then cwd if cwd is a valid Skein checkout, and otherwise fails with remediation.
 - **PLAN-RepoFirstConfig-001.A3:** Make no-flag behavior repo-first and fail-loud. Outside a discovered `.skein`, non-init commands should not use XDG defaults or create implicit global worlds.
 - **PLAN-RepoFirstConfig-001.A4:** Keep the CLI thin: discovery resolves only a selected config-dir path. Public strand/weaver request payloads do not carry repo metadata.
 - **PLAN-RepoFirstConfig-001.A5:** Implement layered config in the weaver, not in generated `init.clj`, so startup and `libs/reload!` stay identical and shared config authors do not need local-loading boilerplate.
@@ -38,7 +39,7 @@ Deliver repo-first Skein configuration by making the CLI select the nearest pare
 
 - **PLAN-RepoFirstConfig-001.CM1:** This intentionally breaks the old no-flag `$XDG_CONFIG_HOME/skein` default. TEN-000 permits alpha contract correction; ordinary no-flag use becomes repo-first.
 - **PLAN-RepoFirstConfig-001.CM2:** Existing explicit `--config-dir` workflows remain the supported path for tests, smoke, disposable worlds, and non-repo automation.
-- **PLAN-RepoFirstConfig-001.CM3:** `.skein/config.json` is local and gitignored by default because it contains the Skein source checkout path. Shared repo config lives in `init.clj` and `libs.edn`.
+- **PLAN-RepoFirstConfig-001.CM3:** `.skein/config.json` is local and gitignored by default because it contains the Skein source checkout path. Shared repo config lives in `init.clj` and `libs.edn`. Fresh clones with committed `.skein` but no local `config.json` must get a direct `strand init --source <skein-source>` / `SKEIN_SOURCE` remediation.
 - **PLAN-RepoFirstConfig-001.CM4:** `libs.local.edn` can override shared coordinates. This may intentionally change which local root is loaded for one user without changing colleagues' config.
 - **PLAN-RepoFirstConfig-001.CM5:** No data migration is required. Existing worlds can be used through `--config-dir`; repositories can opt into the new default by running `strand init` to create `.skein`.
 
@@ -50,7 +51,7 @@ Outcome: Feature deltas are complete enough to guide implementation. CLI bootstr
 
 ### PLAN-RepoFirstConfig-001.PH2 CLI repo-first world resolution
 
-Outcome: Go CLI uses `--config-dir` when present; otherwise discovers nearest parent `.skein`; otherwise non-init commands fail loudly. `strand init` creates `.skein` at Git root or cwd outside Git and writes missing files without overwriting.
+Outcome: Go CLI uses `--config-dir` when present; otherwise discovers nearest parent `.skein`; otherwise non-init commands fail loudly. `strand init` creates `.skein` at Git root or cwd outside Git, resolves source via `--source`/`SKEIN_SOURCE`/valid Skein cwd, and writes missing files without overwriting. Weaver/repl subprocess launches pass the resolved selected config-dir even when it was discovered.
 
 ### PLAN-RepoFirstConfig-001.PH3 Clojure world resolution alignment
 
@@ -58,7 +59,7 @@ Outcome: Clojure world/config helpers used by weaver lifecycle and connected REP
 
 ### PLAN-RepoFirstConfig-001.PH4 Layered init startup and reload
 
-Outcome: Weaver startup and `libs/reload!` load `init.clj` then `init.local.clj`, skip missing files, and fail loudly with file context for present failing files. Existing registry clearing/reinstall behavior remains intact.
+Outcome: Weaver startup and `libs/reload!` load `init.clj` then `init.local.clj`, skip missing files, and fail loudly with file context for present failing files. Existing registry clearing/reinstall behavior remains intact, including hooks and event system state; reload exposes the fully layered config rather than a shared-only intermediate state.
 
 ### PLAN-RepoFirstConfig-001.PH5 Layered library approval and override
 
@@ -80,7 +81,7 @@ Outcome: Clojure and Go tests cover repo discovery/init/layering/overrides, smok
 ## PLAN-RepoFirstConfig-001.P7 Risks and open questions
 
 - **PLAN-RepoFirstConfig-001.R1:** Many tests may assume no-flag XDG defaults. Mitigation: convert tests that need isolation to explicit `--config-dir` and add focused repo-discovery tests for the new default.
-- **PLAN-RepoFirstConfig-001.R2:** `config.json` being gitignored means a fresh clone may have shared `.skein` files but lack local source config. Mitigation: `strand init` should complete missing local files in an existing `.skein` and errors should tell users to run it.
+- **PLAN-RepoFirstConfig-001.R2:** `config.json` being gitignored means a fresh clone may have shared `.skein` files but lack local source config. Mitigation: `strand init --source <skein-source>` or `SKEIN_SOURCE` completes missing local files in an existing `.skein`, and errors should name the selected config-dir and remediation.
 - **PLAN-RepoFirstConfig-001.R3:** Local library override can create user-specific behavior differences. Mitigation: this is intentional alpha flexibility; status/introspection should expose effective roots and source file.
 - **PLAN-RepoFirstConfig-001.R4:** Git-root detection can be wrong in nested worktrees/submodules. Mitigation: rely on Git's own root detection, and keep `--config-dir` as explicit override.
 - **PLAN-RepoFirstConfig-001.Q1:** None blocking task generation after review. Exact source-metadata key names for effective library entries can be settled during implementation.
@@ -88,7 +89,7 @@ Outcome: Clojure and Go tests cover repo discovery/init/layering/overrides, smok
 ## PLAN-RepoFirstConfig-001.P8 Task context
 
 - **PLAN-RepoFirstConfig-001.TC1:** Current Go config resolution is in `cli/internal/config`; current Clojure world resolution is in `src/skein/weaver/config.clj`.
-- **PLAN-RepoFirstConfig-001.TC2:** Current weaver startup loads only selected config-dir `init.clj`; current reload in `skein.weaver.api/reload-config!` also reloads only `init.clj`.
+- **PLAN-RepoFirstConfig-001.TC2:** Current weaver startup loads only selected config-dir `init.clj`; current reload in `skein.weaver.api/reload-config!` also reloads only `init.clj`. The landed event system means reload must also preserve event clearing/restart semantics while avoiding a shared-only reload window.
 - **PLAN-RepoFirstConfig-001.TC3:** Current approved library config reads only `libs.edn` and rejects alternate files; this feature changes that contract to an effective layered config.
 - **PLAN-RepoFirstConfig-001.TC4:** Specs currently state no implicit cwd world switching and XDG fallback. This feature intentionally supersedes that alpha design under TEN-000.
 - **PLAN-RepoFirstConfig-001.TC5:** Keep embedded SQL/data behavior untouched; this is a world/config/runtime loading change, not a strand model change.
@@ -98,3 +99,15 @@ Outcome: Clojure and Go tests cover repo discovery/init/layering/overrides, smok
 ### PLAN-RepoFirstConfig-001.DN1 Plan creation — 2026-06-29
 
 - Created from user direction after council review. Direction settled: repo-first default discovery, no global fallback, Git-root init, local-overrides-shared library merge, startup/reload layer parity, and path-only local roots for MVP.
+
+### PLAN-RepoFirstConfig-001.DN2 Review updates before tasking — 2026-06-29
+
+- Scanned archived weaver event-system deltas and reviewed the plan. Tightened tasking prerequisites: `strand init` source resolution is now explicit via `--source` / `SKEIN_SOURCE` / valid Skein cwd; incomplete discovered worlds require direct remediation; CLI-launched weaver/repl must pass discovered config-dir; reload layering must account for event handler queue/failure clearing and avoid an observable shared-only local-overlay gap. Plan marked Reviewed for task slicing.
+
+### PLAN-RepoFirstConfig-001.DN3 Task queue review updates — 2026-06-29
+
+- Added a dedicated Clojure world-selection task after review found the queue could otherwise leave `skein.weaver.config` / `skein.repl` on old default-world semantics. Tightened local library source metadata to mandatory and made explicit-config-dir bootstrap retain standalone workspace `git init` while repo-discovered `.skein` uses `.gitignore` rather than a nested Git repository.
+
+### PLAN-RepoFirstConfig-001.DN4 Task 1 started — 2026-06-29
+
+- Began Go CLI world-selection work: added repo `.skein` discovery/init world helpers, `strand init --source`, `SKEIN_SOURCE` fallback, default `.skein/.gitignore`, and subprocess config-dir propagation. Initial `(cd cli && go test ./...)` passes after updating old default-world expectations. Task 1 remains in progress because focused repo-discovery/Git-root/incomplete-world test coverage still needs to be completed.
