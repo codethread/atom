@@ -1,7 +1,6 @@
 (ns skein.plugin-test
   (:require [clojure.test :refer [deftest is]]
             [skein.libs.alpha :as libs]
-            [skein.client :as client]
             [skein.weaver.api]
             [skein.weaver.config :as daemon-config]
             [skein.weaver.runtime :as runtime]
@@ -22,8 +21,7 @@
   (is (thrown? java.io.FileNotFoundException (require 'atom.plugin.alpha)))
   (is (thrown? java.io.FileNotFoundException (require 'atom.bootstrap.alpha)))
   (is (thrown? java.io.FileNotFoundException (require 'atom.prelude.alpha)))
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown weaver API operation"
-                        (client/fixed-form :load-plugin ["plugins/demo"])))
+  (is (nil? (ns-resolve 'skein.client 'load-plugin)))
   (is (nil? (ns-resolve 'skein.weaver.api 'load-plugin)))
   (is (nil? (ns-resolve 'skein.weaver.api 'plugins)))
   (is (nil? (ns-resolve 'skein.weaver.api 'plugin))))

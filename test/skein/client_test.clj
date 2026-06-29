@@ -189,10 +189,12 @@
           (is (re-find #"non-blank" (:explain (:weaver-data (ex-data e))))))))))
 
 (deftest client-fails-loudly-for-timeouts
-  (with-redefs [nrepl/client (fn [conn _timeout-ms] conn)
-                nrepl/client-session (fn [client _timeout-ms] client)
-                nrepl/message (fn [_session _message]
-                                (throw (java.net.SocketTimeoutException. "timed out")))]
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #"timed out"
-                          (client/eval-form :conn "(+ 1 1)" 50 {:operation :list})))))
+  (with-runtime
+    (fn [_ db-file]
+      (with-redefs [nrepl/client (fn [conn _timeout-ms] conn)
+                    nrepl/client-session (fn [client _timeout-ms] client)
+                    nrepl/message (fn [_session _message]
+                                    (throw (java.net.SocketTimeoutException. "timed out")))]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"timed out"
+                              (client/list db-file {:timeout-ms 50})))))))
