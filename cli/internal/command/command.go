@@ -36,6 +36,7 @@ type Caller interface {
 }
 
 const defaultInitCLJ = "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n"
+const defaultSkeinGitignore = "config.json\ninit.local.clj\nlibs.local.edn\nstate/\ndata/\nweaver.*\n*.sqlite\n*.sqlite-*\n"
 
 var newClient = func(o Options) Caller {
 	return client.New(client.Config{ConfigDir: o.ConfigDir, StateDir: o.StateDir})
@@ -109,9 +110,11 @@ func (a *App) rootCommand() *cobra.Command {
 	root.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		o.ConfigDirExplicit = cmd.Flags().Changed("config-dir")
 	}
-	root.AddCommand(&cobra.Command{Use: "init", Short: "Bootstrap missing config-dir files; initialize strand storage via the running weaver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	initCmd := &cobra.Command{Use: "init", Short: "Bootstrap missing config-dir files; initialize strand storage via the running weaver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.initCommand(o)
-	}})
+	}}
+	initCmd.Flags().StringVar(&o.Source, "source", "", "Skein source checkout for local config.json (defaults to SKEIN_SOURCE or valid Skein cwd)")
+	root.AddCommand(initCmd)
 
 	add := &cobra.Command{Use: "add <title>", Short: "Create a strand", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		state, err := stateFlag(cmd, false)
@@ -362,7 +365,7 @@ func (a *App) writeHumanRows(result any) error {
 
 func weaverArgs(o Options) []string {
 	args := []string{"-M:skein", "-m", "skein.weaver.runtime"}
-	if o.ConfigDirExplicit {
+	if o.ConfigDir != "" {
 		args = append(args, "--config-dir", o.ConfigDir)
 	}
 	return args
@@ -373,7 +376,7 @@ func replArgs(o Options, stdin bool) []string {
 	if stdin {
 		args = append(args, "--stdin")
 	}
-	if o.ConfigDirExplicit {
+	if o.ConfigDir != "" {
 		args = append(args, o.ConfigDir)
 	}
 	return args
@@ -427,7 +430,7 @@ func (a *App) initCommand(o Options) error {
 }
 
 func (a *App) bootstrapConfigDir(o Options) error {
-	world, err := config.ExplicitWorld(o.ConfigDir)
+	world, err := config.InitWorld(o.ConfigDir)
 	if err != nil {
 		return err
 	}
@@ -438,15 +441,8 @@ func (a *App) bootstrapConfigDir(o Options) error {
 		return err
 	}
 	if _, err := os.Stat(world.ConfigFile); os.IsNotExist(err) {
-		cwd, err := os.Getwd()
+		absSource, err := initSource(o.Source)
 		if err != nil {
-			return err
-		}
-		absSource, err := filepath.Abs(cwd)
-		if err != nil {
-			return err
-		}
-		if err := config.ValidateSource(absSource); err != nil {
 			return err
 		}
 		cfg := config.Config{ConfigFormat: "alpha", Source: absSource}
@@ -474,17 +470,47 @@ func (a *App) bootstrapConfigDir(o Options) error {
 	} else if err != nil {
 		return err
 	}
-	if _, err := os.Stat(filepath.Join(world.ConfigDir, ".git")); os.IsNotExist(err) {
-		if err := runGitInit(world.ConfigDir); err != nil {
+	if _, err := os.Stat(filepath.Join(world.ConfigDir, ".gitignore")); os.IsNotExist(err) {
+		if err := os.WriteFile(filepath.Join(world.ConfigDir, ".gitignore"), []byte(defaultSkeinGitignore), 0o644); err != nil {
 			return err
 		}
 	} else if err != nil {
 		return err
 	}
+	if o.ConfigDirExplicit {
+		if _, err := os.Stat(filepath.Join(world.ConfigDir, ".git")); os.IsNotExist(err) {
+			if err := runGitInit(world.ConfigDir); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+	}
 	if _, _, err := config.Load(world.ConfigDir); err != nil {
 		return err
 	}
 	return nil
+}
+
+func initSource(flagSource string) (string, error) {
+	candidates := []string{}
+	if flagSource != "" {
+		candidates = append(candidates, flagSource)
+	} else if env := os.Getenv("SKEIN_SOURCE"); env != "" {
+		candidates = append(candidates, env)
+	} else if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, cwd)
+	} else {
+		return "", err
+	}
+	for _, candidate := range candidates {
+		if source, err := config.ResolveSource(candidate); err == nil {
+			return source, nil
+		} else if flagSource != "" || os.Getenv("SKEIN_SOURCE") != "" {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("could not resolve Skein source for config.json; run `strand init --source <skein-source>` or set SKEIN_SOURCE")
 }
 
 func (a *App) launchWeaver(o Options) error {

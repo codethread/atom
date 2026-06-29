@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -50,6 +51,54 @@ func ExplicitWorld(configDir string) (World, error) {
 	if configDir == "" {
 		return DefaultWorld()
 	}
+	return isolatedWorld(configDir)
+}
+
+func RepoWorld() (World, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return World{}, err
+	}
+	for dir := filepath.Clean(cwd); ; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, ".skein")
+		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
+			return isolatedWorld(candidate)
+		} else if err != nil && !os.IsNotExist(err) {
+			return World{}, err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
+	return World{}, fmt.Errorf("no .skein directory found from current directory upward; run `strand init` or pass --config-dir")
+}
+
+func SelectedWorld(configDir string) (World, error) {
+	if configDir != "" {
+		return isolatedWorld(configDir)
+	}
+	return RepoWorld()
+}
+
+func InitWorld(configDir string) (World, error) {
+	if configDir != "" {
+		return isolatedWorld(configDir)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return World{}, err
+	}
+	root := cwd
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = cwd
+	if out, err := cmd.Output(); err == nil {
+		root = strings.TrimSpace(string(out))
+	}
+	return isolatedWorld(filepath.Join(root, ".skein"))
+}
+
+func isolatedWorld(configDir string) (World, error) {
 	abs, err := filepath.Abs(configDir)
 	if err != nil {
 		return World{}, err
@@ -66,7 +115,7 @@ func world(configDir, stateDir, dataDir string) World {
 }
 
 func Load(configDir string) (Config, World, error) {
-	w, err := ExplicitWorld(configDir)
+	w, err := SelectedWorld(configDir)
 	if err != nil {
 		return Config{}, World{}, err
 	}

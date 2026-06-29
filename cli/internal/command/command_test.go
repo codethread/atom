@@ -387,8 +387,8 @@ func TestWeaverStartLaunchesFromConfiguredSource(t *testing.T) {
 	}
 	defaultLaunch := launched
 	defaultLaunch.ConfigDirExplicit = false
-	if !reflect.DeepEqual(weaverArgs(defaultLaunch), []string{"-M:skein", "-m", "skein.weaver.runtime"}) {
-		t.Fatalf("unexpected default weaver args: %#v", weaverArgs(defaultLaunch))
+	if !reflect.DeepEqual(weaverArgs(defaultLaunch), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg}) {
+		t.Fatalf("unexpected discovered weaver args: %#v", weaverArgs(defaultLaunch))
 	}
 }
 
@@ -524,32 +524,18 @@ func TestSourceValidationForWeaverStart(t *testing.T) {
 	}
 }
 
-func TestXDGConfigLoading(t *testing.T) {
-	dir := t.TempDir()
-	stateDir := t.TempDir()
-	dataDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("XDG_STATE_HOME", stateDir)
-	t.Setenv("XDG_DATA_HOME", dataDir)
-	path := filepath.Join(dir, "skein")
-	if err := os.MkdirAll(path, 0755); err != nil {
+func TestNoConfigDirFailsWithoutRepoWorld(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(path, "config.json"), []byte(`{"configFormat":"alpha"}`), 0644); err != nil {
+	tmp := t.TempDir()
+	if err := os.Chdir(tmp); err != nil {
 		t.Fatal(err)
 	}
-	var captured Options
-	orig := newClient
-	newClient = func(o Options) Caller {
-		captured = o
-		return &fakeClient{result: []any{}}
-	}
-	t.Cleanup(func() { newClient = orig })
-	if _, err := run("list"); err != nil {
-		t.Fatal(err)
-	}
-	if captured.ConfigDir != filepath.Join(dir, "skein") || captured.StateDir != filepath.Join(stateDir, "skein") {
-		t.Fatalf("unexpected default world: %#v", captured)
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if _, err := run("list"); err == nil || !strings.Contains(err.Error(), "no .skein directory found") {
+		t.Fatalf("expected no .skein failure, got %v", err)
 	}
 }
 
