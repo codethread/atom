@@ -643,18 +643,29 @@
                                    :strand/after (:after result)))
     (:after result)))
 
+(defn- supersede-context [old-id replacement-id result]
+  {:strand/id old-id
+   :strand/old-id old-id
+   :strand/replacement-id replacement-id
+   :strand/before (get-in result [:old :before])
+   :strand/after (get-in result [:old :after])
+   :supersession/supersedes-edge (:supersedes-edge result)
+   :supersession/rewired-dependencies (:rewired-dependencies result)})
+
 (defn supersede
   "Replace one strand with another and enqueue a supersession event."
   [runtime old-id replacement-id]
-  (let [result (normalize (db/supersede-strand! (ds runtime) old-id replacement-id))]
-    (enqueue-event! runtime (assoc (event-base :strand/superseded)
-                                   :strand/id old-id
-                                   :strand/old-id old-id
-                                   :strand/replacement-id replacement-id
-                                   :strand/before (get-in result [:old :before])
-                                   :strand/after (get-in result [:old :after])
-                                   :supersession/supersedes-edge (:supersedes-edge result)
-                                   :supersession/rewired-dependencies (:rewired-dependencies result)))
+  (let [result (jdbc/with-transaction [tx (ds runtime)]
+                 (let [result (normalize (db/supersede-strand-in-transaction! tx old-id replacement-id))]
+                   (run-validation-hooks! runtime
+                                          :strand/supersede-before-commit
+                                          (merge {:request/source :weaver-api
+                                                  :request/operation :supersede
+                                                  :mutation/operation :strand/supersede}
+                                                 (supersede-context old-id replacement-id result)))
+                   result))]
+    (enqueue-event! runtime (merge (event-base :strand/superseded)
+                                   (supersede-context old-id replacement-id result)))
     result))
 
 (defn declare-acyclic-relation!

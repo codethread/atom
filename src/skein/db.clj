@@ -414,53 +414,57 @@
                          RETURNING " strand-columns)
                    state strand-id])))
 
+(defn ^:no-doc supersede-strand-in-transaction!
+  [tx old-id replacement-id]
+  (when (= old-id replacement-id)
+    (throw (ex-info "A strand cannot supersede itself" {:old-id old-id :replacement-id replacement-id})))
+  (let [old-before (or (get-strand tx old-id)
+                       (throw (ex-info "Old strand not found" {:old-id old-id})))
+        replacement (or (get-strand tx replacement-id)
+                        (throw (ex-info "Replacement strand not found" {:replacement-id replacement-id})))]
+    (when (= "replaced" (:state old-before))
+      (throw (ex-info "Old strand is already replaced" {:old-id old-id :state (:state old-before)})))
+    (when-not (= "active" (:state replacement))
+      (throw (ex-info "Replacement strand must be active" {:replacement-id replacement-id :state (:state replacement)})))
+    (let [supersedes-edge (add-edge! tx {:from replacement-id
+                                         :to old-id
+                                         :type "supersedes"
+                                         :attributes {}})
+          old-after (set-strand-state-internal! tx old-id "replaced")
+          incoming-depends (execute! tx ["SELECT from_strand_id, to_strand_id, edge_type, attributes
+                                          FROM strand_edges
+                                          WHERE to_strand_id = ?
+                                            AND edge_type = 'depends-on'
+                                          ORDER BY from_strand_id"
+                                       old-id])
+          rewired (mapv (fn [edge]
+                          (let [dependent (:from_strand_id edge)
+                                existing-edge (edge-row tx dependent replacement-id "depends-on")
+                                new-edge (or existing-edge
+                                             (add-edge! tx {:from dependent
+                                                            :to replacement-id
+                                                            :type "depends-on"
+                                                            :attributes (some-> (:attributes edge) <-json)}))
+                                deleted-edge (delete-edge! tx dependent old-id "depends-on")]
+                            {:from dependent
+                             :old-to old-id
+                             :new-to replacement-id
+                             :type "depends-on"
+                             :deleted-edge deleted-edge
+                             :edge new-edge}))
+                        incoming-depends)]
+      {:old {:before old-before :after old-after}
+       :replacement-id replacement-id
+       :supersedes-edge supersedes-edge
+       :rewired-dependencies rewired})))
+
 (defn supersede-strand!
   "Mark old-id as replaced by replacement-id and rewire incoming dependencies.
 
   Creates a supersedes edge from replacement to old and returns before/after details."
   [ds old-id replacement-id]
   (jdbc/with-transaction [tx ds]
-    (when (= old-id replacement-id)
-      (throw (ex-info "A strand cannot supersede itself" {:old-id old-id :replacement-id replacement-id})))
-    (let [old-before (or (get-strand tx old-id)
-                         (throw (ex-info "Old strand not found" {:old-id old-id})))
-          replacement (or (get-strand tx replacement-id)
-                          (throw (ex-info "Replacement strand not found" {:replacement-id replacement-id})))]
-      (when (= "replaced" (:state old-before))
-        (throw (ex-info "Old strand is already replaced" {:old-id old-id :state (:state old-before)})))
-      (when-not (= "active" (:state replacement))
-        (throw (ex-info "Replacement strand must be active" {:replacement-id replacement-id :state (:state replacement)})))
-      (let [supersedes-edge (add-edge! tx {:from replacement-id
-                                           :to old-id
-                                           :type "supersedes"
-                                           :attributes {}})
-            old-after (set-strand-state-internal! tx old-id "replaced")
-            incoming-depends (execute! tx ["SELECT from_strand_id, to_strand_id, edge_type, attributes
-                                            FROM strand_edges
-                                            WHERE to_strand_id = ?
-                                              AND edge_type = 'depends-on'
-                                            ORDER BY from_strand_id"
-                                         old-id])
-            rewired (mapv (fn [edge]
-                            (let [dependent (:from_strand_id edge)
-                                  existing-edge (edge-row tx dependent replacement-id "depends-on")
-                                  new-edge (or existing-edge
-                                               (add-edge! tx {:from dependent
-                                                              :to replacement-id
-                                                              :type "depends-on"
-                                                              :attributes (some-> (:attributes edge) <-json)}))
-                                  deleted-edge (delete-edge! tx dependent old-id "depends-on")]
-                              {:from dependent
-                               :old-to old-id
-                               :new-to replacement-id
-                               :type "depends-on"
-                               :deleted-edge deleted-edge
-                               :edge new-edge}))
-                          incoming-depends)]
-        {:old {:before old-before :after old-after}
-         :replacement-id replacement-id
-         :supersedes-edge supersedes-edge
-         :rewired-dependencies rewired}))))
+    (supersede-strand-in-transaction! tx old-id replacement-id)))
 
 (defn get-strand
   "Return the strand row for strand-id, or nil when it does not exist."

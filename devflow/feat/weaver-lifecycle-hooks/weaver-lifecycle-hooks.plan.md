@@ -115,3 +115,9 @@ Append notes here. Do not rewrite earlier notes.
 - Gated `api/add`, `api/update`, and `api/burn-by-ids` with validation-only pre-commit lifecycle hooks inside mutation transactions before event enqueue.
 - Update hook context includes edge operation candidates requested by update patches; hook rejection rolls back strand and edge writes and leaves post-commit event queues untouched.
 - Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
+
+### WLH-PLAN-001.DN5 Task 4 implementation — 2026-06-29
+
+- Factored `db/supersede-strand-in-transaction!` so `api/supersede` can run normal supersession mutation in its own transaction, invoke `:strand/supersede-before-commit`, and commit only after hook approval.
+- Supersede hook context carries old/replacement ids, normalized old before/after rows, supersedes edge candidate, and rewired dependency candidate data; rejection rolls back state, supersedes edge, rewiring, and event enqueue.
+- Validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.

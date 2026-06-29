@@ -17,7 +17,7 @@ tasks:
   - id: 4
     description: Gate supersession transaction
     task_file: tasks/004-gate-supersession-transaction.md
-    status: pending
+    status: complete
     blocked_by: [2]
   - id: 5
     description: Gate graph batch mutation

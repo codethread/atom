@@ -297,6 +297,97 @@
           (is (= (:supersedes-edge result) (:supersession/supersedes-edge event)))
           (is (= (:rewired-dependencies result) (:supersession/rewired-dependencies event))))))))
 
+(deftest strand-supersede-pre-commit-hook-inspects-and-rejects-atomically
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! hook-contexts [])
+      (reset! delivered-events [])
+      (api/register-event-handler! rt :capture #{:strand/superseded} 'skein.weaver-test/capture-event {})
+      (api/register-hook! rt :capture-supersede #{:strand/supersede-before-commit} 'skein.weaver-test/capture-hook {})
+      (let [old (api/add rt {:title "Old"})
+            replacement (api/add rt {:title "Replacement"})
+            dependent (api/add rt {:title "Dependent"})]
+        (api/update rt (:id dependent) {:edges [{:type "depends-on" :to (:id old) :attributes {:reason "old"}}]})
+        (reset! delivered-events [])
+        (let [result (api/supersede rt (:id old) (:id replacement))
+              event (first (wait-for-events 1))
+              context (last @hook-contexts)]
+          (is (= :strand/supersede-before-commit (:hook/type context)))
+          (is (= :weaver-api (:request/source context)))
+          (is (= :supersede (:request/operation context)))
+          (is (= :strand/supersede (:mutation/operation context)))
+          (is (= (:id old) (:strand/old-id context)))
+          (is (= (:id replacement) (:strand/replacement-id context)))
+          (is (= (get-in result [:old :before]) (:strand/before context)))
+          (is (= (get-in result [:old :after]) (:strand/after context)))
+          (is (= (:supersedes-edge result) (:supersession/supersedes-edge context)))
+          (is (= (:rewired-dependencies result) (:supersession/rewired-dependencies context)))
+          (is (= {:reason "old"} (get-in result [:rewired-dependencies 0 :deleted-edge :attributes])))
+          (is (= {:reason "old"} (get-in result [:rewired-dependencies 0 :edge :attributes])))
+          (is (= :strand/superseded (:event/type event)))
+          (is (= (:supersedes-edge result) (:supersession/supersedes-edge event))))
+        (api/unregister-hook! rt :capture-supersede)
+        (let [reject-old (api/add rt {:title "Reject old"})
+              reject-replacement (api/add rt {:title "Reject replacement"})
+              reject-dependent (api/add rt {:title "Reject dependent"})]
+          (api/update rt (:id reject-dependent) {:edges [{:type "depends-on" :to (:id reject-old) :attributes {:reason "rollback"}}]})
+          (reset! delivered-events [])
+          (api/register-hook! rt :reject-supersede #{:strand/supersede-before-commit} 'skein.weaver-test/rejecting-hook {})
+          (try
+            (api/supersede rt (:id reject-old) (:id reject-replacement))
+            (is false "expected supersede hook rejection")
+            (catch clojure.lang.ExceptionInfo e
+              (is (= "hook/failed" (:code (ex-data e))))
+              (is (= :strand/supersede-before-commit (:hook/type (ex-data e))))
+              (is (= :reject-supersede (:hook/key (ex-data e))))
+              (is (= "policy/rejected" (:hook/cause-code (ex-data e))))))
+          (is (= "active" (:state (api/show rt (:id reject-old)))))
+          (is (= [{:from_strand_id (:id reject-dependent)
+                   :to_strand_id (:id reject-old)
+                   :edge_type "depends-on"
+                   :attributes {:reason "rollback"}}]
+                 (mapv #(update % :attributes db/<-json)
+                       (db/execute! (:datasource rt)
+                                    ["SELECT from_strand_id, to_strand_id, edge_type, attributes
+                                      FROM strand_edges
+                                      WHERE from_strand_id = ?
+                                      ORDER BY to_strand_id, edge_type"
+                                     (:id reject-dependent)]))))
+          (is (empty? (db/execute! (:datasource rt)
+                                   ["SELECT 1 FROM strand_edges WHERE from_strand_id = ? AND to_strand_id = ? AND edge_type = 'supersedes'"
+                                    (:id reject-replacement) (:id reject-old)])))
+          (is (empty? @delivered-events)))))))
+
+(deftest strand-supersede-api-validation-failures-stay-loud-and-ungated
+  (with-runtime
+    (fn [rt _]
+      (api/init rt)
+      (reset! hook-contexts [])
+      (reset! delivered-events [])
+      (api/register-event-handler! rt :capture #{:strand/superseded} 'skein.weaver-test/capture-event {})
+      (api/register-hook! rt :capture-supersede #{:strand/supersede-before-commit} 'skein.weaver-test/capture-hook {})
+      (let [old (api/add rt {:title "Old"})
+            replacement (api/add rt {:title "Replacement"})
+            closed-replacement (api/add rt {:title "Closed" :state "closed"})
+            dependent (api/add rt {:title "Dependent"})]
+        (api/update rt (:id dependent) {:edges [{:type "depends-on" :to (:id old)}]})
+        (api/update rt (:id replacement) {:edges [{:type "depends-on" :to (:id dependent)}]})
+        (reset! hook-contexts [])
+        (reset! delivered-events [])
+        (let [before (db-test/graph-snapshot (:datasource rt))]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Replacement strand must be active"
+                                (api/supersede rt (:id old) (:id closed-replacement))))
+          (is (empty? @hook-contexts))
+          (is (empty? @delivered-events))
+          (is (= before (db-test/graph-snapshot (:datasource rt)))))
+        (let [before (db-test/graph-snapshot (:datasource rt))]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"create a cycle"
+                                (api/supersede rt (:id old) (:id replacement))))
+          (is (empty? @hook-contexts))
+          (is (empty? @delivered-events))
+          (is (= before (db-test/graph-snapshot (:datasource rt)))))))))
+
 (deftest weaver-strand-mutations-emit-events-after-success
   (with-runtime
     (fn [rt _]
