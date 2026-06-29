@@ -1,11 +1,20 @@
 (ns skein.views.alpha
+  "Public helper API for registering, inspecting, and invoking weaver views.
+
+  Calls route directly when executing inside a weaver runtime, otherwise through
+  the connected helper REPL world. The weaver API owns view validation, function
+  resolution, registry state, and invocation."
   (:require [skein.client :as client]
-            [skein.weaver.runtime :as runtime]
-            [skein.repl :as repl]))
+            [skein.repl :as repl]
+            [skein.weaver.api :as api]
+            [skein.weaver.runtime :as runtime]))
 
 (defn- call-daemon [op & args]
   (if-let [rt @runtime/current-runtime]
-    (apply (requiring-resolve (symbol "skein.weaver.api" (name op))) rt args)
+    (case op
+      :register-view! (apply api/register-view! rt args)
+      :view! (apply api/view! rt args)
+      :views (api/views rt))
     (apply client/call-world (repl/connected-config-dir) {} op args)))
 
 (defn register-view!

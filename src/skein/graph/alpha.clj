@@ -1,11 +1,23 @@
 (ns skein.graph.alpha
+  "Public helper API for query selection, strand hydration, and graph traversal.
+
+  Calls route directly when executing inside a weaver runtime, otherwise through
+  the connected helper REPL world. The weaver API owns validation, persistence,
+  query evaluation, and relation traversal semantics."
   (:require [skein.client :as client]
-            [skein.weaver.runtime :as runtime]
-            [skein.repl :as repl]))
+            [skein.repl :as repl]
+            [skein.weaver.api :as api]
+            [skein.weaver.runtime :as runtime]))
 
 (defn- call-daemon [op & args]
   (if-let [rt @runtime/current-runtime]
-    (apply (requiring-resolve (symbol "skein.weaver.api" (name op))) rt args)
+    (case op
+      :ancestor-root-ids (apply api/ancestor-root-ids rt args)
+      :burn-by-id (apply api/burn-by-id rt args)
+      :burn-by-ids (apply api/burn-by-ids rt args)
+      :query-ids (apply api/query-ids rt args)
+      :strands-by-ids (apply api/strands-by-ids rt args)
+      :subgraph (apply api/subgraph rt args))
     (apply client/call-world (repl/connected-config-dir) {} op args)))
 
 (defn query-ids!
@@ -20,9 +32,9 @@
 (defn burn-by-ids!
   "Burn strands by id through the selected weaver runtime.
 
-  Burning physically deletes each strand and its incident edges. Missing ids fail
-  loudly in the weaver operation. Routes directly through the weaver runtime or
-  the connected helper REPL world."
+  Burning physically deletes each strand and its incident edges, then returns
+  burn metadata. Missing ids fail loudly in the weaver operation. Routes directly
+  through the weaver runtime or the connected helper REPL world."
   [ids]
   (call-daemon :burn-by-ids ids))
 
@@ -35,8 +47,8 @@
   "Hydrate strands by id through the selected weaver runtime.
 
   Duplicate ids are collapsed by first occurrence, empty input returns [], and
-  missing ids fail loudly in the weaver operation. Routes directly through
-  the weaver runtime or the connected helper REPL world."
+  missing ids fail loudly in the weaver operation. Routes directly through the
+  weaver runtime or the connected helper REPL world."
   [ids]
   (call-daemon :strands-by-ids ids))
 

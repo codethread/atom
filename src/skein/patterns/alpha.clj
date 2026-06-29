@@ -1,10 +1,21 @@
 (ns skein.patterns.alpha
+  "Public helper API for registering, inspecting, and invoking weave patterns.
+
+  Calls route directly when executing inside a weaver runtime, otherwise through
+  the connected helper REPL world. The weaver API owns pattern validation,
+  function resolution, input spec validation, and transactional batch creation."
   (:require [skein.client :as client]
+            [skein.weaver.api :as api]
             [skein.weaver.runtime :as runtime]))
 
 (defn- call-daemon [op & args]
   (if-let [rt @runtime/current-runtime]
-    (apply (requiring-resolve (symbol "skein.weaver.api" (name op))) rt args)
+    (case op
+      :patterns (api/patterns rt)
+      :pattern-explain (apply api/pattern-explain rt args)
+      :register-pattern! (apply api/register-pattern! rt args)
+      :resolve-pattern (apply api/resolve-pattern rt args)
+      :weave! (apply api/weave! rt args))
     (apply client/call-world ((requiring-resolve 'skein.repl/connected-config-dir)) {} op args)))
 
 (defn register-pattern!
