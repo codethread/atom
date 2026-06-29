@@ -1,0 +1,36 @@
+tasks:
+  - id: 1
+    description: Add mill command and XDG state root
+    task_file: tasks/001-add-mill-command-and-xdg-state-root.md
+    status: pending
+    blocked_by: []
+  - id: 2
+    description: Route strand init through mill
+    task_file: tasks/002-route-strand-init-through-mill.md
+    status: pending
+    blocked_by: [1]
+  - id: 3
+    description: Start weavers through mill
+    task_file: tasks/003-start-weavers-through-mill.md
+    status: pending
+    blocked_by: [1, 4]
+  - id: 4
+    description: Move weaver storage to XDG state
+    task_file: tasks/004-move-weaver-storage-to-xdg-state.md
+    status: pending
+    blocked_by: [1]
+  - id: 5
+    description: Forward strand operations through mill
+    task_file: tasks/005-forward-strand-operations-through-mill.md
+    status: pending
+    blocked_by: [2, 3]
+  - id: 6
+    description: Attach REPL using mill metadata
+    task_file: tasks/006-attach-repl-using-mill-metadata.md
+    status: pending
+    blocked_by: [3]
+  - id: 7
+    description: Update smoke docs and specs
+    task_file: tasks/007-update-smoke-docs-and-specs.md
+    status: pending
+    blocked_by: [5, 6]
