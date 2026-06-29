@@ -89,6 +89,8 @@
             replacement (repl/strand! "New impl")]
         (is (= {:priority "high"} (:attributes design)))
         (is (= "closed" (:state design)))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Two-argument strand! treats the second argument as attributes"
+                              (repl/strand! "Ambiguous" {:state "closed"})))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown core strand fields"
                               (repl/strand! "Invalid" {} {:priority "high"})))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown strand update fields"
