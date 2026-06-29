@@ -579,6 +579,18 @@ func TestDiscoveredIncompleteWorldRemediatesWeaverLifecycle(t *testing.T) {
 	}
 }
 
+func TestDiscoveredIncompleteWorldRemediatesQueryCommand(t *testing.T) {
+	repo := t.TempDir()
+	cfg := filepath.Join(repo, ".skein")
+	if err := os.MkdirAll(cfg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withChdir(t, repo)
+	if _, err := run("list"); err == nil || !strings.Contains(err.Error(), cfg) || !strings.Contains(err.Error(), "strand init --source <skein-source>") {
+		t.Fatalf("expected ordinary command remediation, got %v", err)
+	}
+}
+
 func TestDiscoveredWeaverStartLaunchesWithRepoConfigDir(t *testing.T) {
 	repo := t.TempDir()
 	cfg := filepath.Join(repo, ".skein")

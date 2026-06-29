@@ -320,6 +320,9 @@ func resolveOptions(o Options) (Options, error) {
 	o.Source = cfg.Source
 	o.ConfigDir = world.ConfigDir
 	o.StateDir = world.StateDir
+	if !o.ConfigDirExplicit && o.Source == "" {
+		return o, incompleteDiscoveredWorldError(o)
+	}
 	return o, nil
 }
 

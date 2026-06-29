@@ -6,7 +6,7 @@
 **RFC:** none
 **Root specs:** [CLI Surface](../../specs/cli.md), [Weaver Runtime](../../specs/daemon-runtime.md), [REPL API](../../specs/repl-api.md)
 **Feature specs:** [cli.delta.md](./specs/cli.delta.md), [daemon-runtime.delta.md](./specs/daemon-runtime.delta.md), [repl-api.delta.md](./specs/repl-api.delta.md)
-**Status:** Reviewed
+**Status:** Shipped
 **Last Updated:** 2026-06-29
 
 ## PLAN-RepoFirstConfig-001.P1 Goal and scope
@@ -135,3 +135,7 @@ Outcome: Clojure and Go tests cover repo discovery/init/layering/overrides, smok
 ### PLAN-RepoFirstConfig-001.DN10 Task 6 completed — 2026-06-29
 
 - Promoted repo-first config deltas into root CLI, weaver runtime, and REPL specs; marked feature-local deltas merged. Updated README, getting started, user reference, AGENTS, and devflow status to describe repo-local `.skein` as the ordinary path, with explicit `--config-dir` for disposable worlds and personal `init.local.clj`/`libs.local.edn` overlays for workflow libraries.
+
+### PLAN-RepoFirstConfig-001.DN11 Final review fixes and archive — 2026-06-29
+
+- Final alignment pass fixed approved-library source metadata docs to use the implemented `:kind` key and improved repo-discovered incomplete-world remediation for ordinary commands such as `strand list`. Validation passed: `(cd cli && go test ./...)`, `clojure -M:test`, and `clojure -M:smoke`. No scope was cut.
