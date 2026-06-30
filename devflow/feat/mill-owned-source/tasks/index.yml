@@ -2,30 +2,30 @@ tasks:
   - id: 1
     description: Canonicalize default repo world
     task_file: tasks/001-canonicalize-default-repo-world.md
-    status: pending
+    status: complete
     blocked_by: []
   - id: 2
     description: Remove persisted source config
     task_file: tasks/002-remove-persisted-source-config.md
-    status: pending
+    status: complete
     blocked_by: [1]
   - id: 3
     description: Move launch source into mill
     task_file: tasks/003-move-launch-source-into-mill.md
-    status: pending
+    status: complete
     blocked_by: [2]
   - id: 4
     description: Route helper repl through mill
     task_file: tasks/004-route-helper-repl-through-mill.md
-    status: pending
+    status: complete
     blocked_by: [3]
   - id: 5
     description: Prove linked worktree sharing
     task_file: tasks/005-prove-linked-worktree-sharing.md
-    status: pending
+    status: complete
     blocked_by: [4]
   - id: 6
     description: Finalize specs and validation
     task_file: tasks/006-finalize-specs-and-validation.md
-    status: pending
+    status: complete
     blocked_by: [5]
