@@ -67,7 +67,93 @@
   (is (contains? (api/queries rt) "devflow-work"))
   (is (contains? (api/queries rt) "devflow-features"))
   (is (some #(= "devflow-dashboard" (:name %)) (views/views)))
+  (is (some #(= :devflow-coordination-attrs (:key %)) (api/hooks rt)))
   (is (some #(= "devflow-status" (:name %)) (api/ops rt))))
+
+(deftest devflow-coordination-hook-normalizes-task-id-and-validates-present-attrs
+  (with-config-runtime
+    (fn [rt]
+      (let [created (api/add rt {:title "Numeric task id"
+                                 :state "active"
+                                 :attributes {:workflow "devflow"
+                                              :kind "task"
+                                              :feature "normalize"
+                                              :task_key "yqztl"
+                                              :task_id 42
+                                              :validation ["clojure -M:test"]}})
+            socket-shaped (api/add rt {:title "Socket numeric task id"
+                                       :state "active"
+                                       :attributes {"workflow" "devflow"
+                                                    "kind" "task"
+                                                    "feature" "normalize"
+                                                    "task_key" "socket"
+                                                    "task_id" 43
+                                                    "validation" ["clojure -M:test"]}})]
+        (is (= "42" (get-in created [:attributes :task_id])))
+        (is (= "43" (get-in socket-shaped [:attributes :task_id]))))
+      (try
+        (api/add rt {:title "Bad task id"
+                     :state "active"
+                     :attributes {:workflow "devflow"
+                                  :kind "task"
+                                  :feature "normalize"
+                                  :task_key "bad"
+                                  :task_id ""}})
+        (is false "expected malformed task_id rejection")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "hook/failed" (:code (ex-data e))))
+          (is (= :attributes/normalize (:hook/type (ex-data e))))
+          (is (= :devflow-coordination-attrs (:hook/key (ex-data e))))
+          (is (= "devflow/invalid-coordination-attribute" (:hook/cause-code (ex-data e))))))
+      (try
+        (api/add rt {:title "Bad string task id"
+                     :state "active"
+                     :attributes {"workflow" "devflow"
+                                  "kind" "task"
+                                  "feature" "normalize"
+                                  "task_key" "bad-string"
+                                  "task_id" ""}})
+        (is false "expected malformed string-keyed task_id rejection")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "hook/failed" (:code (ex-data e))))
+          (is (= "devflow/invalid-coordination-attribute" (:hook/cause-code (ex-data e))))))
+      (try
+        (api/add rt {:title "Bad validation"
+                     :state "active"
+                     :attributes {:workflow "devflow"
+                                  :kind "task"
+                                  :feature "normalize"
+                                  :task_key "bad-validation"
+                                  :validation []}})
+        (is false "expected empty validation rejection")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "hook/failed" (:code (ex-data e))))
+          (is (= "devflow/invalid-coordination-attribute" (:hook/cause-code (ex-data e))))))
+      (doseq [[title attrs] [["Duplicate task id" {:workflow "devflow"
+                                                    :kind "task"
+                                                    :feature "normalize"
+                                                    :task_key "dupe-task-id"
+                                                    :task_id 1
+                                                    "task_id" 2}]
+                            ["Duplicate workflow" {:workflow "devflow"
+                                                    "workflow" "agent-plan"
+                                                    :kind "task"
+                                                    :feature "normalize"
+                                                    :task_key "dupe-workflow"}]]]
+        (try
+          (api/add rt {:title title
+                       :state "active"
+                       :attributes attrs})
+          (is false "expected duplicate logical coordination key rejection")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= "hook/failed" (:code (ex-data e))))
+            (is (= "devflow/duplicate-coordination-attribute" (:hook/cause-code (ex-data e)))))))
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (api/weave! rt :devflow-plan {:feature "normalize"
+                                                 :title "Plan"
+                                                 :tasks [{:key "empty-validation"
+                                                          :title "Empty validation"
+                                                          :validation []}]}))))))
 
 (deftest devflow-status-unscoped-ready-excludes-plan-strands
   (with-config-runtime

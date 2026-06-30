@@ -21,7 +21,7 @@
 (s/def ::task_id (s/or :string ::non-blank-string :int int?))
 (s/def ::owner ::non-blank-string)
 (s/def ::branch ::non-blank-string)
-(s/def ::validation (s/coll-of ::non-blank-string :kind vector?))
+(s/def ::validation (s/coll-of ::non-blank-string :kind vector? :min-count 1))
 (s/def ::task (s/keys :req-un [::key ::title]
                       :opt-un [::body ::kind ::hitl ::depends_on
                                ::task_file ::task_id ::owner ::branch ::validation]))
@@ -103,7 +103,104 @@
     (nil? task-id) nil
     (integer? task-id) (str task-id)
     (and (string? task-id) (not (str/blank? task-id))) task-id
-    :else (throw (ex-info "task_id must be a non-blank string or integer" {:task_id task-id}))))
+    :else (throw (ex-info "task_id must be a non-blank string or integer"
+                          {:code "devflow/invalid-coordination-attribute"
+                           :attribute :task_id
+                           :value task-id}))))
+
+(def ^:private devflow-workflows
+  #{"devflow" "agent-plan"})
+
+(def ^:private devflow-kinds
+  #{"plan" "task" "review"})
+
+(defn- require-non-blank-string!
+  "Return value when it is a non-blank string, otherwise fail with attr context."
+  [attr value]
+  (when-not (and (string? value) (not (str/blank? value)))
+    (throw (ex-info (str (name attr) " must be a non-blank string")
+                    {:code "devflow/invalid-coordination-attribute"
+                     :attribute attr
+                     :value value})))
+  value)
+
+(defn- require-enum!
+  "Return value when it is in allowed, otherwise fail with attr context."
+  [attr allowed value]
+  (when-not (contains? allowed value)
+    (throw (ex-info (str (name attr) " must be one of " (pr-str (sort allowed)))
+                    {:code "devflow/invalid-coordination-attribute"
+                     :attribute attr
+                     :allowed (sort allowed)
+                     :value value})))
+  value)
+
+(defn- normalize-validation!
+  "Return validation when it is a non-empty vector of non-blank strings."
+  [validation]
+  (when-not (and (vector? validation)
+                 (seq validation)
+                 (every? #(and (string? %) (not (str/blank? %))) validation))
+    (throw (ex-info "validation must be a non-empty vector of non-blank strings"
+                    {:code "devflow/invalid-coordination-attribute"
+                     :attribute :validation
+                     :value validation})))
+  validation)
+
+(def ^:private devflow-coordination-attrs
+  [:workflow :feature :kind :task_key :task_id :task_file :owner :branch :validation])
+
+(defn- reject-duplicate-logical-attrs!
+  "Fail when attrs contains both keyword and JSON string forms of attr."
+  [attrs attr]
+  (when (and (contains? attrs attr)
+             (contains? attrs (name attr)))
+    (throw (ex-info (str (name attr) " must not be supplied with both keyword and string keys")
+                    {:code "devflow/duplicate-coordination-attribute"
+                     :attribute attr
+                     :keys [attr (name attr)]}))))
+
+(defn- contains-attr?
+  "Return true when attrs contains attr as a keyword or JSON string key."
+  [attrs attr]
+  (or (contains? attrs attr)
+      (contains? attrs (name attr))))
+
+(defn- get-attr
+  "Return attr value from attrs, preferring keyword key over JSON string key."
+  [attrs attr]
+  (if (contains? attrs attr)
+    (get attrs attr)
+    (get attrs (name attr))))
+
+(defn- update-present-attr
+  "Update attr for both keyword and JSON string keys when present."
+  [attrs attr f]
+  (cond-> attrs
+    (contains? attrs attr) (update attr f)
+    (contains? attrs (name attr)) (update (name attr) f)))
+
+(defn normalize-devflow-coordination-attrs
+  "Normalize and validate repo-local devflow coordination attributes.
+
+  This lifecycle hook is intentionally narrow: it only checks coordination
+  attributes that are present, normalizes `task_id` integers to strings, and
+  fails loudly for malformed values instead of filling in missing attrs."
+  [ctx]
+  (let [value (:hook/value ctx)
+        _ (doseq [attr devflow-coordination-attrs]
+            (reject-duplicate-logical-attrs! value attr))
+        attrs (update-present-attr value :task_id task-id-string)]
+    (doseq [attr [:feature :task_key :task_file :owner :branch]
+            :when (contains-attr? attrs attr)]
+      (require-non-blank-string! attr (get-attr attrs attr)))
+    (when (contains-attr? attrs :workflow)
+      (require-enum! :workflow devflow-workflows (get-attr attrs :workflow)))
+    (when (contains-attr? attrs :kind)
+      (require-enum! :kind devflow-kinds (get-attr attrs :kind)))
+    (when (contains-attr? attrs :validation)
+      (normalize-validation! (get-attr attrs :validation)))
+    {:hook/value attrs}))
 
 (defn- plan-strand
   "Return the feature/plan strand for an agent/devflow plan input."
@@ -120,7 +217,7 @@
 
 (defn- task-attributes
   "Return task attributes shared by agent and devflow plan patterns."
-  [workflow feature {:keys [key body kind hitl task_file task_id owner branch validation]}]
+  [workflow feature {:keys [key body kind hitl task_file task_id owner branch validation] :as task}]
   (cond-> {:feature feature
            :kind (or kind "task")
            :workflow workflow
@@ -131,7 +228,7 @@
     task_id (assoc :task_id (task-id-string task_id))
     owner (assoc :owner owner)
     branch (assoc :branch branch)
-    (seq validation) (assoc :validation validation)))
+    (contains? task :validation) (assoc :validation validation)))
 
 (defn- task-strand
   "Return one task/review strand for an agent/devflow input task."
@@ -447,6 +544,11 @@
    :views [(views/register-view!
             'devflow-dashboard
             'config/devflow-dashboard-view)]
+   :hooks [(api/register-hook!
+            :devflow-coordination-attrs
+            #{:attributes/normalize}
+            'config/normalize-devflow-coordination-attrs
+            {:doc "Normalize and validate repo-local devflow coordination attributes."})]
    :ops [(api/register-op!
           'current-dags
           "Show active parent-of work DAGs with active depends-on edges"
