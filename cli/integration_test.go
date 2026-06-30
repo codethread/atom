@@ -168,6 +168,81 @@ func TestMillRoutedStrandAddAndList(t *testing.T) {
 	}
 }
 
+func TestLinkedGitWorktreesShareDefaultWorldAndExplicitConfigDirIsolated(t *testing.T) {
+	repo := shortTempDir(t)
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+	linked := filepath.Join(shortTempDir(t), "linked")
+	runGit(t, repo, "worktree", "add", linked)
+
+	bin := buildStrand(t)
+	t.Setenv("SKEIN_SOURCE", sourceRoot(t))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(shortTempDir(t), "config"))
+	startMill(t)
+	if out, err := outputStrand(bin, "", repo, "init"); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, out)
+	}
+	if out, err := outputStrand(bin, "", repo, "weaver", "start"); err != nil {
+		t.Fatalf("weaver start failed: %v\n%s", err, out)
+	}
+	waitForStatus(t, bin, "", repo, &bytes.Buffer{})
+
+	mainStatus := weaverStatus(t, bin, "", repo)
+	linkedStatus := weaverStatus(t, bin, "", linked)
+	for _, key := range []string{"config_dir", "state_dir", "data_dir", "weaver_id"} {
+		if mainStatus[key] == "" || mainStatus[key] != linkedStatus[key] {
+			t.Fatalf("linked worktree default status mismatch for %s: main=%#v linked=%#v", key, mainStatus, linkedStatus)
+		}
+	}
+	wantConfig, err := filepath.EvalSymlinks(filepath.Join(repo, ".skein"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mainStatus["config_dir"] != wantConfig {
+		t.Fatalf("default config_dir = %q, want canonical repo world %q", mainStatus["config_dir"], wantConfig)
+	}
+
+	created := addJSON(t, bin, "", repo, "shared from main", "owner=linked-worktree-test")
+	out, err := outputStrand(bin, "", linked, "list")
+	if err != nil || !strings.Contains(out, created) || !strings.Contains(out, `"title":"shared from main"`) {
+		t.Fatalf("linked list output/error = %q/%v", out, err)
+	}
+
+	explicit := filepath.Join(shortTempDir(t), "explicit-world")
+	if out, err := outputStrand(bin, explicit, linked, "init"); err != nil {
+		t.Fatalf("explicit init failed: %v\n%s", err, out)
+	}
+	if out, err := outputStrand(bin, explicit, linked, "weaver", "start"); err != nil {
+		t.Fatalf("explicit weaver start failed: %v\n%s", err, out)
+	}
+	explicitStatus := weaverStatus(t, bin, explicit, linked)
+	for _, key := range []string{"config_dir", "state_dir", "data_dir", "weaver_id"} {
+		if explicitStatus[key] == "" || explicitStatus[key] == mainStatus[key] {
+			t.Fatalf("explicit --config-dir was not isolated for %s: default=%#v explicit=%#v", key, mainStatus, explicitStatus)
+		}
+	}
+	out, err = outputStrand(bin, explicit, linked, "list")
+	if err != nil {
+		t.Fatalf("explicit list failed: %v\n%s", err, out)
+	}
+	if strings.Contains(out, created) || strings.Contains(out, "shared from main") {
+		t.Fatalf("explicit world unexpectedly saw default-world strand: %s", out)
+	}
+
+	if out, err := outputStrand(bin, explicit, linked, "weaver", "stop"); err != nil {
+		t.Fatalf("explicit weaver stop failed: %v\n%s", err, out)
+	}
+	if out, err := outputStrand(bin, "", linked, "weaver", "stop"); err != nil {
+		t.Fatalf("default weaver stop failed: %v\n%s", err, out)
+	}
+}
+
 func TestTaskAndQueryCommandsRunOutsideCheckoutWithoutSource(t *testing.T) {
 	t.Skip("ordinary command routing moves to mill in a later slice")
 	dir := shortTempDir(t)
@@ -323,6 +398,35 @@ func writeClientConfig(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"configFormat":"alpha"}`), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func weaverStatus(t *testing.T, bin, configDir, cwd string) map[string]string {
+	t.Helper()
+	out, err := outputStrand(bin, configDir, cwd, "weaver", "status")
+	if err != nil {
+		t.Fatalf("weaver status failed: %v\n%s", err, out)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		t.Fatalf("status is not json: %v\n%s", err, out)
+	}
+	status := make(map[string]string, len(raw))
+	for key, value := range raw {
+		if s, ok := value.(string); ok {
+			status[key] = s
+		}
+	}
+	return status
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
 }
 
