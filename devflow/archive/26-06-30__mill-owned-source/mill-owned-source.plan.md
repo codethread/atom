@@ -6,7 +6,7 @@
 **RFC:** None
 **Root specs:** [CLI Surface](../../specs/cli.md), [Weaver Runtime](../../specs/daemon-runtime.md)
 **Feature specs:** [specs/cli.delta.md](./specs/cli.delta.md), [specs/daemon-runtime.delta.md](./specs/daemon-runtime.delta.md)
-**Status:** Reviewed
+**Status:** Shipped
 **Last Updated:** 2026-06-30
 
 ## PLAN-MOS-001.P1 Goal and scope
@@ -85,3 +85,4 @@ Append notes here. Do not rewrite earlier notes.
 
 - 2026-06-30 TASK-MOS-006: Promoted CLI/runtime deltas into root specs and marked feature-local deltas Merged. Updated README and user docs to describe repository-canonical default selection across linked worktrees, explicit `--config-dir` isolation, reduced `config.json` alpha marker, and mill-owned source resolution. Updated smoke validation to stop passing removed `strand init --source` and to supply `SKEIN_SOURCE` as launch context instead. Validation passed: `(cd cli && go test ./...)`; `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`; `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`. Cut/deferred scope: none for task 6; feature archiving remains out of scope for devflow finish/archive. `git status --short` after validation showed only tracked source/docs/spec changes and no generated SQLite/runtime metadata artifacts.
 - 2026-06-30 Coordinator final validation: all six task strands were completed and reviewed; task queue statuses were marked complete. Validation on merged `main` passed: `(cd cli && go test ./...)`; `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`; `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`. No generated SQLite/runtime metadata artifacts were present before restoring pre-existing local `.skein` changes.
+- 2026-06-30 Finish/archive: shipped repository-canonical default selected worlds across linked worktrees, marker-only `config.json`, mill-owned source resolution for weaver/helper launch, explicit `--config-dir` isolation, root CLI/runtime spec promotion, docs updates, and linked-worktree coverage. Cut/deferred scope: none.
