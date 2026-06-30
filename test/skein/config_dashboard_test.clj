@@ -9,6 +9,14 @@
             [skein.weaver.config :as daemon-config]
             [skein.weaver.runtime :as runtime]))
 
+(defn- delete-directory!
+  "Delete a directory tree rooted at `path` if it exists."
+  [path]
+  (let [file (io/file path)]
+    (when (.exists file)
+      (doseq [child (reverse (file-seq file))]
+        (io/delete-file child true)))))
+
 (defn- test-world
   "Return an isolated test world rooted in a temporary directory."
   [config-dir]
@@ -29,7 +37,8 @@
         (f rt)
         (finally
           (runtime/stop! rt)
-          (db-test/delete-sqlite-family! db-file))))))
+          (db-test/delete-sqlite-family! db-file)
+          (delete-directory! config-dir))))))
 
 (defn- copy-config-dir!
   "Copy the repo-local config files into a temporary config dir."
@@ -49,7 +58,8 @@
         (f rt)
         (finally
           (runtime/stop! rt)
-          (db-test/delete-sqlite-family! db-file))))))
+          (db-test/delete-sqlite-family! db-file)
+          (delete-directory! config-dir))))))
 
 (defn- add-devflow!
   "Create an active devflow strand for dashboard tests."
@@ -163,6 +173,40 @@
                                                  :tasks [{:key "empty-validation"
                                                           :title "Empty validation"
                                                           :validation []}]}))))))
+
+(deftest devflow-coordination-hook-allows-generic-kind-when-not-coordination
+  (with-config-runtime
+    (fn [rt]
+      (let [task (api/add rt {:title "Generic kind"
+                             :state "active"
+                             :attributes {:kind "doc"}})]
+        (is (= "doc" (get-in task [:attributes :kind])))
+        (is (= "spike" (get-in (api/update rt (:id task) {:attributes {:kind "spike"}}) [:attributes :kind]))))))
+
+(deftest devflow-coordination-hook-normalizes-and-rejects-on-update-in-context
+  (with-config-runtime
+    (fn [rt]
+      (let [task (api/add rt {:title "Contexted task"
+                             :state "active"
+                             :attributes {:workflow "devflow"
+                                          :kind "task"
+                                          :task_key "update-me"
+                                          :feature "update"}})
+            updated (api/update rt (:id task) {:attributes {:task_id 77}})]
+        (is (= "77" (get-in updated [:attributes :task_id])))
+        (try
+          (api/update rt (:id task) {:attributes {:workflow "bad-workflow" :task_key "update-me"}})
+          (is false "expected lifecycle rejection for invalid workflow")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= "hook/failed" (:code (ex-data e))))
+            (is (= "devflow/invalid-coordination-attribute" (:hook/cause-code (ex-data e))))))
+        (try
+          (api/update rt (:id task) {:attributes {:kind "doc" :task_key "update-me"}})
+          (is false "expected lifecycle rejection for invalid kind")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= "hook/failed" (:code (ex-data e))))
+            (is (= "devflow/invalid-coordination-attribute" (:hook/cause-code (ex-data e))))))))))
+
 
 (deftest devflow-status-unscoped-ready-excludes-plan-strands
   (with-config-runtime
@@ -320,6 +364,27 @@
                  (set (map :id (:closed result)))))
           (is (= #{"closed"} (set (map :state closed))))
           (is (= #{"active"} (set (map :state open)))))))))
+
+(deftest devflow-close-feature-skip-non-devflow-children
+  (with-config-runtime
+    (fn [rt]
+      (let [feature (add-devflow! rt "Feature" "plan" "batch-ops" {} [])
+            impl (add-devflow! rt "Impl" "task" "batch-ops" {:task_key "impl"} [])
+            non-devflow-child (api/add rt {:title "Non devflow child"
+                                          :state "active"
+                                          :attributes {:workflow "agent-plan"
+                                                       :kind "task"
+                                                       :feature "batch-ops"
+                                                       :task_key "note"}})]
+        (api/update rt (:id feature) {:edges [{:type "parent-of" :to (:id impl)}
+                                             {:type "parent-of" :to (:id non-devflow-child)}]})
+        (let [result ((requiring-resolve 'config/devflow-close-feature-op)
+                      {:op/argv ["batch-ops"]})
+              impl-after (api/show rt (:id impl))
+              nondev-after (api/show rt (:id non-devflow-child))]
+          (is (= 2 (:closed_count result)))
+          (is (= "closed" (:state impl-after)))
+          (is (= "active" (:state nondev-after)))))))
 
 (deftest devflow-close-feature-fails-when-feature-has-no-active-plan-root
   (with-config-runtime
@@ -494,4 +559,4 @@
           (is (= ["Ready work"] (mapv :title (:ready after-status))))
           (is (= {:features 1 :active_work 2 :ready_work 1 :blocked_work 1}
                  (:counts after-dashboard)))
-          (is (= "External blocker" (get-in after-dashboard [:features 0 :blocked 0 :blocked_by 0 :title]))))))))
+          (is (= "External blocker" (get-in after-dashboard [:features 0 :blocked 0 :blocked_by 0 :title]))))))))))

@@ -4,6 +4,7 @@
             [clojure.spec.alpha :as s]
             [clojure.string :as str]
             [skein.events.alpha :as events]
+            [skein.hooks.alpha :as hooks]
             [skein.libs.ephemeral :as ephemeral]
             [skein.patterns.alpha :as patterns]
             [skein.views.alpha :as views]
@@ -151,6 +152,9 @@
 (def ^:private devflow-coordination-attrs
   [:workflow :feature :kind :task_key :task_id :task_file :owner :branch :validation])
 
+(def ^:private devflow-context-attrs
+  [:task_key :task_file :task_id :owner :branch :validation])
+
 (defn- reject-duplicate-logical-attrs!
   "Fail when attrs contains both keyword and JSON string forms of attr."
   [attrs attr]
@@ -174,12 +178,20 @@
     (get attrs attr)
     (get attrs (name attr))))
 
+(defn- devflow-coordination-context?
+  "Return true when attrs should be treated as devflow coordination attrs."
+  [attrs]
+  (or (and (contains-attr? attrs :workflow)
+           (contains? devflow-workflows (get-attr attrs :workflow)))
+      (some #(contains-attr? attrs %) devflow-context-attrs)))
+
 (defn- update-present-attr
   "Update attr for both keyword and JSON string keys when present."
   [attrs attr f]
   (cond-> attrs
     (contains? attrs attr) (update attr f)
     (contains? attrs (name attr)) (update (name attr) f)))
+
 
 (defn normalize-devflow-coordination-attrs
   "Normalize and validate repo-local devflow coordination attributes.
@@ -191,15 +203,17 @@
   (let [value (:hook/value ctx)
         _ (doseq [attr devflow-coordination-attrs]
             (reject-duplicate-logical-attrs! value attr))
-        attrs (update-present-attr value :task_id task-id-string)]
+        attrs (update-present-attr value :task_id task-id-string)
+        coordination-context? (devflow-coordination-context? attrs)]
     (doseq [attr [:feature :task_key :task_file :owner :branch]
             :when (contains-attr? attrs attr)]
-      (require-non-blank-string! attr (get-attr attrs attr)))
-    (when (contains-attr? attrs :workflow)
+      (when coordination-context?
+        (require-non-blank-string! attr (get-attr attrs attr))))
+    (when (and coordination-context? (contains-attr? attrs :workflow))
       (require-enum! :workflow devflow-workflows (get-attr attrs :workflow)))
-    (when (contains-attr? attrs :kind)
+    (when (and coordination-context? (contains-attr? attrs :kind))
       (require-enum! :kind devflow-kinds (get-attr attrs :kind)))
-    (when (contains-attr? attrs :validation)
+    (when (and coordination-context? (contains-attr? attrs :validation))
       (normalize-validation! (get-attr attrs :validation)))
     {:hook/value attrs}))
 
@@ -661,6 +675,12 @@
        (sort-by :id)
        vec))
 
+(defn- devflow-feature-root-child?
+  "Return true for active devflow descendants in the target feature."
+  [feature strand]
+  (and (= "devflow" (get-in strand [:attributes :workflow]))
+       (= feature (get-in strand [:attributes :feature]))))
+
 (defn devflow-close-feature-op
   "Close one active devflow feature plan DAG atomically.
 
@@ -678,7 +698,11 @@
                    "strand op devflow-close-feature <feature>")
         _ (require-non-blank-string! :feature feature)
         root (require-one-plan-root! feature (active-devflow-plan-roots rt feature))
-        strands (active-parent-dag-members rt (:id root))
+        root-id (:id root)
+        strands (->> (active-parent-dag-members rt root-id)
+                     (filter #(or (= (:id %) root-id)
+                                  (devflow-feature-root-child? feature %)))
+                     vec)
         refs (into {} (map (juxt (comp ref-key :id) :id)) strands)
         result (apply-devflow-batch! rt {:refs refs
                                          :strands (mapv (fn [strand]
@@ -964,7 +988,7 @@
         (views/register-view!
          'devflow-summaries
          'config/devflow-summaries-view)]
-   :hooks [(api/register-hook!
+   :hooks [(hooks/register!
             :devflow-coordination-attrs
             #{:attributes/normalize}
             'config/normalize-devflow-coordination-attrs
