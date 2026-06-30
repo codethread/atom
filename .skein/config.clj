@@ -179,11 +179,16 @@
     (get attrs (name attr))))
 
 (defn- devflow-coordination-context?
-  "Return true when attrs should be treated as devflow coordination attrs."
-  [attrs]
-  (or (and (contains-attr? attrs :workflow)
-           (contains? devflow-workflows (get-attr attrs :workflow)))
-      (some #(contains-attr? attrs %) devflow-context-attrs)))
+  "Return true when attrs should be treated as devflow coordination attrs.
+
+  For update operations, include the existing strand attributes when determining
+  context so partial patches from coordinated strands still enforce devflow
+  conventions."
+  [patch before-attrs]
+  (let [attrs (merge before-attrs patch)]
+    (or (and (contains-attr? attrs :workflow)
+             (contains? devflow-workflows (get-attr attrs :workflow)))
+        (some #(contains-attr? attrs %) devflow-context-attrs))))
 
 (defn- update-present-attr
   "Update attr for both keyword and JSON string keys when present."
@@ -203,8 +208,9 @@
   (let [value (:hook/value ctx)
         _ (doseq [attr devflow-coordination-attrs]
             (reject-duplicate-logical-attrs! value attr))
+        before-attrs (get-in ctx [:strand/before :attributes] {})
         attrs (update-present-attr value :task_id task-id-string)
-        coordination-context? (devflow-coordination-context? attrs)]
+        coordination-context? (devflow-coordination-context? attrs before-attrs)]
     (doseq [attr [:feature :task_key :task_file :owner :branch]
             :when (contains-attr? attrs attr)]
       (when coordination-context?
