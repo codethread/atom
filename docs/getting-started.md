@@ -24,7 +24,7 @@ On top of that model you get two ways to work:
 The CLI stays thin on purpose; runtime customization belongs in trusted config
 and the REPL. See [PHILOSOPHY.md](../devflow/PHILOSOPHY.md) for the reasoning.
 
-Install the CLIs from the Skein checkout. `make install` records this checkout as the weaver source used by future `strand init` calls.
+Install the CLIs from the Skein checkout. `make install` records this checkout as mill's install-time source for future weaver and helper REPL launches; it does not affect what `strand init` writes.
 
 ```sh
 make install
@@ -45,8 +45,8 @@ make install
 
 ## Choosing a world
 
-By default `strand` is repo-first: without `--config-dir`, `mill` resolves the current Git worktree root and uses that repo's `.skein` directory as the selected config world. Repo `.skein` is trusted config only; mill-owned
-runtime state, metadata, sockets, and data live under Skein's XDG state root. Outside Git, no-flag commands fail with remediation instead of creating an accidental cwd world or falling back to a global personal world.
+By default `strand` is repo-first: without `--config-dir`, `mill` resolves the canonical repository root and uses that repo's `.skein` directory as the selected config world. Linked worktrees for the same repository share this default world. Repo `.skein` is trusted config only; mill-owned
+runtime state, metadata, sockets, and data live under Skein's XDG state root. Outside supported Git layouts, no-flag commands fail with remediation instead of creating an accidental cwd world or falling back to a global personal world.
 
 Initialize a repo world from the Git repo you want to use Skein in:
 
@@ -54,13 +54,7 @@ Initialize a repo world from the Git repo you want to use Skein in:
 strand init
 ```
 
-If you did not install with `make install`, pass the Skein checkout path explicitly or set `SKEIN_SOURCE`:
-
-```sh
-strand init --source /path/to/skein-src
-# or
-SKEIN_SOURCE=/path/to/skein-src strand init
-```
+Mill resolves the Skein source checkout used to launch the weaver from `SKEIN_SOURCE`, the install-time source recorded by `make install`, or a canonical Skein checkout cwd. `strand init` does not persist a source path in `.skein/config.json`.
 
 `strand init` without `--config-dir` creates or completes `.skein` at the Git
 root and fails loudly outside Git. To work in a separate, disposable world
@@ -224,7 +218,7 @@ Fresh `strand init` creates missing workspace files without overwriting existing
   .gitignore       # commit: ignore local/runtime artifacts
   init.clj         # commit: shared trusted startup config
   libs.edn         # commit: shared approved local-root libraries
-  config.json      # gitignored: local Skein source checkout path
+  config.json      # gitignored: local alpha config marker
   init.local.clj   # gitignored: personal startup overlay
   libs.local.edn   # gitignored: personal approved-library overlay
 ```

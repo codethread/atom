@@ -3,7 +3,7 @@
 **Document ID:** `DELTA-MOS-RUNTIME-001`
 **Root spec:** [daemon-runtime.md](../../../specs/daemon-runtime.md)
 **Feature:** [../proposal.md](../proposal.md)
-**Status:** Reviewed
+**Status:** Merged
 **Last Updated:** 2026-06-30
 
 ## DELTA-MOS-RUNTIME-001.P1 Summary

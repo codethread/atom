@@ -37,7 +37,7 @@ strand weaver repl
 strand weaver stop
 ```
 
-Without `--config-dir`, `strand` selects the current Git repository root. Outside Git, no-flag commands fail loudly instead of creating an accidental cwd world or using a global default. The CLI emits JSON for all strand/weaver commands; see [Getting started](./docs/getting-started.md) for the full walkthrough.
+Without `--config-dir`, `strand` selects the canonical Git repository root, so linked worktrees for the same repository share one default world. Outside supported Git layouts, no-flag commands fail loudly instead of creating an accidental cwd world or using a global default. The CLI emits JSON for all strand/weaver commands; see [Getting started](./docs/getting-started.md) for the full walkthrough.
 
 ### Isolated weavers
 
@@ -76,7 +76,7 @@ Skein stores:
 
 Named queries, weave patterns, weaver-memory views, and runtime libraries are loaded into the selected Skein world, then consumed by helpers or by small CLI commands such as `list --query <name>` and `weave --pattern <name>`.
 
-Fresh `strand init` creates `.skein/init.clj`, `.skein/libs.edn`, and `.skein/.gitignore` for shared repo config. It also writes local `.skein/config.json` when it can resolve the Skein source from `--source`, `SKEIN_SOURCE`, or the current Skein checkout. Keep shared workflow config in committed `init.clj`/`libs.edn`; keep personal workflow libraries in gitignored `init.local.clj`/`libs.local.edn`.
+Fresh `strand init` creates `.skein/init.clj`, `.skein/libs.edn`, `.skein/.gitignore`, and a local `.skein/config.json` alpha marker for repo config. It does not persist source; mill resolves the Skein source for weaver/REPL launch from `SKEIN_SOURCE`, install-time source, or a canonical Skein checkout cwd. Keep shared workflow config in committed `init.clj`/`libs.edn`; keep personal workflow libraries in gitignored `init.local.clj`/`libs.local.edn`.
 
 Use `strand weaver repl` for trusted interactive work and `(skein.libs.alpha/reload!)` to hot-reload `init.clj` followed by `init.local.clj`.
 

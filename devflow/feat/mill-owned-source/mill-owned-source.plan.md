@@ -82,3 +82,5 @@ Outcome: affected specs, tests, and smoke validation match the shipped contract 
 ## PLAN-MOS-001.P9 Developer Notes
 
 Append notes here. Do not rewrite earlier notes.
+
+- 2026-06-30 TASK-MOS-006: Promoted CLI/runtime deltas into root specs and marked feature-local deltas Merged. Updated README and user docs to describe repository-canonical default selection across linked worktrees, explicit `--config-dir` isolation, reduced `config.json` alpha marker, and mill-owned source resolution. Updated smoke validation to stop passing removed `strand init --source` and to supply `SKEIN_SOURCE` as launch context instead. Validation passed: `(cd cli && go test ./...)`; `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`; `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`. Cut/deferred scope: none for task 6; feature archiving remains out of scope for devflow finish/archive. `git status --short` after validation showed only tracked source/docs/spec changes and no generated SQLite/runtime metadata artifacts.

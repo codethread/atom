@@ -17,8 +17,8 @@ This guide is written for Skein users and for agents working inside a user's Ske
 Skein is daemon-core-first behind a small router. You start `mill` once, ask it to start a weaver for a selected world, then clients send requests through `mill` to that weaver.
 
 ```text
-selected config-dir (normally repo .skein)
-  config.json      -> local, gitignored Skein source checkout path
+selected config-dir (normally canonical repo .skein)
+  config.json      -> local, gitignored alpha config marker
   init.clj         -> shared trusted startup code loaded by the weaver
   init.local.clj   -> personal startup overlay loaded after init.clj
   libs.edn         -> shared approved local library roots
@@ -42,19 +42,13 @@ Different config dirs are different worlds. Use `--config-dir <dir>` when you wa
 
 ## Worlds and config dirs
 
-The ordinary world is repo-local. Without `--config-dir`, `mill` resolves the current Git worktree root and uses that repo's `.skein` directory as the selected config-dir. Outside Git, no-flag commands fail loudly. `strand init` creates or completes `.skein` at the Git root and fails loudly outside Git:
+The ordinary world is repository-scoped. Without `--config-dir`, `mill` resolves the canonical repository root and uses that repo's `.skein` directory as the selected config-dir. Linked worktrees for the same repository share this default world. Outside supported Git layouts, no-flag commands fail loudly. `strand init` creates or completes `.skein` at the canonical Git root and fails loudly outside supported Git layouts:
 
 ```sh
 strand init
 ```
 
-When installed with `make install` from a Skein checkout, `strand init` can write the source path automatically. If you installed another way, pass the checkout explicitly or set `SKEIN_SOURCE`:
-
-```sh
-strand init --source /path/to/skein-src
-# or
-SKEIN_SOURCE=/path/to/skein-src strand init
-```
+Mill resolves the Skein source checkout used to launch the weaver from `SKEIN_SOURCE`, the install-time source recorded by `make install`, or a canonical Skein checkout cwd. `strand init` does not persist a source path in `.skein/config.json`.
 
 A world can also be selected explicitly with:
 
@@ -70,18 +64,17 @@ The important file is `config.json`:
 
 ```json
 {
-  "configFormat": "alpha",
-  "source": "/absolute/path/to/skein/source"
+  "configFormat": "alpha"
 }
 ```
 
-`source` tells the CLI where to launch the Clojure weaver and REPL from. It should point at a Skein checkout containing `deps.edn`.
+`config.json` is only the low-privilege alpha format marker. Source checkout paths are mill launch context, not config workspace state.
 
 ## Agent guidance files
 
-From a Skein source checkout, `make install` installs the Go CLIs (`strand` and `mill`) and records the checkout as the default weaver source. After that, use the CLIs directly: `mill start`, `strand init`, and `strand weaver start`.
+From a Skein source checkout, `make install` installs the Go CLIs (`strand` and `mill`) and records the checkout as mill's default source for weaver and helper REPL launch. After that, use the CLIs directly: `mill start`, `strand init`, and `strand weaver start`.
 
-`strand init` is the normal repo bootstrap path. It creates or completes the repo `.skein` world, writes local `config.json` when source resolution succeeds, and leaves shared config files ready to commit. It does not run `git init` or initialize database storage; weaver startup prepares storage.
+`strand init` is the normal repo bootstrap path. It creates or completes the canonical repo `.skein` world, writes local `config.json` with the alpha format marker when absent, and leaves shared config files ready to commit. It does not run `git init`, persist source, or initialize database storage; weaver startup prepares storage.
 
 User-facing Skein documentation lives in the source checkout under `docs/`; the canonical user reference is `docs/skein.md`.
 
@@ -311,7 +304,7 @@ The REPL helper namespace includes common strand functions, but library-workspac
 
 For the ordinary repo-local `.skein` world, it creates or ensures:
 
-- `.skein/config.json` only if absent and source resolution succeeds;
+- `.skein/config.json` only if absent, with the alpha format marker;
 - `.skein/libs/` directory;
 - `.skein/libs.edn` only if absent, with `{:libs {}}`;
 - `.skein/init.clj` only if absent, with the default below;

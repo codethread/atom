@@ -8,14 +8,11 @@ import (
 	"testing"
 )
 
-func TestLoadNoConfigFile(t *testing.T) {
+func TestLoadRequiresConfigFile(t *testing.T) {
 	d := t.TempDir()
-	c, _, err := Load(d)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if c.ConfigFormat != "" {
-		t.Fatalf("unexpected config: %#v", c)
+	_, _, err := Load(d)
+	if err == nil || !strings.Contains(err.Error(), "client config") || !strings.Contains(err.Error(), "is required") {
+		t.Fatalf("expected missing config error, got %v", err)
 	}
 }
 

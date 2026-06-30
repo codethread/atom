@@ -5,11 +5,11 @@ Skein is alpha software and follows the project tenets in `devflow/TENETS.md` an
 ## Local setup
 
 ```sh
-go install ./cli/cmd/strand
-SKEIN_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/skein"
-mkdir -p "$SKEIN_CONFIG"
-printf '{"configFormat":"alpha","source":"%s"}\n' "$PWD" | jq . > "$SKEIN_CONFIG/config.json"
+make install
+mill start
 ```
+
+`make install` builds `strand` and `mill` and records this checkout as mill's install-time source for weaver/REPL launch. `strand init` creates only the selected world's alpha config marker; do not write source paths into `config.json`.
 
 Start the weaver in one terminal:
 
@@ -32,9 +32,8 @@ Use explicit config dirs for tests, smoke reproduction, examples, and agent work
 
 ```sh
 world=$(mktemp -d)
-printf '{"configFormat":"alpha","source":"%s"}\n' "$PWD" | jq . > "$world/config.json"
-strand --config-dir "$world" weaver start
 strand --config-dir "$world" init
+strand --config-dir "$world" weaver start
 design=$(strand --config-dir "$world" add "Sketch model" --state closed --attr priority=high)
 docs=$(strand --config-dir "$world" add "Write docs" --attr owner=agent)
 strand --config-dir "$world" update "$docs" --edge depends-on:$design
@@ -42,7 +41,7 @@ strand --config-dir "$world" ready
 strand --config-dir "$world" weaver stop
 ```
 
-`strand init` bootstraps missing `config.json`, `libs.edn`, `init.clj`, `libs/`, and `.git` files/directories without overwriting existing user files.
+`strand init` bootstraps missing `config.json`, `libs.edn`, `init.clj`, `libs/`, and `.gitignore` files/directories without overwriting existing user files. `config.json` contains only `{"configFormat":"alpha"}`.
 
 ## REPL and runtime config
 

@@ -66,7 +66,9 @@
   ([message cwd stdin command]
    (let [builder (doto (ProcessBuilder. command)
                    (.redirectErrorStream true))
-         _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))
+         _ (doto (.environment builder)
+             (.put "XDG_STATE_HOME" smoke-xdg-state-home)
+             (.put "SKEIN_SOURCE" checkout-root))
          _ (when cwd (.directory builder cwd))
          process (.start builder)]
      (when stdin
@@ -82,7 +84,9 @@
   [message cwd command]
   (let [builder (doto (ProcessBuilder. command)
                   (.redirectErrorStream true))
-        _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))
+        _ (doto (.environment builder)
+             (.put "XDG_STATE_HOME" smoke-xdg-state-home)
+             (.put "SKEIN_SOURCE" checkout-root))
         _ (when cwd (.directory builder cwd))
         process (.start builder)
         output (slurp (.getInputStream process))
@@ -100,7 +104,9 @@
   (delete-tree! (.toPath (java.io.File. smoke-xdg-state-home)))
   (let [builder (doto (ProcessBuilder. [mill-bin "start"])
                   (.redirectErrorStream true))
-        _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))
+        _ (doto (.environment builder)
+             (.put "XDG_STATE_HOME" smoke-xdg-state-home)
+             (.put "SKEIN_SOURCE" checkout-root))
         process (.start builder)
         metadata (java.io.File. smoke-run-root "xdg-state/skein/mill.json")]
     (loop [attempts 100]
@@ -112,7 +118,7 @@
 (defn write-client-config! [db-file]
   (let [dir (.toFile (smoke-config-dir db-file))]
     (.mkdirs dir)
-    (spit (java.io.File. dir "config.json") (json/write-str {:configFormat "alpha" :source checkout-root }))
+    (spit (java.io.File. dir "config.json") (json/write-str {:configFormat "alpha"}))
     (.getCanonicalPath dir)))
 
 (defn write-library-startup-config! [db-file]
@@ -139,7 +145,7 @@
 
 (defn write-client-config-to-dir! [config-dir]
   (.mkdirs (java.io.File. config-dir))
-  (spit (java.io.File. config-dir "config.json") (json/write-str {:configFormat "alpha" :source checkout-root }))
+  (spit (java.io.File. config-dir "config.json") (json/write-str {:configFormat "alpha"}))
   config-dir)
 
 (defn run-cli-config! [config-dir & args]
@@ -165,7 +171,9 @@
    (let [builder (doto (ProcessBuilder. (into [strand-bin "--config-dir" config-dir "weaver" "start"] daemon-args))
                    (.directory (outside-repo-dir))
                    (.redirectErrorStream true))
-         _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))
+         _ (doto (.environment builder)
+             (.put "XDG_STATE_HOME" smoke-xdg-state-home)
+             (.put "SKEIN_SOURCE" checkout-root))
          process (.start builder)]
      (let [start-output (slurp (.getInputStream process))
            exit-code (.waitFor process)]
@@ -269,7 +277,7 @@
         config-path (java.io.File. config-dir "config.json")
         libs-path (java.io.File. config-dir "libs.edn")
         init-path (java.io.File. config-dir "init.clj")
-        original-config (str "{\"configFormat\":\"alpha\",\"source\":\"" checkout-root "\"}\n")
+        original-config "{\"configFormat\":\"alpha\"}\n"
         original-libs "{:libs {}}\n;; user comment\n"
         original-init "(require '[skein.weaver.api :as api])\n(api/register-query! 'dirty [:= [:attr :owner] \"dirty\"])\n"]
     (delete-tree! (smoke-config-dir-named (str db-file ".bootstrap-dirty")))
@@ -376,7 +384,7 @@
     (delete-tree! (.toPath repo))
     (.mkdirs repo)
     (run-process! "smoke repo git init succeeds" repo nil ["git" "init"])
-    (run-process! "repo bootstrap initializes .skein through mill" repo nil [strand-bin "init" "--source" checkout-root])
+    (run-process! "repo bootstrap initializes .skein through mill" repo nil [strand-bin "init"])
     (run-process! "repo weaver start succeeds" repo nil [strand-bin "weaver" "start"])
     (wait-for-repo-weaver! repo)
     (try

@@ -26,7 +26,7 @@ Common commands:
 ```sh
 make install
 mill start                    # run in a durable terminal
-strand init                   # creates/completes repo-local .skein
+strand init                   # creates/completes canonical repo .skein
 
 strand weaver start
 strand list
@@ -46,7 +46,7 @@ make install
 world=$(mktemp -d)
 xdg=$(mktemp -d)
 export XDG_STATE_HOME="$xdg"
-strand --config-dir "$world" init --source "$PWD"
+strand --config-dir "$world" init
 
 mill start &
 mill_pid=$!
