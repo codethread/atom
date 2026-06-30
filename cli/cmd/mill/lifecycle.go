@@ -13,16 +13,30 @@ import (
 	"skein-strand-cli/internal/config"
 )
 
-func resolveLifecycleWorld(req client.MillWorldRequest) (config.World, config.Config, error) {
+func resolveLifecycleWorld(req client.MillWorldRequest) (config.World, error) {
 	world, err := config.BootstrapTargetWorld(req.CWD, req.ConfigDir)
 	if err != nil {
-		return config.World{}, config.Config{}, err
+		return config.World{}, err
 	}
-	cfg, loaded, err := config.Load(world.ConfigDir)
+	_, loaded, err := config.Load(world.ConfigDir)
 	if err != nil {
-		return config.World{}, config.Config{}, err
+		return config.World{}, err
 	}
-	return loaded, cfg, nil
+	return loaded, nil
+}
+
+func resolveLaunchSource(cwd string) (string, error) {
+	if source := os.Getenv("SKEIN_SOURCE"); source != "" {
+		return config.ValidateSource("SKEIN_SOURCE", source)
+	}
+	if config.InstalledSource != "" {
+		return config.ValidateSource("installed Skein source", config.InstalledSource)
+	}
+	root, err := config.GitRoot(cwd)
+	if err == nil {
+		return config.ValidateSource("canonical Skein checkout cwd", root)
+	}
+	return "", fmt.Errorf("unable to resolve Skein source for weaver launch; set SKEIN_SOURCE to a Skein checkout, reinstall mill with a valid install-time source, or run strand weaver start from a canonical Skein checkout cwd containing deps.edn")
 }
 
 func weaverArgs(world config.World) []string {
@@ -30,7 +44,7 @@ func weaverArgs(world config.World) []string {
 }
 
 func (s *server) startWeaver(req client.MillWorldRequest) (map[string]any, error) {
-	world, cfg, err := resolveLifecycleWorld(req)
+	world, err := resolveLifecycleWorld(req)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +67,7 @@ func (s *server) startWeaver(req client.MillWorldRequest) (map[string]any, error
 		}
 		return nil, fmt.Errorf("stale weaver metadata for selected world: %v", status["stale_reason"])
 	}
-	source, err := config.ResolveSource(cfg.Source)
+	source, err := resolveLaunchSource(req.CWD)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +100,7 @@ func (s *server) startWeaver(req client.MillWorldRequest) (map[string]any, error
 }
 
 func (s *server) weaverStatus(req client.MillWorldRequest) (map[string]any, error) {
-	world, _, err := resolveLifecycleWorld(req)
+	world, err := resolveLifecycleWorld(req)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +125,7 @@ func (s *server) weaverStatus(req client.MillWorldRequest) (map[string]any, erro
 }
 
 func (s *server) stopWeaver(req client.MillWorldRequest) (map[string]any, error) {
-	world, _, err := resolveLifecycleWorld(req)
+	world, err := resolveLifecycleWorld(req)
 	if err != nil {
 		return nil, err
 	}

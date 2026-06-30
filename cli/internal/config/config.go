@@ -13,6 +13,8 @@ const DefaultDBFileName = "skein.sqlite"
 
 var allowedKeys = map[string]bool{"configFormat": true}
 
+var InstalledSource string
+
 type World struct {
 	ConfigDir  string
 	StateDir   string
@@ -95,6 +97,10 @@ func ResolveSource(source string) (string, error) {
 	if source == "" {
 		return "", fmt.Errorf("client config source is required for weaver lifecycle commands; set source in %s", ConfigFileName)
 	}
+	return ValidateSource("client config source", source)
+}
+
+func ValidateSource(label, source string) (string, error) {
 	resolvedSource := source
 	if source == "~" || strings.HasPrefix(source, "~/") {
 		home, err := os.UserHomeDir()
@@ -108,13 +114,13 @@ func ResolveSource(source string) (string, error) {
 		}
 	}
 	if !filepath.IsAbs(resolvedSource) {
-		return "", fmt.Errorf("client config source must be an absolute path: %s", resolvedSource)
+		return "", fmt.Errorf("%s must be an absolute path: %s", label, resolvedSource)
 	}
 	if st, err := os.Stat(resolvedSource); err != nil || !st.IsDir() {
-		return "", fmt.Errorf("client config source must be an existing directory: %s", resolvedSource)
+		return "", fmt.Errorf("%s must be an existing directory: %s", label, resolvedSource)
 	}
 	if st, err := os.Stat(filepath.Join(resolvedSource, "deps.edn")); err != nil || st.IsDir() {
-		return "", fmt.Errorf("client config source must contain deps.edn: %s", resolvedSource)
+		return "", fmt.Errorf("%s must contain deps.edn: %s", label, resolvedSource)
 	}
 	return resolvedSource, nil
 }

@@ -3,7 +3,7 @@ package main
 import "skein-strand-cli/internal/client"
 
 func (s *server) forwardToWeaver(req client.MillWorldRequest, operation string, payload map[string]any) (any, error) {
-	world, _, err := resolveLifecycleWorld(req)
+	world, err := resolveLifecycleWorld(req)
 	if err != nil {
 		return nil, err
 	}

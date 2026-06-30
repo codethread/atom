@@ -105,6 +105,54 @@ func TestWeaverLifecycleWithFakeLauncher(t *testing.T) {
 	}
 }
 
+func TestResolveLaunchSourcePrecedence(t *testing.T) {
+	envSource := tempSource(t)
+	installedSource := tempSource(t)
+	cwdSource := tempSkeinCheckout(t)
+	origInstalled := config.InstalledSource
+	config.InstalledSource = installedSource
+	t.Cleanup(func() { config.InstalledSource = origInstalled })
+	t.Setenv("SKEIN_SOURCE", envSource)
+	resolved, err := resolveLaunchSource(cwdSource)
+	if err != nil || resolved != envSource {
+		t.Fatalf("SKEIN_SOURCE should win, got source=%q err=%v", resolved, err)
+	}
+	t.Setenv("SKEIN_SOURCE", "")
+	resolved, err = resolveLaunchSource(cwdSource)
+	if err != nil || resolved != installedSource {
+		t.Fatalf("installed source should win, got source=%q err=%v", resolved, err)
+	}
+	config.InstalledSource = ""
+	resolved, err = resolveLaunchSource(cwdSource)
+	if err != nil || resolved != cwdSource {
+		t.Fatalf("Skein checkout cwd should win, got source=%q err=%v", resolved, err)
+	}
+}
+
+func TestStartFailsBeforeLaunchWhenSourceCannotResolve(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("SKEIN_SOURCE", "")
+	origInstalled := config.InstalledSource
+	config.InstalledSource = ""
+	t.Cleanup(func() { config.InstalledSource = origInstalled })
+	cfg := tempConfigWithoutSource(t)
+	orig := launchWeaver
+	launched := false
+	launchWeaver = func(source string, args []string, out, errOut io.Writer) (*exec.Cmd, error) {
+		launched = true
+		return orig(source, args, out, errOut)
+	}
+	t.Cleanup(func() { launchWeaver = orig })
+	s := server{children: map[string]*weaverChild{}}
+	_, err := s.startWeaver(client.MillWorldRequest{CWD: t.TempDir(), ConfigDir: cfg})
+	if err == nil || !strings.Contains(err.Error(), "SKEIN_SOURCE") || !strings.Contains(err.Error(), "install-time source") || !strings.Contains(err.Error(), "canonical Skein checkout cwd") {
+		t.Fatalf("expected actionable source failure, got %v", err)
+	}
+	if launched {
+		t.Fatal("start should not launch without a resolved source")
+	}
+}
+
 func TestWeaverStatusDistinguishesStaleMetadata(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
 	source := tempSource(t)
@@ -314,10 +362,31 @@ func tempSource(t *testing.T) string {
 	return dir
 }
 
+func tempSkeinCheckout(t *testing.T) string {
+	t.Helper()
+	dir := tempSource(t)
+	cmd := exec.Command("git", "init")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v\n%s", err, out)
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return real
+}
+
 func tempConfig(t *testing.T, source string) string {
 	t.Helper()
+	t.Setenv("SKEIN_SOURCE", source)
+	return tempConfigWithoutSource(t)
+}
+
+func tempConfigWithoutSource(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"configFormat":"alpha"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	real, err := filepath.EvalSymlinks(dir)

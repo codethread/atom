@@ -84,7 +84,7 @@ func forwardWorld(t *testing.T) (config.World, string) {
 	t.Cleanup(func() { _ = os.RemoveAll(xdg) })
 	t.Setenv("XDG_STATE_HOME", xdg)
 	cfg := t.TempDir()
-	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"/tmp"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	world, err := config.RuntimeWorld(cfg)
