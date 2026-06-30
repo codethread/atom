@@ -345,39 +345,23 @@ func TestInitValidatesExistingConfigButDoesNotRewriteMissingKeys(t *testing.T) {
 	}
 }
 
-func TestWeaverStartLaunchesFromConfiguredSource(t *testing.T) {
+func TestWeaverStartRoutesThroughMill(t *testing.T) {
 	cfg := t.TempDir()
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
-		t.Fatal(err)
+	orig := millCall
+	var operation string
+	var world client.MillWorldRequest
+	millCall = func(op string, req client.MillWorldRequest) (any, error) {
+		operation = op
+		world = req
+		return map[string]any{"state": "starting"}, nil
 	}
-	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	var launched Options
-	orig := runWeaverProcess
-	runWeaverProcess = func(o Options, out, errOut io.Writer) error {
-		launched = o
-		return nil
-	}
-	t.Cleanup(func() { runWeaverProcess = orig })
-	if _, err := run("--config-dir", cfg, "weaver", "start"); err != nil {
-		t.Fatal(err)
-	}
-	realCfg, err := filepath.EvalSymlinks(cfg)
+	t.Cleanup(func() { millCall = orig })
+	out, err := run("--config-dir", cfg, "weaver", "start")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if launched.Source != source || launched.ConfigDir != realCfg || !launched.ConfigDirExplicit {
-		t.Fatalf("unexpected launch options: %#v", launched)
-	}
-	if !reflect.DeepEqual(weaverArgs(launched), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg, "--state-dir", launched.StateDir, "--data-dir", launched.DataDir}) {
-		t.Fatalf("unexpected explicit weaver args: %#v", weaverArgs(launched))
-	}
-	defaultLaunch := launched
-	defaultLaunch.ConfigDirExplicit = false
-	if !reflect.DeepEqual(weaverArgs(defaultLaunch), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg, "--state-dir", launched.StateDir, "--data-dir", launched.DataDir}) {
-		t.Fatalf("unexpected discovered weaver args: %#v", weaverArgs(defaultLaunch))
+	if operation != "weaver-start" || world.ConfigDir != cfg || world.CWD == "" || strings.TrimSpace(out) != `{"state":"starting"}` {
+		t.Fatalf("unexpected mill route op=%s world=%#v out=%q", operation, world, out)
 	}
 }
 
@@ -420,43 +404,26 @@ func TestWeaverReplVerifiesWeaverAndLaunchesFromConfiguredSource(t *testing.T) {
 	}
 }
 
-func TestWeaverStartSupportsHomeRelativeSource(t *testing.T) {
+func TestWeaverStatusAndStopRouteThroughMill(t *testing.T) {
 	cfg := t.TempDir()
-	home := t.TempDir()
-	homeSource := filepath.Join(home, "skein")
-	if err := os.MkdirAll(homeSource, 0o755); err != nil {
+	orig := millCall
+	var operations []string
+	millCall = func(op string, req client.MillWorldRequest) (any, error) {
+		operations = append(operations, op)
+		if req.ConfigDir != cfg || req.CWD == "" {
+			t.Fatalf("unexpected world request: %#v", req)
+		}
+		return map[string]any{"state": "running"}, nil
+	}
+	t.Cleanup(func() { millCall = orig })
+	if _, err := run("--config-dir", cfg, "weaver", "status"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(homeSource, "deps.edn"), []byte(`{}`), 0644); err != nil {
+	if _, err := run("--config-dir", cfg, "weaver", "stop"); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
-	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"~/skein"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	var launched Options
-	orig := runWeaverProcess
-	runWeaverProcess = func(o Options, out, errOut io.Writer) error {
-		launched = o
-		return nil
-	}
-	t.Cleanup(func() { runWeaverProcess = orig })
-	if _, err := run("--config-dir", cfg, "weaver", "start"); err != nil {
-		t.Fatal(err)
-	}
-	realCfg, err := filepath.EvalSymlinks(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if launched.Source != homeSource || launched.ConfigDir != realCfg || !launched.ConfigDirExplicit {
-		t.Fatalf("unexpected launch options: %#v", launched)
-	}
-	raw, err := os.ReadFile(filepath.Join(cfg, "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), `"source":"~/skein"`) {
-		t.Fatalf("expected stored source to remain unchanged, got: %q", string(raw))
+	if !reflect.DeepEqual(operations, []string{"weaver-status", "weaver-stop"}) {
+		t.Fatalf("unexpected operations: %#v", operations)
 	}
 }
 
@@ -486,30 +453,10 @@ func TestWeaverReplStatusFailureBlocksLaunch(t *testing.T) {
 	}
 }
 
-func TestSourceValidationForWeaverStart(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"configFormat":"alpha","source":"relative"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run("--config-dir", dir, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "source must be an absolute path") {
-		t.Fatalf("expected absolute source error, got %v", err)
-	}
-
-	missingDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(missingDir, "config.json"), []byte(`{"configFormat":"alpha","source":"/definitely/missing/atom-source"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run("--config-dir", missingDir, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "source must be an existing directory") {
-		t.Fatalf("expected missing source error, got %v", err)
-	}
-
-	source := t.TempDir()
-	noDepsDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(noDepsDir, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run("--config-dir", noDepsDir, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "source must contain deps.edn") {
-		t.Fatalf("expected deps.edn source error, got %v", err)
+func TestWeaverStartRequiresMill(t *testing.T) {
+	cfg := t.TempDir()
+	if _, err := run("--config-dir", cfg, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
+		t.Fatalf("expected mill remediation, got %v", err)
 	}
 }
 
@@ -552,15 +499,15 @@ func TestNoConfigDirFailsWithoutRepoWorld(t *testing.T) {
 	}
 }
 
-func TestDiscoveredIncompleteWorldRemediatesWeaverLifecycle(t *testing.T) {
+func TestDiscoveredWeaverLifecycleRequiresMill(t *testing.T) {
 	repo := t.TempDir()
 	cfg := filepath.Join(repo, ".skein")
 	if err := os.MkdirAll(cfg, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	withChdir(t, repo)
-	if _, err := run("weaver", "start"); err == nil || !strings.Contains(err.Error(), cfg) || !strings.Contains(err.Error(), "strand init --source <skein-source>") {
-		t.Fatalf("expected incomplete world remediation, got %v", err)
+	if _, err := run("weaver", "start"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
+		t.Fatalf("expected mill remediation, got %v", err)
 	}
 }
 
@@ -576,40 +523,29 @@ func TestDiscoveredIncompleteWorldRemediatesQueryCommand(t *testing.T) {
 	}
 }
 
-func TestDiscoveredWeaverStartLaunchesWithRepoConfigDir(t *testing.T) {
+func TestDiscoveredWeaverStartSendsCwdToMill(t *testing.T) {
 	repo := t.TempDir()
-	cfg := filepath.Join(repo, ".skein")
 	subdir := filepath.Join(repo, "pkg")
-	source := tempSource(t)
-	if err := os.MkdirAll(cfg, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.MkdirAll(subdir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	withChdir(t, subdir)
-	orig := runWeaverProcess
-	var launched Options
-	runWeaverProcess = func(o Options, out, errOut io.Writer) error {
-		launched = o
-		return nil
+	orig := millCall
+	var captured client.MillWorldRequest
+	millCall = func(op string, req client.MillWorldRequest) (any, error) {
+		captured = req
+		return map[string]any{"state": "none"}, nil
 	}
-	t.Cleanup(func() { runWeaverProcess = orig })
+	t.Cleanup(func() { millCall = orig })
 	if _, err := run("weaver", "start"); err != nil {
 		t.Fatal(err)
 	}
-	realCfg, err := filepath.EvalSymlinks(cfg)
+	realSubdir, err := filepath.EvalSymlinks(subdir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if launched.ConfigDir != realCfg || launched.ConfigDirExplicit || launched.Source != source {
-		t.Fatalf("unexpected discovered launch options: %#v", launched)
-	}
-	if !reflect.DeepEqual(weaverArgs(launched), []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", realCfg, "--state-dir", launched.StateDir, "--data-dir", launched.DataDir}) {
-		t.Fatalf("unexpected discovered weaver args: %#v", weaverArgs(launched))
+	if captured.ConfigDir != "" || captured.CWD != realSubdir {
+		t.Fatalf("unexpected discovered mill request: %#v", captured)
 	}
 }
 

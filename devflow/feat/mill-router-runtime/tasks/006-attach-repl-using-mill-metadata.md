@@ -16,6 +16,7 @@ Update `strand weaver repl` and `strand weaver repl --stdin` so mill resolves an
 - **TASK-MillRouterRuntime-006.MI4:** Keep nREPL traffic direct between helper JVM and weaver; mill must not proxy interactive or stdin REPL bytes.
 - **TASK-MillRouterRuntime-006.MI5:** Preserve identity verification using selected config-dir and weaver nonce/protocol.
 - **TASK-MillRouterRuntime-006.MI6:** Keep `init!` as an idempotent trusted helper if existing tests or workflows need it, but remove docs/tests that imply normal CLI users must run it after startup.
+- **TASK-MillRouterRuntime-006.MI7:** Resolve the stale/missing metadata failure observed after Task 4's XDG weaver startup path for `strand weaver repl --stdin`; this is REPL attachment scope, not storage startup scope.
 
 ## TASK-MillRouterRuntime-006.P3 Done when
 

@@ -154,6 +154,8 @@
 (defn run-cli-stdin! [db-file stdin & args]
   (apply run-cli-config-stdin! (write-client-config! db-file) stdin args))
 
+(declare parse-json)
+
 (defn start-cli-daemon-config!
   ([config-dir] (start-cli-daemon-config! config-dir []))
   ([config-dir daemon-args]
@@ -162,18 +164,19 @@
                    (.redirectErrorStream true))
          _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))
          process (.start builder)]
+     (let [start-output (slurp (.getInputStream process))
+           exit-code (.waitFor process)]
+       (assert (= 0 exit-code)
+               (str "CLI weaver start request succeeds\n" start-output)))
      (loop [attempts 50]
-       (when-not (.isAlive process)
-         (throw (ex-info "CLI weaver exited before becoming ready" {:output (slurp (.getInputStream process))})))
        (when (zero? attempts)
-         (.destroy process)
          (throw (ex-info "CLI weaver did not become ready" {})))
-       (when-not (try
-                   (run-cli-config! config-dir "weaver" "status")
-                   true
-                   (catch AssertionError _ false))
-         (Thread/sleep 200)
-         (recur (dec attempts))))
+       (let [running? (try
+                        (= "running" (:state (parse-json (run-cli-config! config-dir "weaver" "status"))))
+                        (catch AssertionError _ false))]
+         (when-not running?
+           (Thread/sleep 200)
+           (recur (dec attempts)))))
      process)))
 
 (defn start-cli-daemon!
@@ -215,8 +218,8 @@
     (assert-contains start "--config-dir" "Go CLI nested subcommand help shows selected world flag")))
 
 (defn stop-cli-daemon-config! [config-dir daemon]
+  (run-cli-config! config-dir "weaver" "stop")
   (when (.isAlive daemon)
-    (run-cli-config! config-dir "weaver" "stop")
     (.waitFor daemon)))
 
 (defn stop-cli-daemon! [db-file daemon]

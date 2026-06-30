@@ -4,10 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,7 +19,28 @@ import (
 	"skein-strand-cli/internal/config"
 )
 
-type server struct{ meta client.MillMetadata }
+type server struct {
+	meta     client.MillMetadata
+	mu       sync.Mutex
+	children map[string]*weaverChild
+}
+
+type weaverChild struct {
+	cmd   *exec.Cmd
+	world config.World
+}
+
+var launchWeaver = func(source string, args []string, out, errOut io.Writer) (*exec.Cmd, error) {
+	cmd := exec.Command("clojure", args...)
+	cmd.Dir = source
+	cmd.Stdout = out
+	cmd.Stderr = errOut
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return cmd, nil
+}
 
 func main() {
 	root := &cobra.Command{Use: "mill", Short: "Skein local router"}
@@ -63,9 +88,10 @@ func start() error {
 	}
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() { <-sig; listener.Close() }()
-	s := server{meta: meta}
+	s := server{meta: meta, children: map[string]*weaverChild{}}
+	defer s.stopAll()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -99,6 +125,27 @@ func (s server) handle(conn net.Conn) {
 			return
 		}
 		_ = json.NewEncoder(conn).Encode(client.MillResponse{ProtocolVersion: client.MillProtocolVersion, RequestID: req.RequestID, OK: true, Result: map[string]any{"config_dir": world.ConfigDir, "config_file": world.ConfigFile}})
+	case "weaver-start":
+		result, err := s.startWeaver(req.World)
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(errorResponse(req.RequestID, "domain", "mill/weaver-start-failed", "weaver start failed", err.Error()))
+			return
+		}
+		_ = json.NewEncoder(conn).Encode(client.MillResponse{ProtocolVersion: client.MillProtocolVersion, RequestID: req.RequestID, OK: true, Result: result})
+	case "weaver-status":
+		result, err := s.weaverStatus(req.World)
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(errorResponse(req.RequestID, "domain", "mill/weaver-status-failed", "weaver status failed", err.Error()))
+			return
+		}
+		_ = json.NewEncoder(conn).Encode(client.MillResponse{ProtocolVersion: client.MillProtocolVersion, RequestID: req.RequestID, OK: true, Result: result})
+	case "weaver-stop":
+		result, err := s.stopWeaver(req.World)
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(errorResponse(req.RequestID, "domain", "mill/weaver-stop-failed", "weaver stop failed", err.Error()))
+			return
+		}
+		_ = json.NewEncoder(conn).Encode(client.MillResponse{ProtocolVersion: client.MillProtocolVersion, RequestID: req.RequestID, OK: true, Result: result})
 	default:
 		_ = json.NewEncoder(conn).Encode(errorResponse(req.RequestID, "protocol", "mill/unknown-operation", "unknown mill operation", req.Operation))
 	}

@@ -119,3 +119,11 @@ Outcome: Go, Clojure, integration, smoke, README, getting-started, Makefile, and
 
 - Implemented explicit weaver config/state/data dirs, XDG metadata/socket/data placement, startup schema initialization, and JSON socket init removal. `clojure -M:test` and `go test ./...` pass.
 - Full smoke remains blocked in the startup-transform connected REPL path: `strand weaver repl --stdin` reports stale/missing metadata after XDG weaver startup. Finishing that likely belongs to the later REPL attachment slice rather than storage startup.
+
+### PLAN-MillRouterRuntime-001.DN6 Task 4 unblocked — 2026-06-30
+
+- Reclassified Task 4 as complete because its storage-startup acceptance criteria passed; the remaining stale/missing metadata failure is captured in Task 6 as REPL attachment follow-up scope. Task 3 is now unblocked for mill-owned weaver lifecycle work.
+
+### PLAN-MillRouterRuntime-001.DN7 Task 3 blocked — 2026-06-30
+
+- Implemented mill-owned `weaver start/status/stop` routing and focused Go lifecycle coverage; `clojure -M:test` and `(cd cli && go test ./...)` pass. Full smoke still fails at `strand weaver repl --stdin` with stale/missing metadata, which is the known Task 6 REPL attachment scope and outside Task 3's published lifecycle contract.

@@ -237,15 +237,15 @@ func (a *App) rootCommand() *cobra.Command {
 	root.AddCommand(op)
 
 	weaver := &cobra.Command{Use: "weaver", Short: "Manage the local weaver"}
-	start := &cobra.Command{Use: "start", Short: "Start the weaver in the foreground for the selected config-dir world", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return a.withConfig(o, func(r Options) error { return a.launchWeaver(r) })
+	start := &cobra.Command{Use: "start", Short: "Start the selected world's weaver through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return a.millWeaverCommand(o, "weaver-start")
 	}}
 	weaver.AddCommand(start)
-	weaver.AddCommand(&cobra.Command{Use: "status", Short: "Show weaver status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return a.withConfig(o, func(r Options) error { return a.call(r, "status", map[string]any{}) })
+	weaver.AddCommand(&cobra.Command{Use: "status", Short: "Show selected-world weaver status through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return a.millWeaverCommand(o, "weaver-status")
 	}})
-	weaver.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the weaver", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return a.withConfig(o, func(r Options) error { return a.call(r, "stop", map[string]any{}) })
+	weaver.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the selected world's weaver through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return a.millWeaverCommand(o, "weaver-stop")
 	}})
 	repl := &cobra.Command{Use: "repl", Short: "Start a connected Clojure helper REPL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		stdin, _ := cmd.Flags().GetBool("stdin")
@@ -398,6 +398,23 @@ func (a *App) initCommand(o Options) error {
 		source = os.Getenv("SKEIN_SOURCE")
 	}
 	_, err = millCall("init", client.MillWorldRequest{CWD: cwd, ConfigDir: o.ConfigDir, Source: source})
+	return err
+}
+
+func (a *App) millWeaverCommand(o Options, operation string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	result, err := millCall(operation, client.MillWorldRequest{CWD: cwd, ConfigDir: o.ConfigDir})
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(a.Stdout, string(b))
 	return err
 }
 
