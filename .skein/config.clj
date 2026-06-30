@@ -5,6 +5,7 @@
             [clojure.string :as str]
             [skein.libs.ephemeral :as ephemeral]
             [skein.patterns.alpha :as patterns]
+            [skein.views.alpha :as views]
             [skein.weaver.api :as api]
             [skein.weaver.runtime :as runtime]))
 
@@ -75,6 +76,20 @@
   [:and
    [:= :state "active"]
    [:= [:attr :workflow] "devflow"]])
+
+(def devflow-feature-query
+  "Query for active devflow feature/plan strands."
+  [:and
+   [:= :state "active"]
+   [:= [:attr :workflow] "devflow"]
+   [:= [:attr :kind] "plan"]])
+
+(def devflow-work-query
+  "Query for active devflow task/review strands."
+  [:and
+   [:= :state "active"]
+   [:= [:attr :workflow] "devflow"]
+   [:in [:attr :kind] ["task" "review"]]])
 
 (defn- ref-symbol
   "Return the batch ref symbol for a user-supplied task key."
@@ -209,6 +224,105 @@
   [strand]
   (select-keys strand [:id :title :state :attributes]))
 
+(defn- coordination-metadata
+  "Return devflow coordination metadata from strand attributes."
+  [{:keys [attributes]}]
+  (select-keys attributes [:feature :kind :task_key :task_id :task_file :owner :branch :validation]))
+
+(defn- summarize-work-item
+  "Return dashboard summary data for one task/review strand."
+  [strand]
+  (merge (select-keys strand [:id :title :state])
+         {:metadata (coordination-metadata strand)}))
+
+(defn- feature-slug
+  "Return the required feature slug from a devflow strand."
+  [strand]
+  (or (get-in strand [:attributes :feature])
+      (throw (ex-info "Devflow strand is missing feature attribute"
+                      {:strand_id (:id strand)}))))
+
+(defn- active-devflow-work
+  "Return active devflow task/review strands, optionally scoped by feature."
+  [rt feature]
+  (if feature
+    (api/list rt feature-work-query {:feature feature})
+    (api/list rt devflow-work-query {})))
+
+(defn- active-devflow-features
+  "Return active devflow feature/plan strands, optionally scoped by feature."
+  [rt feature]
+  (if feature
+    (api/list rt [:and devflow-feature-query [:= [:attr :feature] [:param :feature]]] {:feature feature})
+    (api/list rt devflow-feature-query {})))
+
+(defn- ready-devflow-work
+  "Return ready active devflow task/review strands, optionally scoped by feature."
+  [rt feature]
+  (if feature
+    (api/ready rt feature-work-query {:feature feature})
+    (api/ready rt devflow-work-query {})))
+
+(defn- blocking-dependencies
+  "Return active depends-on targets for one work item."
+  [rt active-by-id strand-id]
+  (let [active-ids (set (keys active-by-id))
+        {:keys [edges]} (api/subgraph rt [strand-id] {:type "depends-on"})]
+    (->> edges
+         (filter #(and (= strand-id (:from_strand_id %))
+                       (contains? active-ids (:to_strand_id %))))
+         (sort-by (juxt :to_strand_id :edge_type))
+         (mapv (fn [{:keys [to_strand_id edge_type attributes]}]
+                 {:id to_strand_id
+                  :title (:title (active-by-id to_strand_id))
+                  :edge_type edge_type
+                  :metadata (coordination-metadata (active-by-id to_strand_id))
+                  :attributes attributes})))))
+
+(defn- summarize-blocked-item
+  "Return dashboard summary data for a blocked task/review strand."
+  [rt active-by-id strand]
+  (assoc (summarize-work-item strand)
+         :blocked_by (blocking-dependencies rt active-by-id (:id strand))))
+
+(defn devflow-dashboard-view
+  "Return a read-only devflow feature dashboard projection.
+
+  Optional params: `{:feature \"slug\"}`. The projection is JSON-compatible and
+  groups active features with ready and blocked task/review work, count totals,
+  and coordination metadata such as owner and task_file."
+  [{:keys [params]}]
+  (let [rt @runtime/current-runtime
+        feature (:feature params)
+        active-by-id (active-strands-by-id rt)
+        features (active-devflow-features rt feature)
+        work (active-devflow-work rt feature)
+        ready (ready-devflow-work rt feature)
+        ready-ids (set (map :id ready))
+        blocked (remove #(contains? ready-ids (:id %)) work)
+        work-by-feature (group-by feature-slug work)
+        ready-by-feature (group-by feature-slug ready)
+        blocked-by-feature (group-by feature-slug blocked)]
+    {:view "devflow-dashboard"
+     :feature feature
+     :counts {:features (count features)
+              :active_work (count work)
+              :ready_work (count ready)
+              :blocked_work (count blocked)}
+     :features (mapv (fn [feature-strand]
+                       (let [slug (feature-slug feature-strand)
+                             feature-work (get work-by-feature slug [])
+                             feature-ready (get ready-by-feature slug [])
+                             feature-blocked (get blocked-by-feature slug [])]
+                         (merge (summarize-work-item feature-strand)
+                                {:feature slug
+                                 :counts {:active_work (count feature-work)
+                                          :ready_work (count feature-ready)
+                                          :blocked_work (count feature-blocked)}
+                                 :ready (mapv summarize-work-item feature-ready)
+                                 :blocked (mapv #(summarize-blocked-item rt active-by-id %) feature-blocked)})))
+                     (sort-by feature-slug features))}))
+
 (defn current-dags-op
   "Return active parent-of work DAGs and their active depends-on edges.
 
@@ -256,7 +370,7 @@
         query-def (if feature feature-active-query devflow-active-query)
         params (if feature {:feature feature} {})
         active (api/list rt query-def params)
-        ready (api/ready rt (if feature feature-work-query devflow-active-query) params)]
+        ready (api/ready rt (if feature feature-work-query devflow-work-query) params)]
     {:operation "devflow-status"
      :feature feature
      :active_count (count active)
@@ -281,7 +395,14 @@
              {:name "feature-task-scope"
               :usage "strand ready --query feature-task-scope --param feature=<feature> --param task=<task-key-or-task-file>"}
              {:name "devflow-active"
-              :usage "strand list --query devflow-active"}]
+              :usage "strand list --query devflow-active"}
+             {:name "devflow-features"
+              :usage "strand list --query devflow-features"}
+             {:name "devflow-work"
+              :usage "strand ready --query devflow-work"}]
+   :views [{:name "devflow-dashboard"
+            :usage "(skein.views.alpha/view! 'devflow-dashboard {}) or {:feature \"<feature>\"}"
+            :purpose "Read-only feature dashboard with active features, ready work, blocked work, counts, and coordination metadata."}]
    :attributes [{:name "workflow" :values ["devflow" "agent-plan"]}
                 {:name "feature" :meaning "Feature slug for feature-scoped queries."}
                 {:name "kind" :values ["plan" "task" "review"]}
@@ -303,7 +424,9 @@
          'feature-work feature-work-query
          'feature-owner-work feature-owner-work-query
          'feature-task-scope feature-task-scope-query
-         'devflow-active devflow-active-query}))
+         'devflow-active devflow-active-query
+         'devflow-features devflow-feature-query
+         'devflow-work devflow-work-query}))
 
 (defn install!
   "Install repo-local Skein runtime configuration."
@@ -321,6 +444,9 @@
   {:installed true
    :namespace 'config
    :queries (register-query-map!)
+   :views [(views/register-view!
+            'devflow-dashboard
+            'config/devflow-dashboard-view)]
    :ops [(api/register-op!
           'current-dags
           "Show active parent-of work DAGs with active depends-on edges"
