@@ -70,7 +70,9 @@
   (is (some #(= "task-root" (:name %)) (views/views)))
   (is (some #(= :devflow-coordination-attrs (:key %)) (api/hooks rt)))
   (is (some #(= "devflow-status" (:name %)) (api/ops rt)))
-  (is (some #(= "task-root" (:name %)) (api/ops rt))))
+  (is (some #(= "task-root" (:name %)) (api/ops rt)))
+  (is (some #(= "devflow-assign" (:name %)) (api/ops rt)))
+  (is (some #(= "devflow-close-feature" (:name %)) (api/ops rt))))
 
 (deftest devflow-coordination-hook-normalizes-task-id-and-validates-present-attrs
   (with-config-runtime
@@ -239,6 +241,98 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"Multiple active devflow tasks matched root lookup"
                             ((requiring-resolve 'config/task-root-op) {:op/argv ["duplicate"]}))))))
+
+(deftest devflow-assign-updates-one-task-metadata-atomically
+  (with-config-runtime
+    (fn [rt]
+      (let [task (add-devflow! rt "Assignable" "task" "batch-ops"
+                               {:task_key "impl" :owner "old"}
+                               [])
+            other (add-devflow! rt "Other" "task" "batch-ops"
+                                {:task_key "other" :owner "old"}
+                                [])
+            result ((requiring-resolve 'config/devflow-assign-op)
+                    {:op/argv ["batch-ops" "impl" "agent" "devflow-skein-batch-ops"]})
+            updated (api/strands-by-ids rt [(:id task)])
+            untouched (api/strands-by-ids rt [(:id other)])]
+        (is (= "devflow-assign" (:operation result)))
+        (is (= (:id task) (get-in result [:updated :id])))
+        (is (= "active" (get-in result [:updated :state])))
+        (is (= {:feature "batch-ops"
+                :kind "task"
+                :task_key "impl"
+                :owner "agent"
+                :branch "devflow-skein-batch-ops"}
+               (get-in result [:updated :metadata])))
+        (is (= "agent" (get-in (first updated) [:attributes :owner])))
+        (is (= "devflow-skein-batch-ops" (get-in (first updated) [:attributes :branch])))
+        (is (= "old" (get-in (first untouched) [:attributes :owner])))
+        (is (nil? (get-in (first untouched) [:attributes :branch])))))))
+
+(deftest devflow-assign-fails-without-partial-mutation
+  (with-config-runtime
+    (fn [rt]
+      (let [task (add-devflow! rt "Assignable" "task" "batch-ops"
+                               {:task_key "impl" :owner "old"}
+                               [])]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"branch must be a non-blank string"
+                              ((requiring-resolve 'config/devflow-assign-op)
+                               {:op/argv ["batch-ops" "impl" "agent" ""]})))
+        (is (= {:workflow "devflow" :kind "task" :feature "batch-ops" :task_key "impl" :owner "old"}
+               (:attributes (first (api/strands-by-ids rt [(:id task)])))))))))
+
+(deftest devflow-close-feature-closes-active-feature-dag-atomically
+  (with-config-runtime
+    (fn [rt]
+      (let [feature (add-devflow! rt "Feature" "plan" "batch-ops" {} [])
+            impl (add-devflow! rt "Impl" "task" "batch-ops" {:task_key "impl"} [])
+            review (add-devflow! rt "Review" "review" "batch-ops" {:task_key "review"} [])
+            nested-plan (add-devflow! rt "Nested plan" "plan" "batch-ops" {:task_key "nested-plan"} [])
+            nested-task (add-devflow! rt "Nested task" "task" "batch-ops" {:task_key "nested-task"} [])
+            orphan (add-devflow! rt "Orphan" "task" "batch-ops" {:task_key "orphan"} [])
+            same-feature-non-devflow (api/add rt {:title "Non devflow"
+                                                  :state "active"
+                                                  :attributes {:workflow "agent-plan"
+                                                               :kind "task"
+                                                               :feature "batch-ops"}})
+            outside (add-devflow! rt "Outside" "task" "other" {:task_key "outside"} [])]
+        (api/update rt (:id feature) {:edges [{:type "parent-of" :to (:id impl)}
+                                             {:type "parent-of" :to (:id review)}
+                                             {:type "parent-of" :to (:id nested-plan)}]})
+        (api/update rt (:id nested-plan) {:edges [{:type "parent-of" :to (:id nested-task)}]})
+        (let [result ((requiring-resolve 'config/devflow-close-feature-op)
+                      {:op/argv ["batch-ops"]})
+              closed (api/strands-by-ids rt [(:id feature) (:id impl) (:id review) (:id nested-plan) (:id nested-task)])
+              open (api/strands-by-ids rt [(:id outside) (:id same-feature-non-devflow) (:id orphan)])]
+          (is (= "devflow-close-feature" (:operation result)))
+          (is (= 5 (:closed_count result)))
+          (is (= (:id feature) (get-in result [:root :id])))
+          (is (= {:feature "batch-ops" :kind "plan"}
+                 (get-in result [:root :metadata])))
+          (is (= #{"closed"} (set (map :state (:closed result)))))
+          (is (= #{(:id feature) (:id impl) (:id review) (:id nested-plan) (:id nested-task)}
+                 (set (map :id (:closed result)))))
+          (is (= #{"closed"} (set (map :state closed))))
+          (is (= #{"active"} (set (map :state open)))))))))
+
+(deftest devflow-close-feature-fails-when-feature-has-no-active-plan-root
+  (with-config-runtime
+    (fn [_rt]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"No active devflow plan root matched feature"
+                            ((requiring-resolve 'config/devflow-close-feature-op)
+                             {:op/argv ["missing"]}))))))
+
+(deftest devflow-close-feature-fails-on-two-active-plan-roots
+  (with-config-runtime
+    (fn [rt]
+      (add-devflow! rt "Feature A" "plan" "duplicate-root" {} [])
+      (add-devflow! rt "Feature B" "plan" "duplicate-root" {} [])
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"Multiple active devflow plan roots matched feature"
+                            ((requiring-resolve 'config/devflow-close-feature-op)
+                             {:op/argv ["duplicate-root"]}))))))
 
 (deftest repo-local-startup-and-reload-preserve-dashboard-registrations
   (with-startup-config-runtime

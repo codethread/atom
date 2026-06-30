@@ -550,6 +550,140 @@
   [{:keys [params]}]
   (task-root-op {:op/argv [(:task params)]}))
 
+(defn- require-exact-args!
+  "Return argv when it has exactly n values, otherwise fail with usage."
+  [op argv n usage]
+  (when-not (= n (count argv))
+    (throw (ex-info (str op " expects " n " arguments")
+                    {:argv argv :usage usage})))
+  argv)
+
+(defn- ref-key
+  "Return a stable keyword ref for an existing strand id."
+  [strand-id]
+  (keyword (str "s-" strand-id)))
+
+(defn- apply-devflow-batch!
+  "Apply a repo-local devflow batch mutation through the active weaver runtime."
+  [rt payload]
+  (api/apply-batch rt payload))
+
+(defn- updated-after-rows
+  "Return updated :after strand rows from a batch result."
+  [result]
+  (mapv :after (:updated result)))
+
+(defn devflow-assign-op
+  "Assign owner and branch metadata to one active devflow task or review atomically.
+
+  Usage: `strand op devflow-assign <feature> <task_key> <owner> <branch>`. The
+  feature plus task_key selector must match exactly one active devflow task or
+  review. Both owner and branch are required so coordination metadata changes are
+  explicit and data-first."
+  [ctx]
+  (let [rt @runtime/current-runtime
+        [feature task-key owner branch] (require-exact-args!
+                                         "devflow-assign"
+                                         (:op/argv ctx)
+                                         4
+                                         "strand op devflow-assign <feature> <task_key> <owner> <branch>")
+        _ (doseq [[attr value] [[:feature feature] [:task_key task-key] [:owner owner] [:branch branch]]]
+            (require-non-blank-string! attr value))
+        matches (api/list rt [:and (:where feature-work-query)
+                              [:= [:attr :workflow] "devflow"]
+                              [:= [:attr :task_key] [:param :task_key]]]
+                          {:feature feature :task_key task-key})
+        task (require-one-task! task-key matches)
+        ref (ref-key (:id task))
+        result (apply-devflow-batch! rt {:refs {ref (:id task)}
+                                         :strands [{:ref ref
+                                                    :attributes {:owner owner
+                                                                 :branch branch}}]})]
+    {:operation "devflow-assign"
+     :feature feature
+     :task_key task-key
+     :updated (summarize-work-item (first (updated-after-rows result)))
+     :batch result}))
+
+(defn- active-devflow-plan-roots
+  "Return active structural devflow plan roots for feature.
+
+  A root candidate is an active devflow plan with the requested feature and no
+  incoming active `parent-of` parent. Nested plan strands may share the feature
+  slug without counting as separate feature roots."
+  [rt feature]
+  (let [candidates (api/list rt [:and
+                                 [:= :state "active"]
+                                 [:= [:attr :workflow] "devflow"]
+                                 [:= [:attr :kind] "plan"]
+                                 [:= [:attr :feature] [:param :feature]]]
+                             {:feature feature})
+        active-by-id (active-strands-by-id rt)
+        active-ids (set (keys active-by-id))
+        candidate-ids (set (map :id candidates))
+        parent-edges (if (seq active-ids)
+                       (:edges (api/subgraph rt (sort active-ids) {:type "parent-of"}))
+                       [])
+        child-plan-ids (->> parent-edges
+                            (filter #(and (contains? active-ids (:from_strand_id %))
+                                          (contains? candidate-ids (:to_strand_id %))))
+                            (map :to_strand_id)
+                            set)]
+    (->> candidates
+         (remove #(contains? child-plan-ids (:id %)))
+         vec)))
+
+(defn- require-one-plan-root!
+  "Return exactly one active devflow plan root, otherwise fail loudly."
+  [feature roots]
+  (case (count roots)
+    0 (throw (ex-info "No active devflow plan root matched feature"
+                      {:feature feature}))
+    1 (first roots)
+    (throw (ex-info "Multiple active devflow plan roots matched feature"
+                    {:feature feature
+                     :matches (mapv summarize-work-item roots)}))))
+
+(defn- active-parent-dag-members
+  "Return active strand rows in the parent-of subgraph rooted at root-id."
+  [rt root-id]
+  (->> (:strands (api/subgraph rt [root-id] {:type "parent-of"}))
+       (filter #(= "active" (:state %)))
+       (sort-by :id)
+       vec))
+
+(defn devflow-close-feature-op
+  "Close one active devflow feature plan DAG atomically.
+
+  Usage: `strand op devflow-close-feature <feature>`. Resolves exactly one active
+  `workflow=devflow`, `kind=plan` root for the feature slug, traverses its
+  `parent-of` subgraph, and patches only active DAG members to `state=closed` in
+  one batch transaction. Fails loudly when the feature has zero or multiple
+  active devflow plan roots."
+  [ctx]
+  (let [rt @runtime/current-runtime
+        [feature] (require-exact-args!
+                   "devflow-close-feature"
+                   (:op/argv ctx)
+                   1
+                   "strand op devflow-close-feature <feature>")
+        _ (require-non-blank-string! :feature feature)
+        root (require-one-plan-root! feature (active-devflow-plan-roots rt feature))
+        strands (active-parent-dag-members rt (:id root))
+        refs (into {} (map (juxt (comp ref-key :id) :id)) strands)
+        result (apply-devflow-batch! rt {:refs refs
+                                         :strands (mapv (fn [strand]
+                                                          {:ref (ref-key (:id strand))
+                                                           :state "closed"})
+                                                        strands)})
+        closed (updated-after-rows result)]
+    {:operation "devflow-close-feature"
+     :feature feature
+     :root (summarize-work-item root)
+     :closed_count (count closed)
+     :closed (mapv summarize-work-item closed)
+     :batch result}))
+
 (defn devflow-conventions-op
   "Return the blessed devflow strand conventions installed by this config."
   [_ctx]
@@ -578,6 +712,12 @@
            {:name "task-root"
             :usage "(skein.views.alpha/view! 'task-root {:task \"<strand-id-or-task-key>\"})"
             :purpose "Read-only lookup for the devflow feature/plan root that owns one task or review."}]
+   :ops [{:name "devflow-assign"
+          :usage "strand op devflow-assign <feature> <task_key> <owner> <branch>"
+          :purpose "Atomically assign owner and branch metadata to one active devflow task/review."}
+         {:name "devflow-close-feature"
+          :usage "strand op devflow-close-feature <feature>"
+          :purpose "Atomically close all active devflow strands for a completed feature DAG."}]
    :attributes [{:name "workflow" :values ["devflow" "agent-plan"]}
                 {:name "feature" :meaning "Feature slug for feature-scoped queries."}
                 {:name "kind" :values ["plan" "task" "review"]}
@@ -645,7 +785,15 @@
          (api/register-op!
           'task-root
           "Show the devflow feature/plan root that owns one task or review"
-          'config/task-root-op)]
+          'config/task-root-op)
+         (api/register-op!
+          'devflow-assign
+          "Atomically assign owner and branch metadata to one active devflow task/review"
+          'config/devflow-assign-op)
+         (api/register-op!
+          'devflow-close-feature
+          "Atomically close all active devflow strands for a completed feature DAG"
+          'config/devflow-close-feature-op)]
    :ephemeral {:namespace 'skein.libs.ephemeral
                :creator 'skein.libs.ephemeral/ephemeral!
                :burner 'skein.libs.ephemeral/burn-ephemeral!
