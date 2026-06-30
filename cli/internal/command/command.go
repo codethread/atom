@@ -120,10 +120,9 @@ func (a *App) rootCommand() *cobra.Command {
 	root.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		o.ConfigDirExplicit = cmd.Flags().Changed("config-dir")
 	}
-	initCmd := &cobra.Command{Use: "init", Short: "Bootstrap missing repo config files through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	initCmd := &cobra.Command{Use: "init", Short: "Bootstrap missing selected config workspace files through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.initCommand(o)
 	}}
-	initCmd.Flags().StringVar(&o.Source, "source", "", "Skein source checkout for local config.json (defaults to SKEIN_SOURCE or valid Skein cwd)")
 	root.AddCommand(initCmd)
 
 	add := &cobra.Command{Use: "add <title>", Short: "Create a strand", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -350,11 +349,10 @@ func (a *App) withResolvedConfig(o Options, f func(Options) error) error {
 }
 
 func resolveOptions(o Options) (Options, error) {
-	cfg, world, err := config.Load(o.ConfigDir)
+	_, world, err := config.Load(o.ConfigDir)
 	if err != nil {
 		return o, err
 	}
-	o.Source = cfg.Source
 	o.ConfigDir = world.ConfigDir
 	o.StateDir = world.StateDir
 	o.DataDir = world.DataDir
@@ -434,11 +432,7 @@ func (a *App) initCommand(o Options) error {
 	if err != nil {
 		return err
 	}
-	source := o.Source
-	if source == "" {
-		source = os.Getenv("SKEIN_SOURCE")
-	}
-	_, err = millCall("init", client.MillWorldRequest{CWD: cwd, ConfigDir: o.ConfigDir, Source: source})
+	_, err = millCall("init", client.MillWorldRequest{CWD: cwd, ConfigDir: o.ConfigDir})
 	return err
 }
 
@@ -460,7 +454,7 @@ func (a *App) millWeaverCommand(o Options, operation string) error {
 }
 
 func incompleteDiscoveredWorldError(o Options) error {
-	return fmt.Errorf("selected config-dir %s is missing local source config; run `strand init --source <skein-source>` or set SKEIN_SOURCE", o.ConfigDir)
+	return fmt.Errorf("selected config-dir %s is missing local source config; source is resolved by mill from SKEIN_SOURCE, installed build source, or canonical Skein checkout cwd", o.ConfigDir)
 }
 
 func (a *App) launchWeaver(o Options) error {

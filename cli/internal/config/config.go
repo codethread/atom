@@ -11,7 +11,7 @@ import (
 const ConfigFileName = "config.json"
 const DefaultDBFileName = "skein.sqlite"
 
-var allowedKeys = map[string]bool{"configFormat": true, "source": true}
+var allowedKeys = map[string]bool{"configFormat": true}
 
 type World struct {
 	ConfigDir  string
@@ -23,7 +23,7 @@ type World struct {
 
 type Config struct {
 	ConfigFormat string `json:"configFormat"`
-	Source       string `json:"source"`
+	Source       string `json:"-"`
 }
 
 func RepoWorld() (World, error) {
@@ -87,11 +87,6 @@ func Load(configDir string) (Config, World, error) {
 	}
 	if c.ConfigFormat != "alpha" {
 		return Config{}, World{}, fmt.Errorf("unsupported client config configFormat: %s", c.ConfigFormat)
-	}
-	if v, ok := raw["source"]; ok {
-		if err := json.Unmarshal(v, &c.Source); err != nil {
-			return Config{}, World{}, fmt.Errorf("client config source must be a string")
-		}
 	}
 	return c, w, nil
 }

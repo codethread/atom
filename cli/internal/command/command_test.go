@@ -3,7 +3,6 @@ package command
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -54,6 +53,14 @@ func TestHelpIncludesCommandTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	initHelp, err := run("init", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(initHelp, "selected config workspace") || strings.Contains(initHelp, "--source") {
+		t.Fatalf("init help should describe workspace bootstrap and omit --source:\n%s", initHelp)
+	}
+
 	for _, want := range []string{"add <title>", "--state", "--attr", "--attr-file", "--attr-stdin", "--attributes-stdin"} {
 		if !strings.Contains(add, want) {
 			t.Fatalf("add help missing %q in:\n%s", want, add)
@@ -103,6 +110,7 @@ func TestHelpIncludesCommandTree(t *testing.T) {
 func TestRejectsRemovedAndMalformedInputs(t *testing.T) {
 	cases := [][]string{
 		{"--format", "json", "list"},
+		{"init", "--source", "/tmp/skein"},
 		{"list", "--where", "[:= :status \"strand\"]"},
 		{"list", "--where", ""},
 		{"list", "extra"},
@@ -163,7 +171,7 @@ func TestPatternListCommandPassesThroughToSocketClientPayloads(t *testing.T) {
 
 func TestConfigDirPrecedenceAndValidation(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"configFormat":"alpha","source":"/tmp/source"}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"configFormat":"alpha"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	var captured Options
@@ -220,10 +228,7 @@ func TestInitBootstrapsWorkspaceWhenMissingWithoutWeaverInit(t *testing.T) {
 	if _, err := os.Stat(cfgFile); err != nil {
 		t.Fatalf("missing config.json: %v", err)
 	}
-	var c struct {
-		ConfigFormat string `json:"configFormat"`
-		Source       string `json:"source"`
-	}
+	var c map[string]any
 	f, err := os.ReadFile(cfgFile)
 	if err != nil {
 		t.Fatal(err)
@@ -231,15 +236,8 @@ func TestInitBootstrapsWorkspaceWhenMissingWithoutWeaverInit(t *testing.T) {
 	if err := json.Unmarshal(f, &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.ConfigFormat != "alpha" {
+	if !reflect.DeepEqual(c, map[string]any{"configFormat": "alpha"}) {
 		t.Fatalf("unexpected config fields: %#v", c)
-	}
-	realSource, err := filepath.EvalSymlinks(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Source != realSource {
-		t.Fatalf("unexpected source: %q", c.Source)
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "libs")); err != nil {
 		t.Fatalf("missing libs directory: %v", err)
@@ -279,7 +277,7 @@ func TestInitValidatesExistingConfigButDoesNotRewriteMissingKeys(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(cfg, "libs"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	original := `{"configFormat":"alpha","source":"` + source + `"}`
+	original := `{"configFormat":"alpha"}`
 	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(original), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -328,48 +326,23 @@ func TestWeaverStartRoutesThroughMill(t *testing.T) {
 	}
 }
 
-func TestWeaverReplVerifiesWeaverAndLaunchesFromConfiguredSource(t *testing.T) {
+func TestWeaverReplRequiresSourceUntilMillOwnedLaunchLands(t *testing.T) {
 	cfg := t.TempDir()
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	origMill := millCall
 	origRun := runReplProcess
-	var launched Options
-	var launchedStdin bool
-	var operation string
-	var world client.MillWorldRequest
-	millState := filepath.Join(t.TempDir(), "state")
-	millCall = func(op string, req client.MillWorldRequest) (any, error) {
-		operation = op
-		world = req
-		return map[string]any{"state": "running", "state_dir": millState}, nil
-	}
+	launched := false
 	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
-		launched = o
-		launchedStdin = stdin
+		launched = true
 		return nil
 	}
-	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
-	if _, err := run("--config-dir", cfg, "weaver", "repl", "--stdin"); err != nil {
-		t.Fatal(err)
+	t.Cleanup(func() { runReplProcess = origRun })
+	if _, err := run("--config-dir", cfg, "weaver", "repl", "--stdin"); err == nil || !strings.Contains(err.Error(), "missing local source config") {
+		t.Fatalf("expected missing source failure, got %v", err)
 	}
-	realCfg, err := filepath.EvalSymlinks(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if launched.Source != source || launched.ConfigDir != realCfg || launched.StateDir != millState || !launched.ConfigDirExplicit || !launchedStdin {
-		t.Fatalf("unexpected repl launch: %#v stdin=%v", launched, launchedStdin)
-	}
-	if !reflect.DeepEqual(replArgs(launched, true), []string{"-M", "-m", "skein.repl", "--stdin", realCfg, millState}) {
-		t.Fatalf("unexpected repl args: %#v", replArgs(launched, true))
-	}
-	if operation != "weaver-status" || world.ConfigDir != realCfg || world.CWD == "" {
-		t.Fatalf("weaver repl should verify via mill first: op=%s world=%#v", operation, world)
+	if launched {
+		t.Fatal("repl process launched without source")
 	}
 }
 
@@ -396,62 +369,6 @@ func TestWeaverStatusAndStopRouteThroughMill(t *testing.T) {
 	}
 }
 
-func TestWeaverReplNoRunningWeaverBlocksLaunch(t *testing.T) {
-	cfg := t.TempDir()
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	origMill := millCall
-	origRun := runReplProcess
-	launched := false
-	millCall = func(op string, req client.MillWorldRequest) (any, error) {
-		return map[string]any{"state": "none", "state_dir": t.TempDir()}, nil
-	}
-	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
-		launched = true
-		return nil
-	}
-	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
-	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "no running weaver") {
-		t.Fatalf("expected no running weaver failure, got %v", err)
-	}
-	if launched {
-		t.Fatal("repl process launched without running weaver")
-	}
-}
-
-func TestWeaverReplStatusFailureBlocksLaunch(t *testing.T) {
-	cfg := t.TempDir()
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	origMill := millCall
-	origRun := runReplProcess
-	launched := false
-	millCall = func(op string, req client.MillWorldRequest) (any, error) {
-		return nil, errors.New("no running weaver")
-	}
-	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
-		launched = true
-		return nil
-	}
-	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
-	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "no running weaver") {
-		t.Fatalf("expected status failure, got %v", err)
-	}
-	if launched {
-		t.Fatal("repl process launched after status failure")
-	}
-}
-
 func TestOrdinaryCommandsRequireMill(t *testing.T) {
 	cfg := testConfig(t)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
@@ -471,15 +388,11 @@ func TestWeaverStartRequiresMill(t *testing.T) {
 func TestWeaverReplRequiresMill(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
-		t.Fatalf("expected mill remediation, got %v", err)
+	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "missing local source config") {
+		t.Fatalf("expected missing source failure, got %v", err)
 	}
 }
 
@@ -492,7 +405,7 @@ func TestRepoWorldDiscoveryFromSubdirectory(t *testing.T) {
 	if err := os.MkdirAll(cfg, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"/tmp/source"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	withChdir(t, filepath.Join(repo, "a", "b"))
@@ -578,12 +491,11 @@ func TestInitUsesGitRootForImplicitRepoWorld(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	source := tempSource(t)
 	withChdir(t, nested)
 	origClient := newClient
 	newClient = func(o Options) Caller { return &fakeClient{} }
 	t.Cleanup(func() { newClient = origClient })
-	if _, err := run("init", "--source", source); err != nil {
+	if _, err := run("init"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".skein", "config.json")); err != nil {
@@ -594,9 +506,8 @@ func TestInitUsesGitRootForImplicitRepoWorld(t *testing.T) {
 	}
 }
 
-func TestInitPassesCallerEnvSourceToMill(t *testing.T) {
-	source := tempSource(t)
-	t.Setenv("SKEIN_SOURCE", source)
+func TestInitDoesNotPassCallerEnvSourceToMill(t *testing.T) {
+	t.Setenv("SKEIN_SOURCE", tempSource(t))
 	cfg := t.TempDir()
 	orig := millCall
 	var captured client.MillWorldRequest
@@ -610,16 +521,15 @@ func TestInitPassesCallerEnvSourceToMill(t *testing.T) {
 	if err := app.Run([]string{"--config-dir", cfg, "init"}); err != nil {
 		t.Fatal(err)
 	}
-	if captured.Source != source {
-		t.Fatalf("expected caller SKEIN_SOURCE to be sent to mill, got %#v", captured)
+	if captured.Source != "" {
+		t.Fatalf("init should not pass source to mill, got %#v", captured)
 	}
 }
 
 func TestInitOutsideGitFailsWithoutCreatingCwdWorld(t *testing.T) {
 	dir := t.TempDir()
-	source := tempSource(t)
 	withChdir(t, dir)
-	if _, err := run("init", "--source", source); err == nil || !strings.Contains(err.Error(), "requires cwd inside a Git worktree") {
+	if _, err := run("init"); err == nil || !strings.Contains(err.Error(), "requires cwd inside a supported non-bare Git worktree") {
 		t.Fatalf("expected outside-git failure, got %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".skein")); !os.IsNotExist(err) {
@@ -627,12 +537,9 @@ func TestInitOutsideGitFailsWithoutCreatingCwdWorld(t *testing.T) {
 	}
 }
 
-func TestInitSourcePrecedenceAndNoOverwriteBootstrap(t *testing.T) {
-	cwdSource := tempSource(t)
-	envSource := tempSource(t)
-	flagSource := tempSource(t)
-	withChdir(t, cwdSource)
-	t.Setenv("SKEIN_SOURCE", envSource)
+func TestInitWritesMarkerConfigAndDoesNotOverwriteBootstrapFiles(t *testing.T) {
+	withChdir(t, tempSource(t))
+	t.Setenv("SKEIN_SOURCE", tempSource(t))
 	cfg := t.TempDir()
 	if err := os.WriteFile(filepath.Join(cfg, "libs.edn"), []byte("custom libs"), 0o644); err != nil {
 		t.Fatal(err)
@@ -646,41 +553,18 @@ func TestInitSourcePrecedenceAndNoOverwriteBootstrap(t *testing.T) {
 	origClient := newClient
 	newClient = func(o Options) Caller { return &fakeClient{} }
 	t.Cleanup(func() { newClient = origClient })
-	if _, err := run("--config-dir", cfg, "init", "--source", flagSource); err != nil {
+	if _, err := run("--config-dir", cfg, "init"); err != nil {
 		t.Fatal(err)
 	}
 	var c configFileForTest
 	readJSONFile(t, filepath.Join(cfg, "config.json"), &c)
-	if c.Source != flagSource {
-		t.Fatalf("expected flag source precedence, got %q", c.Source)
+	if c.ConfigFormat != "alpha" || c.Source != "" {
+		t.Fatalf("unexpected marker config: %#v", c)
 	}
 	for path, want := range map[string]string{"libs.edn": "custom libs", "init.clj": "custom init", ".gitignore": "custom ignore"} {
 		if got := string(mustReadFile(t, filepath.Join(cfg, path))); got != want {
 			t.Fatalf("%s overwritten: %q", path, got)
 		}
-	}
-
-	envCfg := t.TempDir()
-	if _, err := run("--config-dir", envCfg, "init"); err != nil {
-		t.Fatal(err)
-	}
-	readJSONFile(t, filepath.Join(envCfg, "config.json"), &c)
-	if c.Source != envSource {
-		t.Fatalf("expected env source precedence, got %q", c.Source)
-	}
-
-	t.Setenv("SKEIN_SOURCE", "")
-	cwdCfg := t.TempDir()
-	if _, err := run("--config-dir", cwdCfg, "init"); err != nil {
-		t.Fatal(err)
-	}
-	readJSONFile(t, filepath.Join(cwdCfg, "config.json"), &c)
-	realCwdSource, err := filepath.EvalSymlinks(cwdSource)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Source != realCwdSource {
-		t.Fatalf("expected cwd source fallback, got %q", c.Source)
 	}
 }
 
