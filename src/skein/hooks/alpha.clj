@@ -15,7 +15,7 @@
       :hooks (api/hooks rt)
       :register-hook! (apply api/register-hook! rt args)
       :unregister-hook! (apply api/unregister-hook! rt args))
-    (apply client/call-world (repl/connected-config-dir) {} op args)))
+    (apply client/call-world (repl/connected-config-dir) (repl/connected-opts) op args)))
 
 (defn register!
   "Register or replace a lifecycle hook in the selected weaver runtime.

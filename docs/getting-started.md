@@ -48,10 +48,10 @@ go install ./cli/cmd/strand
 
 By default `strand` is repo-first: without `--config-dir`, it searches upward
 from the current directory for the nearest `.skein` directory and uses that as
-the selected world. Runtime state lives in `.skein/state`, data in
-`.skein/data`, and local source config in `.skein/config.json`. If no `.skein`
-is found, non-init commands fail with remediation instead of falling back to a
-global personal world.
+the selected config world. Repo `.skein` is trusted config only; mill-owned
+runtime state, metadata, sockets, and data live under Skein's XDG state root. If
+no `.skein` is found, non-init commands fail with remediation instead of falling
+back to a global personal world.
 
 Initialize a repo world from the Skein checkout:
 
@@ -68,9 +68,9 @@ SKEIN_SOURCE=/path/to/skein-src strand init
 ```
 
 `strand init` without `--config-dir` creates or completes `.skein` at the Git
-root, or in cwd outside Git. To work in a separate, disposable world instead
-(recommended for tests and isolated agent work), create one and target it with
-`--config-dir`:
+root and fails loudly outside Git. To work in a separate, disposable world
+instead (recommended for tests and isolated agent work), create one and target it
+with `--config-dir`:
 
 ```sh
 world=$(mktemp -d)
@@ -83,19 +83,12 @@ examples below omit the flag; add it back when targeting a custom world.
 
 ## Start the weaver
 
-Start the weaver in a dedicated terminal:
+Start mill once, then ask it to start the selected world's weaver. Weaver startup
+prepares storage; there is no separate post-start `strand init` step.
 
 ```sh
+mill start
 strand weaver start
-```
-
-## Initialize the store
-
-In another terminal, initialize the Skein store and bootstrap missing config
-files:
-
-```sh
-strand init
 ```
 
 ## Add and inspect strands
@@ -138,7 +131,6 @@ Useful forms. In Clojure the function name comes first inside the parens, so
 [Clojure crash course](./clojure-crash-course.md) for more:
 
 ```clojure
-(init!)                                              ; prepare storage for this world
 (require '[skein.batch.alpha :as batch])             ; batch graph mutations
 
 (def s (:id (strand! "My first REPL strand" {:owner "ct"}))) ; create one strand; keep its :id in s

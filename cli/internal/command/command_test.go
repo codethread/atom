@@ -374,18 +374,24 @@ func TestWeaverReplVerifiesWeaverAndLaunchesFromConfiguredSource(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	origClient := newClient
+	origMill := millCall
 	origRun := runReplProcess
 	var launched Options
 	var launchedStdin bool
-	fc := &fakeClient{}
-	newClient = func(o Options) Caller { return fc }
+	var operation string
+	var world client.MillWorldRequest
+	millState := filepath.Join(t.TempDir(), "state")
+	millCall = func(op string, req client.MillWorldRequest) (any, error) {
+		operation = op
+		world = req
+		return map[string]any{"state": "running", "state_dir": millState}, nil
+	}
 	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
 		launched = o
 		launchedStdin = stdin
 		return nil
 	}
-	t.Cleanup(func() { newClient = origClient; runReplProcess = origRun })
+	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
 	if _, err := run("--config-dir", cfg, "weaver", "repl", "--stdin"); err != nil {
 		t.Fatal(err)
 	}
@@ -393,14 +399,14 @@ func TestWeaverReplVerifiesWeaverAndLaunchesFromConfiguredSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if launched.Source != source || launched.ConfigDir != realCfg || !launched.ConfigDirExplicit || !launchedStdin {
+	if launched.Source != source || launched.ConfigDir != realCfg || launched.StateDir != millState || !launched.ConfigDirExplicit || !launchedStdin {
 		t.Fatalf("unexpected repl launch: %#v stdin=%v", launched, launchedStdin)
 	}
-	if !reflect.DeepEqual(replArgs(launched, true), []string{"-M", "-m", "skein.repl", "--stdin", realCfg, launched.StateDir}) {
+	if !reflect.DeepEqual(replArgs(launched, true), []string{"-M", "-m", "skein.repl", "--stdin", realCfg, millState}) {
 		t.Fatalf("unexpected repl args: %#v", replArgs(launched, true))
 	}
-	if len(fc.calls) != 1 || fc.calls[0].op != "status" {
-		t.Fatalf("weaver repl should verify status first: %#v", fc.calls)
+	if operation != "weaver-status" || world.ConfigDir != realCfg || world.CWD == "" {
+		t.Fatalf("weaver repl should verify via mill first: op=%s world=%#v", operation, world)
 	}
 }
 
@@ -427,6 +433,34 @@ func TestWeaverStatusAndStopRouteThroughMill(t *testing.T) {
 	}
 }
 
+func TestWeaverReplNoRunningWeaverBlocksLaunch(t *testing.T) {
+	cfg := t.TempDir()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	origMill := millCall
+	origRun := runReplProcess
+	launched := false
+	millCall = func(op string, req client.MillWorldRequest) (any, error) {
+		return map[string]any{"state": "none", "state_dir": t.TempDir()}, nil
+	}
+	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
+		launched = true
+		return nil
+	}
+	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
+	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "no running weaver") {
+		t.Fatalf("expected no running weaver failure, got %v", err)
+	}
+	if launched {
+		t.Fatal("repl process launched without running weaver")
+	}
+}
+
 func TestWeaverReplStatusFailureBlocksLaunch(t *testing.T) {
 	cfg := t.TempDir()
 	source := t.TempDir()
@@ -436,15 +470,17 @@ func TestWeaverReplStatusFailureBlocksLaunch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	origClient := newClient
+	origMill := millCall
 	origRun := runReplProcess
 	launched := false
-	newClient = func(o Options) Caller { return &fakeClient{err: errors.New("no running weaver")} }
+	millCall = func(op string, req client.MillWorldRequest) (any, error) {
+		return nil, errors.New("no running weaver")
+	}
 	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
 		launched = true
 		return nil
 	}
-	t.Cleanup(func() { newClient = origClient; runReplProcess = origRun })
+	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
 	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "no running weaver") {
 		t.Fatalf("expected status failure, got %v", err)
 	}
@@ -456,6 +492,20 @@ func TestWeaverReplStatusFailureBlocksLaunch(t *testing.T) {
 func TestWeaverStartRequiresMill(t *testing.T) {
 	cfg := t.TempDir()
 	if _, err := run("--config-dir", cfg, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
+		t.Fatalf("expected mill remediation, got %v", err)
+	}
+}
+
+func TestWeaverReplRequiresMill(t *testing.T) {
+	cfg := t.TempDir()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "deps.edn"), []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha","source":"`+source+`"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
 		t.Fatalf("expected mill remediation, got %v", err)
 	}
 }

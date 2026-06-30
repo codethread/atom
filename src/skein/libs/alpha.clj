@@ -13,7 +13,7 @@
 (defn- call-daemon [op & args]
   (if-let [rt @runtime/current-runtime]
     (apply (requiring-resolve (symbol "skein.weaver.api" (name op))) rt args)
-    (apply client/call-world (repl/connected-config-dir) {} op args)))
+    (apply client/call-world (repl/connected-config-dir) (repl/connected-opts) op args)))
 
 (defn approved
   "Return the normalized library allowlist for the selected weaver config dir.

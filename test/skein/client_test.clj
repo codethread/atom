@@ -66,6 +66,13 @@
         (is (= [(:id task)] (mapv :id (call-world world :list))))
         (is (= [(:id task)] (mapv :id (call-world world :ready))))))))
 
+(deftest client-finds-metadata-in-explicit-state-dir
+  (with-runtime
+    (fn [rt world db-file]
+      (is (not (.exists (java.io.File. (:config-dir world) "weaver.edn"))))
+      (is (= (:metadata rt)
+             (client/status-world (:config-dir world) {:state-dir (:state-dir world)}))))))
+
 (deftest client-supersede-routes-to-weaver-and-preserves-domain-errors
   (with-runtime
     (fn [_ world db-file]

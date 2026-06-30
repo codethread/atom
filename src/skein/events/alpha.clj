@@ -16,7 +16,7 @@
       :recent-event-failures (api/recent-event-failures rt)
       :register-event-handler! (apply api/register-event-handler! rt args)
       :unregister-event-handler! (apply api/unregister-event-handler! rt args))
-    (apply client/call-world (repl/connected-config-dir) {} op args)))
+    (apply client/call-world (repl/connected-config-dir) (repl/connected-opts) op args)))
 
 (defn register!
   "Register or replace an event handler in the selected weaver runtime.

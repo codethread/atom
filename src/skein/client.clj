@@ -197,6 +197,10 @@
       (fail "Connected weaver identity does not match runtime metadata" {:type :skein.client/identity-mismatch
                                                                          :expected (:nonce expected)
                                                                          :actual (:nonce actual)}))
+    (when-not (= (:protocol-version expected) (:protocol-version actual))
+      (fail "Connected weaver protocol does not match runtime metadata" {:type :skein.client/protocol-mismatch
+                                                                         :expected (:protocol-version expected)
+                                                                         :actual (:protocol-version actual)}))
     actual))
 
 (defn call-world

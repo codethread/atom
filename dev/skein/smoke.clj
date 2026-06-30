@@ -95,6 +95,7 @@
   strand-bin)
 
 (defn start-mill! []
+  (delete-tree! (.toPath (java.io.File. smoke-xdg-state-home)))
   (let [builder (doto (ProcessBuilder. [mill-bin "start"])
                   (.redirectErrorStream true))
         _ (-> builder .environment (.put "XDG_STATE_HOME" smoke-xdg-state-home))

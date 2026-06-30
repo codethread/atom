@@ -16,7 +16,7 @@
       :register-pattern! (apply api/register-pattern! rt args)
       :resolve-pattern (apply api/resolve-pattern rt args)
       :weave! (apply api/weave! rt args))
-    (apply client/call-world ((requiring-resolve 'skein.repl/connected-config-dir)) {} op args)))
+    (apply client/call-world ((requiring-resolve 'skein.repl/connected-config-dir)) ((requiring-resolve 'skein.repl/connected-opts)) op args)))
 
 (defn register-pattern!
   "Register a weaver-memory weave pattern.

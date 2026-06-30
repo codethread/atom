@@ -15,7 +15,7 @@
       :register-view! (apply api/register-view! rt args)
       :view! (apply api/view! rt args)
       :views (api/views rt))
-    (apply client/call-world (repl/connected-config-dir) {} op args)))
+    (apply client/call-world (repl/connected-config-dir) (repl/connected-opts) op args)))
 
 (defn register-view!
   "Register a weaver-memory view name to a fully qualified weaver-resolvable function symbol.

@@ -42,7 +42,7 @@ Different config dirs are different worlds. Use `--config-dir <dir>` when you wa
 
 ## Worlds and config dirs
 
-The ordinary world is repo-local. Without `--config-dir`, `strand` searches upward from cwd for the nearest `.skein` directory and uses it as the selected config-dir. If none is found, non-init commands fail loudly. `strand init` creates or completes `.skein` at the Git root, or cwd outside Git:
+The ordinary world is repo-local. Without `--config-dir`, `strand` searches upward from cwd for the nearest `.skein` directory and uses it as the selected config-dir. If none is found, non-init commands fail loudly. `strand init` creates or completes `.skein` at the Git root and fails loudly outside Git:
 
 ```sh
 strand init --source /path/to/skein-src
@@ -56,11 +56,9 @@ A world can also be selected explicitly with:
 strand --config-dir /path/to/world ...
 ```
 
-For explicit worlds, Skein keeps everything self-contained:
-
-- config in `/path/to/world`
-- runtime state in `/path/to/world/state`
-- data in `/path/to/world/data/skein.sqlite`
+For explicit worlds, `/path/to/world` is the config workspace. Runtime state,
+metadata, sockets, and data are owned by mill under Skein's XDG state root for
+the selected config identity.
 
 The important file is `config.json`:
 
@@ -102,9 +100,10 @@ The weaver is the application core. It is a long-lived local Clojure process tha
 - the approved-library sync state;
 - runtime module activation state.
 
-Start it:
+Start mill once, then start the selected world's weaver:
 
 ```sh
+mill start
 strand --config-dir "$world" weaver start
 ```
 
@@ -288,7 +287,6 @@ strand --config-dir "$world" weaver repl
 Useful forms:
 
 ```clojure
-(init!)
 (def id (:id (strand! "Explore workflow" {:owner "ct" :kind "spike"})))
 (strand id)
 (update! id {:state "closed" :attributes {:outcome "captured"}})
@@ -311,7 +309,7 @@ The REPL helper namespace includes common strand functions, but library-workspac
 
 ## Startup config
 
-`strand init` bootstraps missing workspace files in the selected config-dir without overwriting existing files, then asks the running weaver to initialize storage. If no weaver is running, the local file bootstrap may still remain even though the command fails to complete storage initialization.
+`strand init` bootstraps missing workspace files in the selected config-dir without overwriting existing files. It does not initialize database storage; weaver startup prepares storage for the selected world.
 
 For the ordinary repo-local `.skein` world, it creates or ensures:
 
@@ -319,9 +317,9 @@ For the ordinary repo-local `.skein` world, it creates or ensures:
 - `.skein/libs/` directory;
 - `.skein/libs.edn` only if absent, with `{:libs {}}`;
 - `.skein/init.clj` only if absent, with the default below;
-- `.skein/.gitignore` only if absent, ignoring local/runtime files such as `config.json`, `init.local.clj`, `libs.local.edn`, `state/`, and `data/`.
+- `.skein/.gitignore` only if absent, ignoring local config overlays such as `config.json`, `init.local.clj`, and `libs.local.edn`.
 
-Explicit `--config-dir` standalone worlds preserve the older self-contained workspace behavior, including `git init` when `.git` is absent. Existing `config.json`, `libs.edn`, `init.clj`, `.gitignore`, and `.git` are preserved.
+Explicit `--config-dir` standalone worlds bootstrap the selected config directory directly. Existing `config.json`, `libs.edn`, `init.clj`, and `.gitignore` are preserved.
 
 The generated `init.clj` is intentionally small:
 

@@ -18,7 +18,7 @@
       :query-ids (apply api/query-ids rt args)
       :strands-by-ids (apply api/strands-by-ids rt args)
       :subgraph (apply api/subgraph rt args))
-    (apply client/call-world (repl/connected-config-dir) {} op args)))
+    (apply client/call-world (repl/connected-config-dir) (repl/connected-opts) op args)))
 
 (defn query-ids!
   "Return strand ids matching an ad hoc query definition or weaver-registered query name.

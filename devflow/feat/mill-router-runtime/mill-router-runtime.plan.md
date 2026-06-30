@@ -131,3 +131,8 @@ Outcome: Go, Clojure, integration, smoke, README, getting-started, Makefile, and
 ### PLAN-MillRouterRuntime-001.DN8 Task dependency repair — 2026-06-30
 
 - Reworked the queue so Task 6 is no longer blocked by Task 3. Task 6 now depends only on Task 4's XDG weaver metadata/storage work and is a prerequisite for closing Task 3, because required full smoke validation for Task 3 exercises `strand weaver repl --stdin`. Task 3 remains responsible for lifecycle routing, while Task 6 owns the stale/missing metadata fix.
+
+### PLAN-MillRouterRuntime-001.DN9 Task 6 implementation notes — 2026-06-30
+
+- `strand weaver repl` now asks mill for selected-world `weaver-status`, requires `state=running`, and launches the Clojure helper with the XDG state-dir from mill metadata. Helper namespaces now preserve that state-dir for nested nREPL calls, which fixed `skein.graph.alpha`, `skein.libs.alpha`, patterns, views, hooks, events, and batch helpers under mill-routed REPL sessions.
+- Added isolated Go integration coverage for `(strands)` through `strand weaver repl --stdin` against a mill-started weaver, Clojure client coverage for config-dir/state-dir separation, and smoke cleanup for stale mill metadata between runs.

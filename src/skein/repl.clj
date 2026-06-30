@@ -28,12 +28,23 @@
                                    {:helper 'connect!}))
     @active-config-dir))
 
+(defn connected-opts
+  "Return client options for the active connected helper world.
+
+  Includes the explicit state-dir supplied by mill-routed REPL launch so helper
+  namespaces attach to XDG-hosted weaver metadata instead of assuming metadata
+  lives below the selected config-dir. Returns an empty map for legacy direct
+  test/runtime worlds that were connected by config-dir alone."
+  []
+  (if (= no-connection @active-state-dir)
+    {}
+    {:state-dir @active-state-dir}))
+
 (defn- config-dir []
   (connected-config-dir))
 
-(defn- state-dir []
-  (when-not (= no-connection @active-state-dir)
-    @active-state-dir))
+(defn- client-opts []
+  (connected-opts))
 
 (defn connect!
   "Select the active weaver world for helper calls.
@@ -66,8 +77,7 @@
 
 (defn- daemon [op & args]
   (let [dir (config-dir)]
-    (call-daemon #(apply client/call-world dir (cond-> {}
-                                                 (state-dir) (assoc :state-dir (state-dir))) op args))))
+    (call-daemon #(apply client/call-world dir (client-opts) op args))))
 
 (defn init!
   "Initialize the active weaver store schema."
@@ -165,7 +175,7 @@
   query entry."
   [query-name query-def]
   (let [dir (config-dir)]
-    (call-daemon #(client/call-world dir {} :register-query query-name query-def))))
+    (call-daemon #(client/call-world dir (client-opts) :register-query query-name query-def))))
 
 (defn load-queries!
   "Load named queries from one EDN map at `path` into the active weaver registry.
@@ -177,21 +187,21 @@
         registry (query/read-edn-file path)]
     (when-not (map? registry)
       (throw (ex-info "Query file must contain one EDN map of query names to query definitions" {:path path})))
-    (call-daemon #(client/call-world dir {} :load-queries registry))))
+    (call-daemon #(client/call-world dir (client-opts) :load-queries registry))))
 
 (defn queries
   "Return the active weaver's in-memory named query registry."
   []
   (let [dir (config-dir)]
-    (call-daemon #(client/call-world dir {} :queries))))
+    (call-daemon #(client/call-world dir (client-opts) :queries))))
 
 (defn- named-query? [query-or-def]
   (or (symbol? query-or-def) (keyword? query-or-def)))
 
 (defn- run-query [dir query-or-def params ad-hoc named]
   (call-daemon #(if (named-query? query-or-def)
-                  (client/call-world dir {} named query-or-def params)
-                  (client/call-world dir {} ad-hoc query-or-def params))))
+                  (client/call-world dir (client-opts) named query-or-def params)
+                  (client/call-world dir (client-opts) ad-hoc query-or-def params))))
 
 (defn query
   "Return strands matching an ad hoc query definition or named query.

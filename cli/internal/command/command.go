@@ -443,9 +443,30 @@ func (a *App) launchRepl(o Options, stdin bool) error {
 		return err
 	}
 	o.Source = source
-	if _, err := newClient(o).Call("status", map[string]any{}); err != nil {
+	cwd, err := os.Getwd()
+	if err != nil {
 		return err
 	}
+	result, err := millCall("weaver-status", client.MillWorldRequest{CWD: cwd, ConfigDir: o.ConfigDir})
+	if err != nil {
+		return err
+	}
+	status, ok := result.(map[string]any)
+	if !ok {
+		return errors.New("malformed mill weaver-status response: expected object")
+	}
+	state, ok := status["state"].(string)
+	if !ok || state == "" {
+		return errors.New("malformed mill weaver-status response: missing state")
+	}
+	if state != "running" {
+		return fmt.Errorf("no running weaver for selected world (state: %s); start one with: strand weaver start", state)
+	}
+	stateDir, ok := status["state_dir"].(string)
+	if !ok || stateDir == "" {
+		return errors.New("malformed mill weaver-status response: missing state_dir")
+	}
+	o.StateDir = stateDir
 	return runReplProcess(o, stdin, os.Stdin, a.Stdout, a.Stderr)
 }
 

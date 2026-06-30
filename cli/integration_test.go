@@ -79,17 +79,12 @@ func TestGoWeaverLifecycleCommands(t *testing.T) {
 	dir := shortTempDir(t)
 	writeClientConfig(t, dir)
 	bin := buildStrand(t)
+	startMill(t)
 	runDir := shortTempDir(t)
-	weaver := exec.Command(bin, "--config-dir", dir, "weaver", "start")
-	weaver.Dir = runDir
-	var weaverOut bytes.Buffer
-	weaver.Stdout = &weaverOut
-	weaver.Stderr = &weaverOut
-	if err := weaver.Start(); err != nil {
-		t.Fatalf("start weaver: %v", err)
+	if out, err := outputStrand(bin, dir, runDir, "weaver", "start"); err != nil {
+		t.Fatalf("start weaver: %v\n%s", err, out)
 	}
-	t.Cleanup(func() { _ = weaver.Process.Kill(); _, _ = weaver.Process.Wait() })
-	waitForStatus(t, bin, dir, runDir, &weaverOut)
+	waitForStatus(t, bin, dir, runDir, &bytes.Buffer{})
 	out, err := outputStrand(bin, dir, runDir, "weaver", "status")
 	if err != nil {
 		t.Fatal(err)
@@ -102,17 +97,34 @@ func TestGoWeaverLifecycleCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status["healthy"] != true || status["database_path"] == "" || status["config_dir"] != realDir || status["data_dir"] == "" || status["weaver_id"] == "" || status["socket_path"] != filepath.Join(realDir, "state", "weaver.sock") || status["pid"].(float64) <= 0 {
+	if status["state"] != "running" || status["database_path"] == "" || status["config_dir"] != realDir || status["data_dir"] == "" || status["weaver_id"] == "" || status["socket_path"] == filepath.Join(realDir, "state", "weaver.sock") || status["pid"].(float64) <= 0 {
 		t.Fatalf("unexpected status payload: %#v", status)
 	}
 	if err := runStrand(bin, dir, runDir, "weaver", "stop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := weaver.Wait(); err != nil {
-		t.Fatalf("weaver did not exit cleanly: %v\n%s", err, weaverOut.String())
+	waitForNotRunning(t, bin, dir, runDir)
+}
+
+func TestWeaverReplStdinAttachesThroughMillMetadata(t *testing.T) {
+	dir := shortTempDir(t)
+	writeClientConfig(t, dir)
+	bin := buildStrand(t)
+	startMill(t)
+	runDir := shortTempDir(t)
+	if out, err := outputStrand(bin, dir, runDir, "weaver", "start"); err != nil {
+		t.Fatalf("weaver start failed: %v\n%s", err, out)
 	}
-	if _, err := outputStrand(bin, dir, runDir, "weaver", "status"); err == nil {
-		t.Fatal("expected status to fail after stop cleanup")
+	waitForStatus(t, bin, dir, runDir, &bytes.Buffer{})
+	out, err := outputStrandWithInput(bin, dir, runDir, "(strands)\n", "weaver", "repl", "--stdin")
+	if err != nil {
+		t.Fatalf("repl stdin failed: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(out) != "[]" {
+		t.Fatalf("unexpected repl output: %q", out)
+	}
+	if out, err := outputStrand(bin, dir, runDir, "weaver", "stop"); err != nil {
+		t.Fatalf("weaver stop failed: %v\n%s", err, out)
 	}
 }
 
@@ -313,16 +325,41 @@ func waitForStatus(t *testing.T, bin, configDir, cwd string, weaverErr *bytes.Bu
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	var lastErr error
+	var lastOut string
 	for time.Now().Before(deadline) {
-		if _, err := outputStrand(bin, configDir, cwd, "weaver", "status"); err == nil {
-			return
+		out, err := outputStrand(bin, configDir, cwd, "weaver", "status")
+		if err == nil {
+			var status map[string]any
+			if json.Unmarshal([]byte(out), &status) == nil && status["state"] == "running" {
+				return
+			}
+			lastOut = out
 		} else {
 			lastErr = err
+			lastOut = out
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	t.Fatalf("weaver did not become ready: %v\n%s", lastErr, weaverErr.String())
+	t.Fatalf("weaver did not become ready: %v\nlast status: %s\n%s", lastErr, lastOut, weaverErr.String())
 }
+func waitForNotRunning(t *testing.T, bin, configDir, cwd string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var lastOut string
+	for time.Now().Before(deadline) {
+		out, err := outputStrand(bin, configDir, cwd, "weaver", "status")
+		lastOut = out
+		if err == nil {
+			var status map[string]any
+			if json.Unmarshal([]byte(out), &status) == nil && status["state"] != "running" {
+				return
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("weaver still running after stop; last status: %s", lastOut)
+}
+
 func waitForWeaverAndInit(t *testing.T, bin, configDir, cwd string, weaverErr *bytes.Buffer) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
@@ -342,11 +379,18 @@ func runStrand(bin, configDir, cwd string, args ...string) error {
 	return err
 }
 func outputStrand(bin, configDir, cwd string, args ...string) (string, error) {
+	return outputStrandWithInput(bin, configDir, cwd, "", args...)
+}
+
+func outputStrandWithInput(bin, configDir, cwd, stdin string, args ...string) (string, error) {
 	if configDir != "" {
 		args = append([]string{"--config-dir", configDir}, args...)
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = cwd
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

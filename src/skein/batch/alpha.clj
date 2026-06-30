@@ -17,4 +17,4 @@
   [payload]
   (if-let [rt @runtime/current-runtime]
     (api/apply-batch rt payload)
-    (client/call-world (repl/connected-config-dir) {} :apply-batch payload)))
+    (client/call-world (repl/connected-config-dir) (repl/connected-opts) :apply-batch payload)))

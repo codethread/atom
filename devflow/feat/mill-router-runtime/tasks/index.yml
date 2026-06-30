@@ -27,7 +27,7 @@ tasks:
   - id: 6
     description: Attach REPL using mill metadata
     task_file: tasks/006-attach-repl-using-mill-metadata.md
-    status: pending
+    status: complete
     blocked_by: [4]
   - id: 7
     description: Update smoke docs and specs

@@ -147,43 +147,44 @@
 (deftest alpha-helpers-route-through-connected-helper-context
   (with-redefs [runtime/current-runtime (atom nil)
                 repl/connected-config-dir (constantly "/tmp/skein-connected-world")
+                repl/connected-opts (constantly {:state-dir "/tmp/skein-state-world"})
                 skein.client/call-world (fn [config-dir opts op & args]
                                          {:config-dir config-dir
                                           :opts opts
                                           :op op
                                           :args args})]
     (is (= {:config-dir "/tmp/skein-connected-world"
-            :opts {}
+            :opts {:state-dir "/tmp/skein-state-world"}
             :op :query-ids
             :args ['mine {:owner "agent"}]}
            (graph/query-ids! 'mine {:owner "agent"})))
     (is (= {:config-dir "/tmp/skein-connected-world"
-            :opts {}
+            :opts {:state-dir "/tmp/skein-state-world"}
             :op :strands-by-ids
             :args [["a" "b"]]}
            (graph/strands-by-ids ["a" "b"])))
     (is (= {:config-dir "/tmp/skein-connected-world"
-            :opts {}
+            :opts {:state-dir "/tmp/skein-state-world"}
             :op :ancestor-root-ids
             :args [["leaf"] {:where [:= [:attr :kind] "feature"]}]}
            (graph/ancestor-root-ids ["leaf"] {:where [:= [:attr :kind] "feature"]})))
     (is (= {:config-dir "/tmp/skein-connected-world"
-            :opts {}
+            :opts {:state-dir "/tmp/skein-state-world"}
             :op :subgraph
             :args [["root"]]}
            (graph/subgraph ["root"])))
     (is (= {:config-dir "/tmp/skein-connected-world"
-            :opts {}
+            :opts {:state-dir "/tmp/skein-state-world"}
             :op :register-view!
             :args ['daily 'my.views/daily]}
            (views/register-view! 'daily 'my.views/daily)))
     (is (= {:config-dir "/tmp/skein-connected-world"
-            :opts {}
+            :opts {:state-dir "/tmp/skein-state-world"}
             :op :view!
             :args ['daily {:owner "agent"}]}
            (views/view! 'daily {:owner "agent"})))
     (is (= {:config-dir "/tmp/skein-connected-world"
-            :opts {}
+            :opts {:state-dir "/tmp/skein-state-world"}
             :op :views
             :args nil}
            (views/views)))))
