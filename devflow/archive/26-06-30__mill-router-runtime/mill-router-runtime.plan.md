@@ -6,8 +6,8 @@
 **RFC:** none
 **Root specs:** [CLI Surface](../../specs/cli.md), [Weaver Runtime](../../specs/daemon-runtime.md), [REPL API](../../specs/repl-api.md)
 **Feature specs:** [cli.delta.md](./specs/cli.delta.md), [daemon-runtime.delta.md](./specs/daemon-runtime.delta.md), [repl-api.delta.md](./specs/repl-api.delta.md)
-**Status:** Reviewed
-**Last Updated:** 2026-06-29
+**Status:** Shipped
+**Last Updated:** 2026-06-30
 
 ## PLAN-MillRouterRuntime-001.P1 Goal and scope
 
@@ -153,3 +153,9 @@ Outcome: Go, Clojure, integration, smoke, README, getting-started, Makefile, and
 - Smoke now includes a Git repo implicit-world path through a disposable XDG mill: `strand init`, `strand weaver start`, CLI add/update/list/ready, `weaver repl --stdin`, and `weaver stop`, with repo cleanup after the run.
 - README, getting-started, user reference, Makefile, and root specs now describe the mill-first flow, config-only `strand init`, XDG runtime/data ownership, and `init!` as a trusted REPL/testing helper rather than normal setup.
 - Feature-local CLI, daemon runtime, and REPL deltas were marked `Merged`. Validation left only intentional source/doc/devflow changes in `git status --short`.
+
+### PLAN-MillRouterRuntime-001.DN13 Final alignment and archive — 2026-06-30
+
+- Final owner alignment pass tightened mill startup semantics to match the original user intent: `strand weaver start` now waits for ready weaver metadata before returning, failed startup cleans child handles/artifacts, and `mill start` clears stale runtime artifacts from dead prior mills while failing loudly when another mill is alive.
+- Final validation passed: `(cd cli && go test ./...)`, `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
+- No scope was cut. Root specs already contain the shipped mill-router contracts, and feature-local deltas are marked `Merged`.

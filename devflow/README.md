@@ -40,3 +40,4 @@ Archived feature folders preserve historical planning context. Current shipped c
 - `26-06-29__edge-relation-families` — shipped state lifecycle model, declared acyclic relation families, core supersession, edge predicates, relation-scoped traversal, and annotation catalog.
 - `26-06-29__repo-first-config` — shipped repo-local `.skein` world selection, layered shared/local config, local library overrides, and fail-loud no-global default behavior.
 - `26-06-29__weaver-lifecycle-hooks` — shipped synchronous trusted lifecycle hooks for payload gating, attribute normalization, and pre-commit mutation policy.
+- `26-06-30__mill-router-runtime` — shipped local Go `mill` router/supervisor, mill-routed `strand` commands, Git-root repo bootstrap, XDG runtime/data worlds, startup storage initialization, and connected REPL attachment through mill metadata.
