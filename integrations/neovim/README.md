@@ -81,3 +81,48 @@ The command runs `mill weaver list`, decodes the JSON rows, shows running weaver
 ```
 
 Errors are reported with `vim.notify` if `mill` is missing, the JSON is malformed, no weavers are running, the selected row lacks nREPL metadata, Conjure commands are unavailable, or Conjure connection/eval commands fail.
+
+## Evaluating Skein forms from buffers
+
+`:SkeinConnect` connects Conjure and evaluates:
+
+```clojure
+(do (require 'skein.repl) (in-ns 'skein.repl))
+```
+
+That makes bare helpers like `(ready)` work at the REPL prompt. When evaluating
+forms from a file such as `.skein/init.clj`, the file's namespace still matters,
+so prefer an explicit require/alias:
+
+```clojure
+(require '[skein.repl :as repl])
+
+(repl/ready)   ; ready strands
+(repl/strands) ; all strands
+```
+
+For scratch examples you want to keep in a config or source file, put them in a
+`comment` block. Clojure ignores the block when loading the file, but Conjure can
+evaluate forms inside it:
+
+```clojure
+(comment
+  (require '[skein.repl :as repl]
+           '[clojure.pprint :refer [pprint]])
+
+  (pprint (repl/ready))
+
+  (def s (:id (repl/strand! "Try editor eval" {:owner "me"})))
+  (repl/strand s)
+  (repl/update! s {:state "closed"}))
+```
+
+If you want unqualified helpers in a file, explicitly refer them:
+
+```clojure
+(require '[skein.repl :refer [ready strands strand! update!]])
+
+(comment
+  (ready)
+  (strands))
+```

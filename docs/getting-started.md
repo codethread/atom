@@ -38,6 +38,7 @@ make install
 - [Add and inspect strands](#add-and-inspect-strands)
 - [Close and delete strands](#close-and-delete-strands)
 - [REPL workflow](#repl-workflow)
+- [IDE REPL setup](./ide-repl/)
 - [Startup config and runtime helpers](#startup-config-and-runtime-helpers)
   - [Custom operations (`strand op`)](#custom-operations-strand-op)
 - [Example: a small userland kanban op](#example-a-small-userland-kanban-op)
@@ -115,6 +116,8 @@ Open a live weaver REPL:
 ```sh
 strand weaver repl
 ```
+
+For editor-driven REPL work, see the [IDE REPL setup guide](./ide-repl/) for connecting VS Code/Calva to a running weaver nREPL.
 
 Useful forms. In Clojure the function name comes first inside the parens, so
 `(strand! "x")` calls `strand!` with `"x"` (where `!` indicates mutation but is semantic, not syntax). See the
