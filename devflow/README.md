@@ -16,6 +16,8 @@ Root specs are canonical for shipped behavior:
 ## Active features
 
 - `library-author-testing-support` — proposed library-author testing helpers and weaver storage support.
+- `library-to-spool` — proposed rename of the runtime "library" concept to "spool", with a recommended non-enforced `.spool` discovery convention.
+- `cli-definition-parity` — proposed CLI parity for named weaver definitions: query introspection (`query list`/`explain`) aligned with patterns, plus explicit `weave`/`batch` framing.
 
 ## Archived features
 
