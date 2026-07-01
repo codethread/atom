@@ -259,14 +259,14 @@ Named query registries are not durable by themselves. If you want a query after 
 For a simple persistent query, put it directly in `init.clj`:
 
 ```clojure
-(require '[skein.runtime.alpha :as runtime]
+(require '[skein.runtime.alpha :as runtime-alpha]
          '[skein.weaver.api :as api])
 
-(runtime/sync!)
+(runtime-alpha/sync!)
 (api/register-query! 'mine [:= [:attr :owner] "ct"])
 ```
 
-For a world that already activates a local library with `runtime/use!`, follow that existing pattern instead: add the `api/register-query!` call to the library's `install!` function so reload/startup installs everything from one place.
+For a world that already activates a local library with `runtime-alpha/use!`, follow that existing pattern instead: add the `api/register-query!` call to the library's `install!` function so reload/startup installs everything from one place.
 
 Defining a Clojure var that contains query data is not the same as registering a named query. A local var can be passed to graph helpers from your own code, but `strand list --query mine` only works after `mine` has been registered in the weaver's named-query registry.
 
@@ -301,8 +301,8 @@ printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" 
 The REPL helper namespace includes common strand functions. Privileged runtime loader/config helpers are explicit built-in namespaces, not ordinary user libraries; require them when needed:
 
 ```clojure
-(require '[skein.runtime.alpha :as runtime])
-(runtime/reload!)
+(require '[skein.runtime.alpha :as runtime-alpha])
+(runtime-alpha/reload!)
 ```
 
 ## Startup config
@@ -323,9 +323,9 @@ The generated `init.clj` is intentionally small:
 
 ```clojure
 ;; init.clj
-(require '[skein.runtime.alpha :as runtime])
+(require '[skein.runtime.alpha :as runtime-alpha])
 
-(runtime/sync!)
+(runtime-alpha/sync!)
 ```
 
 The weaver loads startup files in order: `init.clj`, then `init.local.clj`. Missing files are skipped; present failing files fail loudly with file context. Use startup-loaded code to register queries, weave patterns, load approved libraries, register views, and install conventions for your world. Simple worlds can put shared registrations directly in `init.clj` and personal overlays in gitignored `init.local.clj`; reusable or larger worlds should keep `init.clj` minimal and install behavior from a local library.
@@ -333,18 +333,18 @@ The weaver loads startup files in order: `init.clj`, then `init.local.clj`. Miss
 A direct `init.clj` query registration can look like this:
 
 ```clojure
-(require '[skein.runtime.alpha :as runtime]
+(require '[skein.runtime.alpha :as runtime-alpha]
          '[skein.weaver.api :as api])
 
-(runtime/sync!)
+(runtime-alpha/sync!)
 (api/register-query! 'mine [:= [:attr :owner] "ct"])
 ```
 
 Use reload during development:
 
 ```clojure
-(require '[skein.runtime.alpha :as runtime])
-(runtime/reload!)
+(require '[skein.runtime.alpha :as runtime-alpha])
+(runtime-alpha/reload!)
 ```
 
 `skein.runtime.alpha` is a privileged built-in runtime loader/config helper namespace shipped with Skein. It is not an ordinary user/community library, and loader/config helpers do not live under `skein.libs.*`.
@@ -396,10 +396,10 @@ Implement the library:
 Activate it from `init.clj`:
 
 ```clojure
-(require '[skein.runtime.alpha :as runtime])
+(require '[skein.runtime.alpha :as runtime-alpha])
 
-(runtime/sync!)
-(runtime/use! :my/workflow
+(runtime-alpha/sync!)
+(runtime-alpha/use! :my/workflow
   {:ns 'my.workflow
    :libs #{'my/workflow}
    :call 'my.workflow/install!})
@@ -408,10 +408,10 @@ Activate it from `init.clj`:
 Key points:
 
 - `libs.edn` is approval. It says which local roots the weaver may load.
-- `runtime/sync!` makes approved roots available to the weaver.
-- `runtime/use!` activates one module and records whether it loaded, skipped, or failed.
+- `runtime-alpha/sync!` makes approved roots available to the weaver.
+- `runtime-alpha/use!` activates one module and records whether it loaded, skipped, or failed.
 - `:call` must name a fully qualified zero-argument function.
-- Direct `require` from `strand weaver repl` evaluates in the weaver JVM and is useful for trusted experimentation. For repeatable module activation and reload introspection, use `runtime/use!` or `runtime/reload!` from startup config or the live REPL.
+- Direct `require` from `strand weaver repl` evaluates in the weaver JVM and is useful for trusted experimentation. For repeatable module activation and reload introspection, use `runtime-alpha/use!` or `runtime-alpha/reload!` from startup config or the live REPL.
 - Extension code runs with weaver authority. Only load trusted code.
 - There is no per-module isolation or unload guarantee. Restart the weaver for a clean runtime if needed.
 

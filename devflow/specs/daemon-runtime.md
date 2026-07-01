@@ -103,10 +103,10 @@ The weaver runtime is the long-lived local Clojure process that owns strand stor
 - **SPEC-004.C60:** Pattern registry entries are named by simple unqualified names and point to an optional non-blank doc string, fully qualified Clojure function symbol, and input spec name resolvable in the weaver JVM. Duplicate registration replaces the prior entry for reload workflows.
 - **SPEC-004.C61:** Pattern invocation validates input against the registered spec before calling user code, invokes the function with `{:input input}`, requires a batch strand vector return value, and delegates persistence through the weaver API for id generation, ref resolution, edge insertion, cycle checks, transactionality, and lifecycle hook policy.
 - **SPEC-004.C62:** Pattern explanation returns serializable guidance containing the pattern name, optional doc string, function symbol string, input spec string, printable spec form, and expanded schema details when available. This is caller guidance; invocation-time spec validation remains authoritative.
-- **SPEC-004.C63:** Pattern registry contents are weaver-lifetime runtime state and are not durable across restarts. `runtime/reload!` clears pattern state before loading selected config again.
+- **SPEC-004.C63:** Pattern registry contents are weaver-lifetime runtime state and are not durable across restarts. `skein.runtime.alpha/reload!` clears pattern state before loading selected config again.
 - **SPEC-004.C63a:** CLI operation registry entries are named by simple unqualified names and point to an optional non-blank doc string and fully qualified Clojure function symbol resolvable in the weaver JVM. Duplicate registration replaces the prior entry for reload workflows.
 - **SPEC-004.C63b:** CLI operation invocation resolves the registered function symbol and calls it with one context map containing `:op/name` and raw string vector `:op/argv`. The function return value is transported as JSON-compatible data to `strand op` callers.
-- **SPEC-004.C63c:** The weaver installs a built-in `help` CLI operation before user config loads. `runtime/reload!` clears operation state, reinstalls built-in operations, and then reloads selected config.
+- **SPEC-004.C63c:** The weaver installs a built-in `help` CLI operation before user config loads. `skein.runtime.alpha/reload!` clears operation state, reinstalls built-in operations, and then reloads selected config.
 
 ## SPEC-004.P10a Event helpers
 

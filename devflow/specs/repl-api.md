@@ -91,16 +91,16 @@ Event handlers receive one event map and may perform trusted side effects, inclu
 
 Approved library config is the effective overlay of `libs.edn` and `libs.local.edn` in the selected config-dir. Both files use the same MVP EDN grammar: exactly one top-level key, `:libs`, whose value is a map from symbol library coordinates to maps containing exactly one required key, `:local/root`, a non-blank string path. Unknown top-level keys, non-symbol coordinates, missing `:libs` in a present file, non-map entries, unknown per-lib keys, and missing/non-string `:local/root` fail loudly as structural config errors. Missing files contribute no libraries. When both files define the same coordinate, the `libs.local.edn` entry replaces the `libs.edn` entry.
 
-Relative `:local/root` values resolve against selected config-dir; absolute roots are accepted as explicit user-approved paths; leading `~` and `~/` expand to the user home directory. Normalized approved config returns entries shaped as `{lib-symbol {:local/root original-path :root canonical-path :source {:kind :shared|:local :file path}}}`. Per-library missing or unreadable local roots are not structural config errors; `(runtime/sync!)` records them as failed sync outcomes so optional module activation can skip without aborting weaver startup.
+Relative `:local/root` values resolve against selected config-dir; absolute roots are accepted as explicit user-approved paths; leading `~` and `~/` expand to the user home directory. Normalized approved config returns entries shaped as `{lib-symbol {:local/root original-path :root canonical-path :source {:kind :shared|:local :file path}}}`. Per-library missing or unreadable local roots are not structural config errors; `(runtime-alpha/sync!)` records them as failed sync outcomes so optional module activation can skip without aborting weaver startup.
 
 Helpers include:
 
-- `(runtime/approved)` returns normalized approved config.
-- `(runtime/sync!)` uses Clojure runtime dependency tooling to add approved local roots and returns structured results for loaded, already-available, and failed libraries.
-- `(runtime/syncs)` returns weaver-lifetime approved-library sync state.
-- `(runtime/reload!)` clears weaver-lifetime approved-library sync state, module-use state, named queries, views, patterns, lifecycle hooks, event handlers, queued events, and recent event failures, then reloads selected config-dir startup files in order (`init.clj`, then `init.local.clj`) inside the active weaver and returns loaded file metadata plus final return values. Missing startup files are skipped; present failing files throw with file context. Event dispatch resumes after the fully layered config loads. Reload does not unload already-loaded Clojure namespaces or vars.
-- `(runtime/use! key opts)` records one weaver-lifetime module-use attempt under keyword `key`; duplicate keys replace prior state for reload workflows.
-- `(runtime/uses)` and `(runtime/use key)` expose weaver-lifetime module-use state.
+- `(runtime-alpha/approved)` returns normalized approved config.
+- `(runtime-alpha/sync!)` uses Clojure runtime dependency tooling to add approved local roots and returns structured results for loaded, already-available, and failed libraries.
+- `(runtime-alpha/syncs)` returns weaver-lifetime approved-library sync state.
+- `(runtime-alpha/reload!)` clears weaver-lifetime approved-library sync state, module-use state, named queries, views, patterns, lifecycle hooks, event handlers, queued events, and recent event failures, then reloads selected config-dir startup files in order (`init.clj`, then `init.local.clj`) inside the active weaver and returns loaded file metadata plus final return values. Missing startup files are skipped; present failing files throw with file context. Event dispatch resumes after the fully layered config loads. Reload does not unload already-loaded Clojure namespaces or vars.
+- `(runtime-alpha/use! key opts)` records one weaver-lifetime module-use attempt under keyword `key`; duplicate keys replace prior state for reload workflows.
+- `(runtime-alpha/uses)` and `(runtime-alpha/use key)` expose weaver-lifetime module-use state.
 
 `use!` options identify exactly one load target with `:ns` for weaver-side namespace loading or `:file` for selected-config-dir-relative weaver-side `load-file`; `:file` must be relative and must resolve within the selected config-dir. For `:ns`, the weaver first searches synced local-root classpath entries from each root's `deps.edn :paths` (defaulting to `["src"]`) and `load-file`s the namespace source using Clojure's hyphen-to-underscore path mapping; if no synced source exists it falls back to ordinary `require`. Options may include `:libs`, a vector or set of symbol library coordinate keys that must be approved and available before target loading; `:after`, a vector of prior loaded `use!` keys; `:call`, a fully qualified zero-arity function symbol to resolve and call after successful load; and `:required? true` for strict load/call failure behavior.
 
@@ -113,10 +113,10 @@ Maven/remote dependency coordinates, version-range matching, alternate approved-
 Selected config-dir startup files (`init.clj`, then `init.local.clj`) may sync approved local roots and activate optional modules:
 
 ```clojure
-(require '[skein.runtime.alpha :as runtime])
+(require '[skein.runtime.alpha :as runtime-alpha])
 
-(runtime/sync!)
-(runtime/use! :my/module
+(runtime-alpha/sync!)
+(runtime-alpha/use! :my/module
   {:ns 'my.module.alpha
    :libs #{'my/module}
    :call 'my.module.alpha/install!})

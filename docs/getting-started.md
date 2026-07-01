@@ -234,9 +234,9 @@ Generated `.skein/.gitignore` ignores `config.json`, `init.local.clj`,
 Skein behavior. The generated `init.clj` is a small resilient bootstrap:
 
 ```clojure
-(require '[skein.runtime.alpha :as runtime])
+(require '[skein.runtime.alpha :as runtime-alpha])
 
-(runtime/sync!)
+(runtime-alpha/sync!)
 ```
 
 Create your own config or library files when you need runtime behavior.
@@ -260,9 +260,9 @@ Built-in `skein.*.alpha` namespaces are privileged helpers shipped on the Skein 
 
 ```clojure
 ;; .skein/init.local.clj, gitignored
-(require '[skein.runtime.alpha :as runtime])
-(runtime/sync!)
-(runtime/use! :personal/ops
+(require '[skein.runtime.alpha :as runtime-alpha])
+(runtime-alpha/sync!)
+(runtime-alpha/use! :personal/ops
   {:ns 'personal.ops.alpha
    :libs #{'personal/ops}
    :call 'personal.ops.alpha/install!})
@@ -403,7 +403,7 @@ handler. Do not run reload examples against the default repo world unless you
 intend to reload its shared `.skein` config:
 
 ```sh
-printf '(do (require '\''[skein.runtime.alpha :as runtime]) (runtime/reload!))\n' \
+printf '(do (require '\''[skein.runtime.alpha :as runtime-alpha]) (runtime-alpha/reload!))\n' \
   | strand --config-dir "$world" weaver repl --stdin
 ```
 
@@ -484,8 +484,8 @@ Register event handlers from trusted config or weaver-loadable libraries when yo
 Hot-reload the selected config-dir `init.clj` from the live weaver REPL:
 
 ```clojure
-(require '[skein.runtime.alpha :as runtime])
-(runtime/reload!)
+(require '[skein.runtime.alpha :as runtime-alpha])
+(runtime-alpha/reload!)
 ```
 
 Reload clears weaver-lifetime library sync state, module-use state, named queries, views, patterns, event handlers, queued events, and recent event failures, then re-runs `init.clj` followed by `init.local.clj`.

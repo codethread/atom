@@ -124,5 +124,5 @@ possible. Do not reload the main canonical weaver unless explicitly asked. For a
 disposable or intentionally selected world, reload with:
 
 ```sh
-printf "(do (require '[skein.runtime.alpha :as runtime]) (runtime/reload!))\n" | strand --config-dir "$world" weaver repl --stdin
+printf "(do (require '[skein.runtime.alpha :as runtime-alpha]) (runtime-alpha/reload!))\n" | strand --config-dir "$world" weaver repl --stdin
 ```
