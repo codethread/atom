@@ -16,6 +16,7 @@ Root specs are canonical for shipped behavior:
 ## Active features
 
 - `library-author-testing-support` — proposed library-author testing helpers and weaver storage support.
+- `shuttle-spool` — proposed userland spool spawning agents in user-chosen harnesses (Claude Code, `pi`) from agent-run strands, with crash-respawn recovery and append-only run memory.
 
 ## Archived features
 
