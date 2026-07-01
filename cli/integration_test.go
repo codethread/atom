@@ -41,7 +41,7 @@ func TestInitBootstrapsConfigDirWorkspaceThroughMill(t *testing.T) {
 	if _, err := os.Stat(initPath); err != nil {
 		t.Fatalf("expected init.clj bootstrap: %v", err)
 	}
-	if got := string(mustReadFile(t, initPath)); got != "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n" {
+	if got := string(mustReadFile(t, initPath)); got != "(require '[skein.runtime.alpha :as runtime])\n\n(runtime/sync!)\n" {
 		t.Fatalf("unexpected init.clj bootstrap contents: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(cfg, ".git")); !os.IsNotExist(err) {
@@ -105,12 +105,16 @@ func TestWeaverReplStdinAttachesThroughMillMetadata(t *testing.T) {
 		t.Fatalf("weaver start failed: %v\n%s", err, out)
 	}
 	waitForStatus(t, bin, dir, runDir, &bytes.Buffer{})
-	out, err := outputStrandWithInput(bin, dir, runDir, "(strands)\n", "weaver", "repl", "--stdin")
+	out, err := outputStrandWithInput(bin, dir, runDir, "@skein.weaver.runtime/current-runtime\n", "weaver", "repl", "--stdin")
 	if err != nil {
 		t.Fatalf("repl stdin failed: %v\n%s", err, out)
 	}
-	if strings.TrimSpace(out) != "[]" {
+	if !strings.Contains(out, ":metadata") || !strings.Contains(out, ":query-registry") {
 		t.Fatalf("unexpected repl output: %q", out)
+	}
+	out, err = outputStrandWithInput(bin, dir, runDir, "(throw (ex-info \"boom from weaver\" {}))\n", "weaver", "repl", "--stdin")
+	if err == nil || !strings.Contains(out, "boom from weaver") {
+		t.Fatalf("expected weaver eval failure, err=%v out=%q", err, out)
 	}
 	if out, err := outputStrand(bin, dir, runDir, "weaver", "stop"); err != nil {
 		t.Fatalf("weaver stop failed: %v\n%s", err, out)

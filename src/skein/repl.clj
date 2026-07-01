@@ -1,15 +1,18 @@
 (ns skein.repl
-  "Interactive helper API for connected Skein weaver workflows.
+  "Interactive helper API for live and connected Skein weaver workflows.
 
   This namespace is preloaded by `strand weaver repl` and exposes the compact
-  trusted Clojure surface for strand, query, relation, and pattern operations
-  against the selected weaver world. Helpers fail loudly until `connect!` selects
-  a world."
+  trusted Clojure surface for strand, query, relation, and pattern operations.
+  Inside the weaver JVM helpers dispatch through the active runtime; explicit
+  client/test workflows may still call `connect!` to route to a selected world."
   (:require [clojure.main :as main]
             [clojure.string :as str]
+            [nrepl.cmdline]
+            [nrepl.core :as nrepl]
             [skein.client :as client]
+            [skein.weaver.api :as api]
             [skein.weaver.config :as daemon-config]
-            [skein.patterns.alpha :as patterns-alpha]
+            [skein.weaver.runtime :as weaver-runtime]
             [skein.query :as query]))
 
 (def ^:private no-connection ::no-connection)
@@ -24,7 +27,7 @@
   active weaver selected by config dir."
   []
   (case @active-config-dir
-    ::no-connection (throw (ex-info "No Skein weaver world is connected. Start a connected helper REPL with `strand weaver repl`, or call (connect! \"/path/to/config-dir\") before using skein.repl helpers."
+    ::no-connection (throw (ex-info "No Skein weaver world is connected. Use `strand weaver repl` for direct live evaluation, or call (connect! \"/path/to/config-dir\") before using explicit connected-client helpers."
                                    {:helper 'connect!}))
     @active-config-dir))
 
@@ -45,6 +48,9 @@
 
 (defn- client-opts []
   (connected-opts))
+
+(defn- connected? []
+  (not= no-connection @active-config-dir))
 
 (defn connect!
   "Select the active weaver world for helper calls.
@@ -75,9 +81,36 @@
 
 (declare call-daemon)
 
+(defn- in-process-call [rt op args]
+  (case op
+    :init (api/init rt)
+    :add (apply api/add rt args)
+    :update (apply api/update rt args)
+    :supersede (apply api/supersede rt args)
+    :show (apply api/show rt args)
+    :declare-acyclic-relation! (apply api/declare-acyclic-relation! rt args)
+    :acyclic-relations (api/acyclic-relations rt)
+    :burn-by-id (apply api/burn-by-id rt args)
+    :burn-by-ids (apply api/burn-by-ids rt args)
+    :register-query (apply api/register-query rt args)
+    :load-queries (apply api/load-queries rt args)
+    :queries (api/queries rt)
+    :list (if (seq args) (apply api/list rt args) (api/list rt))
+    :list-query (apply api/list-query rt args)
+    :ready (if (seq args) (apply api/ready rt args) (api/ready rt))
+    :ready-query (apply api/ready-query rt args)
+    :register-pattern! (apply api/register-pattern! rt args)
+    :patterns (api/patterns rt)
+    :resolve-pattern (apply api/resolve-pattern rt args)
+    :pattern-explain (apply api/pattern-explain rt args)
+    :weave! (apply api/weave! rt args)))
+
 (defn- daemon [op & args]
-  (let [dir (config-dir)]
-    (call-daemon #(apply client/call-world dir (client-opts) op args))))
+  (call-daemon
+   #(if-let [rt (when-not (connected?) @weaver-runtime/current-runtime)]
+      (in-process-call rt op args)
+      (let [dir (config-dir)]
+        (apply client/call-world dir (client-opts) op args)))))
 
 (defn init!
   "Initialize the active weaver store schema."
@@ -174,8 +207,7 @@
   may be plain predicates or parameterized query maps. Returns the registered
   query entry."
   [query-name query-def]
-  (let [dir (config-dir)]
-    (call-daemon #(client/call-world dir (client-opts) :register-query query-name query-def))))
+  (daemon :register-query query-name query-def))
 
 (defn load-queries!
   "Load named queries from one EDN map at `path` into the active weaver registry.
@@ -183,25 +215,25 @@
   The file must contain exactly one map of query names to query definitions.
   Returns the loaded query entries."
   [path]
-  (let [dir (config-dir)
-        registry (query/read-edn-file path)]
+  (when-not (or @weaver-runtime/current-runtime (connected?))
+    (config-dir))
+  (let [registry (query/read-edn-file path)]
     (when-not (map? registry)
       (throw (ex-info "Query file must contain one EDN map of query names to query definitions" {:path path})))
-    (call-daemon #(client/call-world dir (client-opts) :load-queries registry))))
+    (daemon :load-queries registry)))
 
 (defn queries
   "Return the active weaver's in-memory named query registry."
   []
-  (let [dir (config-dir)]
-    (call-daemon #(client/call-world dir (client-opts) :queries))))
+  (daemon :queries))
 
 (defn- named-query? [query-or-def]
   (or (symbol? query-or-def) (keyword? query-or-def)))
 
-(defn- run-query [dir query-or-def params ad-hoc named]
-  (call-daemon #(if (named-query? query-or-def)
-                  (client/call-world dir (client-opts) named query-or-def params)
-                  (client/call-world dir (client-opts) ad-hoc query-or-def params))))
+(defn- run-query [query-or-def params ad-hoc named]
+  (if (named-query? query-or-def)
+    (daemon named query-or-def params)
+    (daemon ad-hoc query-or-def params)))
 
 (defn query
   "Return strands matching an ad hoc query definition or named query.
@@ -211,7 +243,7 @@
   ([query-or-def]
    (query query-or-def {}))
   ([query-or-def params]
-   (run-query (config-dir) query-or-def params :list :list-query)))
+   (run-query query-or-def params :list :list-query)))
 
 (defn strands
   "Return active-world strands, optionally filtered by a query.
@@ -235,7 +267,7 @@
   ([query-or-def]
    (ready query-or-def {}))
   ([query-or-def params]
-   (run-query (config-dir) query-or-def params :ready :ready-query)))
+   (run-query query-or-def params :ready :ready-query)))
 
 (defn defpattern!
   "Register a runtime pattern in the active weaver pattern registry.
@@ -244,28 +276,28 @@
   function symbol, and input spec name. Duplicate names replace prior entries for
   the current weaver lifetime."
   ([pattern-name fn-sym input-spec]
-   (patterns-alpha/register-pattern! pattern-name fn-sym input-spec))
+   (daemon :register-pattern! pattern-name fn-sym input-spec))
   ([pattern-name doc fn-sym input-spec]
-   (patterns-alpha/register-pattern! pattern-name doc fn-sym input-spec)))
+   (daemon :register-pattern! pattern-name doc fn-sym input-spec)))
 
 (defn patterns
   "Return the active weaver's in-memory pattern registry."
   []
-  (patterns-alpha/patterns))
+  (daemon :patterns))
 
 (defn pattern
   "Return the registered pattern named `pattern-name`.
 
   Missing patterns fail loudly."
   [pattern-name]
-  (patterns-alpha/pattern pattern-name))
+  (daemon :resolve-pattern pattern-name))
 
 (defn pattern-explain
   "Return serializable input guidance for the registered pattern `pattern-name`.
 
   Missing patterns or invalid registered specs fail loudly."
   [pattern-name]
-  (patterns-alpha/explain pattern-name))
+  (daemon :pattern-explain pattern-name))
 
 (defn weave!
   "Invoke the registered pattern `pattern-name` with `input` and create its batch.
@@ -274,7 +306,7 @@
   the pattern function to return a valid batch strand vector. Returns the batch
   creation result."
   [pattern-name input]
-  (patterns-alpha/weave! pattern-name input))
+  (daemon :weave! pattern-name input))
 
 (defn- eval-stdin! []
   (let [reader (java.io.PushbackReader. *in*)
@@ -285,32 +317,124 @@
           (prn (eval form))
           (recur))))))
 
-(defn -main
-  "Start a connected Skein helper REPL or evaluate stdin forms.
+(defn- response-error [responses]
+  (or (some :err responses)
+      (when-let [bad-status (some #(some #{"eval-error" "read-error" "interrupted"} (:status %)) responses)]
+        (str "nREPL evaluation failed with status " bad-status))))
 
-  Usage: `skein.repl [--stdin] [config-dir] [state-dir]`. Interactive mode starts a plain
-  Clojure REPL in this namespace. Stdin mode evaluates each top-level form in
-  order, prints one result per form, and exits non-zero on evaluation failure."
-  [& args]
-  (let [[mode config-dir state-dir] (case (count args)
-                                      0 [:repl nil nil]
-                                      1 (if (= "--stdin" (first args))
-                                          [:stdin nil nil]
-                                          [:repl (first args) nil])
-                                      2 (if (= "--stdin" (first args))
-                                          [:stdin (second args) nil]
-                                          [:repl (first args) (second args)])
-                                      3 (if (= "--stdin" (first args))
-                                          [:stdin (second args) (nth args 2)]
-                                          (throw (ex-info "Usage: skein.repl [--stdin] [config-dir] [state-dir]" {:args args})))
-                                      (throw (ex-info "Usage: skein.repl [--stdin] [config-dir] [state-dir]" {:args args})))]
-    (connect! config-dir state-dir)
+(defn- eval-remote-responses! [session message]
+  (let [request (if (string? message) {:code message} message)
+        responses (doall (nrepl/message session (assoc request :op "eval")))]
+    (when-let [err (response-error responses)]
+      (throw (ex-info err {:responses responses})))
+    responses))
+
+(defn- eval-remote! [session message]
+  (last (keep :value (eval-remote-responses! session message))))
+
+
+(defn eval-source-forms!
+  "Read and evaluate all top-level forms from `source` in the current JVM.
+
+  Returns ordered event maps with optional `:out` and one `:value` per form.
+  Intended for the thin nREPL attach client so stdin read/eval semantics run
+  inside the selected weaver process rather than in the thin attach client."
+  [source]
+  (let [reader (java.io.PushbackReader. (java.io.StringReader. source))
+        eof (Object.)]
     (binding [*ns* (the-ns 'skein.repl)]
-      (case mode
-        :stdin (try
-                 (eval-stdin!)
-                 (catch Throwable t
-                   (binding [*out* *err*]
-                     (println (or (ex-message t) (str t))))
-                   (System/exit 1)))
-        :repl (main/repl :prompt #(print "skein=> "))))))
+      (loop [events []]
+        (let [form (read reader false eof)]
+          (if (identical? eof form)
+            events
+            (let [out (java.io.StringWriter.)
+                  value (binding [*out* out]
+                          (pr-str (eval form)))
+                  event (cond-> {:value value}
+                          (pos? (.length (.getBuffer out))) (assoc :out (str out)))]
+              (recur (conj events event)))))))))
+
+(defn- attach-session
+  "Open a thin nREPL client session prepared for live weaver-side evaluation."
+  [host port]
+  (let [conn (nrepl/connect :host host :port (Integer/parseInt port))
+        session (nrepl/client-session (nrepl/client conn 60000))]
+    (eval-remote! session "(do (require 'skein.repl) (in-ns 'skein.repl))")
+    [conn session]))
+
+(defn- attach-stdin! [host port]
+  (let [source (slurp *in*)
+        [conn session] (attach-session host port)]
+    (with-open [_ conn]
+      (let [responses (eval-remote-responses! session {:ns "skein.repl"
+                                                       :code (str "(skein.repl/eval-source-forms! " (pr-str source) ")")})]
+        (doseq [{:keys [out value]} (read-string (last (keep :value responses)))]
+          (when out
+            (print out)
+            (flush))
+          (println value))))))
+
+(defn- nrepl-run-repl []
+  (or (resolve 'nrepl.cmdline/run-repl)
+      (throw (ex-info "nREPL command-line REPL implementation is unavailable"
+                      {:var 'nrepl.cmdline/run-repl}))))
+
+(defn- helper-ready-prompt []
+  (let [initialized? (atom false)]
+    (fn [_]
+      (when (compare-and-set! initialized? false true)
+        (let [session (:client @nrepl.cmdline/running-repl)]
+          (when-not session
+            (throw (ex-info "nREPL cmdline client did not expose an active session before prompting"
+                            {:var 'nrepl.cmdline/running-repl})))
+          (eval-remote! session "(do (require 'skein.repl) (in-ns 'skein.repl))")))
+      (print "skein=> "))))
+
+(defn- attach-repl! [host port]
+  ((nrepl-run-repl)
+   host
+   (Integer/parseInt port)
+   {:prompt (helper-ready-prompt)}))
+
+(defn -main
+  "Start a direct live weaver REPL or evaluate stdin forms.
+
+  Usage: `skein.repl [--stdin] [config-dir] [state-dir]`,
+  `skein.repl --attach host port`, or `skein.repl --attach-stdin host port`.
+  Attach modes send forms to the selected weaver nREPL, print direct Clojure
+  results, and exit non-zero on read, evaluation, or transport failure."
+  [& args]
+  (if (#{"--attach" "--attach-stdin"} (first args))
+    (let [[mode host port & extra] args]
+      (when (or (str/blank? host) (str/blank? port) (seq extra))
+        (throw (ex-info "Usage: skein.repl --attach host port or skein.repl --attach-stdin host port" {:args args})))
+      (try
+        (case mode
+          "--attach" (attach-repl! host port)
+          "--attach-stdin" (attach-stdin! host port))
+        (catch Throwable t
+          (binding [*out* *err*]
+            (println (or (ex-message t) (str t))))
+          (System/exit 1))))
+    (let [[mode config-dir state-dir] (case (count args)
+                                        0 [:repl nil nil]
+                                        1 (if (= "--stdin" (first args))
+                                            [:stdin nil nil]
+                                            [:repl (first args) nil])
+                                        2 (if (= "--stdin" (first args))
+                                            [:stdin (second args) nil]
+                                            [:repl (first args) (second args)])
+                                        3 (if (= "--stdin" (first args))
+                                            [:stdin (second args) (nth args 2)]
+                                            (throw (ex-info "Usage: skein.repl [--stdin] [config-dir] [state-dir]" {:args args})))
+                                        (throw (ex-info "Usage: skein.repl [--stdin] [config-dir] [state-dir]" {:args args})))]
+      (connect! config-dir state-dir)
+      (binding [*ns* (the-ns 'skein.repl)]
+        (case mode
+          :stdin (try
+                   (eval-stdin!)
+                   (catch Throwable t
+                     (binding [*out* *err*]
+                       (println (or (ex-message t) (str t))))
+                     (System/exit 1)))
+          :repl (main/repl :prompt #(print "skein=> ")))))))

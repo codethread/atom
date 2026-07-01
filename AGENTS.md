@@ -78,10 +78,10 @@ strand --config-dir "$world" weaver repl
 For non-interactive trusted forms:
 
 ```sh
-printf '(ready)\n' | strand --config-dir "$world" weaver repl --stdin
+printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" weaver repl --stdin
 ```
 
-For config-dir library workspace workflows, use `libs.edn`, `skein.libs.alpha/sync!`, layered `use!`, and helper-REPL classpath boundaries. There are intentionally no plugin/package CLI commands.
+For config-dir library workspace workflows, use `libs.edn`, privileged `skein.runtime.alpha/sync!`, layered `runtime/use!`, and live weaver REPL/config loading. `skein.libs.alpha` is compatibility-only. There are intentionally no plugin/package CLI commands.
 
 ## Validation and smoke testing
 
@@ -93,7 +93,7 @@ PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test
 PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke
 ```
 
-The smoke demo builds a temporary `strand` CLI, creates disposable `--config-dir` worlds, starts disposable weaver runtimes, exercises CLI subprocess commands and `weaver repl --stdin`, exercises REPL helpers through a real weaver connection, then removes generated state, data, config, socket, metadata, and built CLI artifacts.
+The smoke demo builds a temporary `strand` CLI, creates disposable `--config-dir` worlds, starts disposable weaver runtimes, exercises CLI subprocess commands and direct live `weaver repl --stdin`, exercises REPL helpers against a real weaver, then removes generated state, data, config, socket, metadata, and built CLI artifacts.
 
 Tests and smoke workflows must isolate weaver worlds with temporary config dirs. Do not start test weavers through implicit repo discovery or any user-owned world.
 

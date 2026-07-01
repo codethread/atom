@@ -1,6 +1,9 @@
 (ns skein.repl-test
-  (:require [clojure.string :as str]
+  (:require [clojure.spec.alpha :as s]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [nrepl.cmdline]
+            [nrepl.core :as nrepl]
             [skein.client]
             [skein.weaver.config :as daemon-config]
             [skein.weaver.runtime :as runtime]
@@ -15,6 +18,14 @@
 (defn reset-open-state! []
   (reset! (var-get (ns-resolve 'skein.repl 'active-config-dir))
           (var-get (ns-resolve 'skein.repl 'no-connection))))
+
+
+(s/def ::title string?)
+(s/def ::simple-pattern-input (s/keys :req-un [::title]))
+
+(defn simple-pattern [ctx]
+  [{:ref 'created
+    :title (get-in ctx [:input :title])}])
 
 (defn with-runtime [f]
   (let [db-file (db-test/temp-db-file)
@@ -71,15 +82,40 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #"connect! expects a daemon config directory"
                               (repl/connect! db-file)))
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #"No Skein weaver world is connected"
-                              (repl/strands)))
+        (with-redefs [runtime/current-runtime (atom nil)]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #"No Skein weaver world is connected"
+                                (repl/strands))))
         (finally
           (db-test/delete-sqlite-family! db-file))))))
 
 (deftest dev-user-namespace-loads
   (require 'user :reload)
   (is (some? (ns-resolve 'user 'demo!))))
+
+(deftest helpers-use-in-process-runtime-without-connect
+  (with-runtime
+    (fn [_rt _db-file]
+      (reset-open-state!)
+      (is (= {:database "initialized"} (repl/init!)))
+      (let [design (repl/strand! "Sketch model" {:priority "high"} {:state "closed"})
+            docs (repl/strand! "Write docs" {:owner "agent"})]
+        (repl/update! (:id docs) {:edges [{:type "depends-on" :to (:id design)}]})
+        (is (= {:owner "agent"} (:attributes (repl/strand (:id docs)))))
+        (is (= #{(:id design) (:id docs)} (set (map :id (repl/strands)))))
+        (is (= [(:id docs)] (mapv :id (repl/ready))))
+        (is (= {"agent" [:= [:attr :owner] "agent"]}
+               (repl/defquery! 'agent [:= [:attr :owner] "agent"])))
+        (is (= [(:id docs)] (mapv :id (repl/query :agent))))
+        (is (= {:name "simple"
+                :fn 'skein.repl-test/simple-pattern
+                :input-spec :skein.repl-test/simple-pattern-input}
+               (repl/defpattern! 'simple 'skein.repl-test/simple-pattern :skein.repl-test/simple-pattern-input)))
+        (is (= ["simple"] (mapv :name (repl/patterns))))
+        (is (= "simple" (:name (repl/pattern 'simple))))
+        (is (= "simple" (:name (repl/pattern-explain 'simple))))
+        (is (= ["Pattern strand"]
+               (mapv :title (:created (repl/weave! 'simple {:title "Pattern strand"})))))))))
 
 (deftest helpers-use-daemon-backed-strand-flow
   (with-runtime
@@ -115,7 +151,7 @@
         (is (= {:burned [(:id scratch)] :count 1} (repl/burn! (:id scratch))))
         (is (nil? (repl/strand (:id scratch))))))))
 
-(deftest stdin-main-evaluates-multiple-forms-in-helper-context
+(deftest explicit-connected-stdin-main-evaluates-fixed-helper-forms
   (with-runtime
     (fn [rt _]
       (let [out (java.io.StringWriter.)]
@@ -130,7 +166,68 @@
           (is (= [] (read-string (second lines))))
           (is (= [] (read-string (nth lines 2)))))))))
 
-(deftest libs-alpha-helpers-work-from-connected-stdin-repl
+(deftest attach-stdin-evaluates-inside-weaver-jvm
+  (with-runtime
+    (fn [rt _]
+      (let [{:keys [endpoint]} (:metadata rt)
+            out (java.io.StringWriter.)]
+        (binding [*in* (java.io.StringReader. "(+ 1 2)\n(str \"a\" \"b\")\n@skein.weaver.runtime/current-runtime\n")
+                  *out* out
+                  *err* (java.io.StringWriter.)]
+          ((ns-resolve 'skein.repl 'attach-stdin!) (:host endpoint) (str (:port endpoint))))
+        (let [lines (str/split-lines (str out))]
+          (is (= 3 (count lines)))
+          (is (= "3" (first lines)))
+          (is (= "\"ab\"" (second lines)))
+          (is (str/includes? (nth lines 2) ":metadata"))
+          (is (str/includes? (nth lines 2) ":query-registry")))))))
+
+(deftest attach-stdin-preserves-out-and-value-order-per-form
+  (with-runtime
+    (fn [rt _]
+      (let [{:keys [endpoint]} (:metadata rt)
+            out (java.io.StringWriter.)]
+        (binding [*in* (java.io.StringReader. "(do (print \"a\") 1)\n(do (print \"b\") 2)\n")
+                  *out* out
+                  *err* (java.io.StringWriter.)]
+          ((ns-resolve 'skein.repl 'attach-stdin!) (:host endpoint) (str (:port endpoint))))
+        (is (= "a1\nb2\n" (str out)))))))
+
+(deftest attach-repl-delegates-to-helper-ready-nrepl-client-repl
+  (with-runtime
+    (fn [rt _]
+      (let [{:keys [endpoint]} (:metadata rt)
+            calls (atom [])
+            out (java.io.StringWriter.)]
+        (with-redefs-fn {(ns-resolve 'skein.repl 'nrepl-run-repl)
+                         (fn []
+                           (fn [host port options]
+                             (swap! calls conj {:host host
+                                                :port port
+                                                :options options})
+                             (let [conn (nrepl/connect :host host :port port)
+                                   session (nrepl/client-session (nrepl/client conn 60000))]
+                               (try
+                                 (swap! nrepl.cmdline/running-repl assoc :client session)
+                                 ((:prompt options) 'user)
+                                 (let [responses (doall (nrepl/message session {:op "eval" :code "(ready)"}))]
+                                   (is (= "[]" (last (keep :value responses)))))
+                                 (finally
+                                   (swap! nrepl.cmdline/running-repl assoc :client nil)
+                                   (.close conn))))))}
+          (fn []
+            (binding [*in* (java.io.StringReader. "(+ 10 5)\n")
+                      *out* out
+                      *err* (java.io.StringWriter.)]
+              ((ns-resolve 'skein.repl 'attach-repl!) (:host endpoint) (str (:port endpoint))))))
+        (is (= [{:host (:host endpoint)
+                 :port (:port endpoint)
+                 :options {:prompt (:prompt (:options (first @calls)))}}]
+               @calls))
+        (is (fn? (get-in (first @calls) [:options :prompt])))
+        (is (not (str/includes? (str out) "15")))))))
+
+(deftest libs-alpha-compatibility-works-from-explicit-connected-stdin-main
   (with-runtime
     (fn [rt _]
       (let [out (java.io.StringWriter.)]

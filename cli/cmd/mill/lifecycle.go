@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,8 +40,26 @@ func resolveLaunchSource(cwd string) (string, error) {
 	return "", fmt.Errorf("unable to resolve Skein source for weaver launch; set SKEIN_SOURCE to a Skein checkout, reinstall mill with a valid install-time source, or run strand weaver start from a canonical Skein checkout cwd containing deps.edn")
 }
 
-func weaverArgs(world config.World) []string {
-	return []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", world.ConfigDir, "--state-dir", world.StateDir, "--data-dir", world.DataDir}
+func weaverArgs(world config.World, name string) []string {
+	args := []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", world.ConfigDir, "--state-dir", world.StateDir, "--data-dir", world.DataDir}
+	if name != "" {
+		args = append(args, "--name", name)
+	}
+	return args
+}
+
+func friendlyName(world config.World, requested string) (string, error) {
+	if requested != "" {
+		if strings.TrimSpace(requested) == "" {
+			return "", fmt.Errorf("weaver name must not be blank")
+		}
+		return requested, nil
+	}
+	base := filepath.Base(world.ConfigDir)
+	if base == "." || base == string(filepath.Separator) || strings.TrimSpace(base) == "" {
+		return "", fmt.Errorf("unable to derive weaver name from config dir %s", world.ConfigDir)
+	}
+	return base, nil
 }
 
 func (s *server) startWeaver(req client.MillWorldRequest) (map[string]any, error) {
@@ -56,7 +75,7 @@ func (s *server) startWeaver(req client.MillWorldRequest) (map[string]any, error
 			return status, nil
 		}
 		if status == nil {
-			status = baseStatus(world, "starting")
+			status = baseStatusWithName(world, "starting", child.name)
 			status["pid"] = child.cmd.Process.Pid
 		}
 		return status, nil
@@ -77,12 +96,16 @@ func (s *server) startWeaver(req client.MillWorldRequest) (map[string]any, error
 	if err := os.MkdirAll(world.DataDir, 0o755); err != nil {
 		return nil, err
 	}
-	cmd, err := launchWeaver(source, weaverArgs(world), io.Discard, io.Discard)
+	name, err := friendlyName(world, req.Name)
+	if err != nil {
+		return nil, err
+	}
+	cmd, err := launchWeaver(source, weaverArgs(world, name), io.Discard, io.Discard)
 	if err != nil {
 		return nil, err
 	}
 	done := make(chan error, 1)
-	s.children[world.ConfigDir] = &weaverChild{cmd: cmd, world: world, done: done}
+	s.children[world.ConfigDir] = &weaverChild{cmd: cmd, world: world, name: name, done: done}
 	go func() { done <- cmd.Wait() }()
 	status, err := waitForReadyStatus(world, cmd.Process.Pid, done, 15*time.Second)
 	if err != nil {
@@ -124,9 +147,45 @@ func (s *server) weaverReplContext(req client.MillWorldRequest) (map[string]any,
 	return status, nil
 }
 
+func (s *server) weaverList() ([]map[string]any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]bool{}
+	rows := []map[string]any{}
+	for _, child := range s.children {
+		status := s.weaverStatusForWorldLocked(child.world)
+		rows = append(rows, status)
+		seen[child.world.StateDir] = true
+	}
+	root, err := config.StateRoot()
+	if err != nil {
+		return nil, err
+	}
+	matches, err := filepath.Glob(filepath.Join(root, "weavers", "*", "weaver.json"))
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range matches {
+		stateDir := filepath.Dir(path)
+		if seen[stateDir] {
+			continue
+		}
+		status, err := readStatusFile(path)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, status)
+	}
+	return rows, nil
+}
+
 func (s *server) weaverStatusForWorld(world config.World) map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.weaverStatusForWorldLocked(world)
+}
+
+func (s *server) weaverStatusForWorldLocked(world config.World) map[string]any {
 	if status, stale := readStatus(world); status != nil {
 		if stale {
 			status["state"] = "stale"
@@ -135,11 +194,11 @@ func (s *server) weaverStatusForWorld(world config.World) map[string]any {
 	}
 	if child := s.children[world.ConfigDir]; child != nil {
 		if child.cmd.Process != nil && processAlive(child.cmd.Process.Pid) {
-			status := baseStatus(world, "starting")
+			status := baseStatusWithName(world, "starting", child.name)
 			status["pid"] = child.cmd.Process.Pid
 			return status
 		}
-		status := baseStatus(world, "stopped")
+		status := baseStatusWithName(world, "stopped", child.name)
 		return status
 	}
 	return baseStatus(world, "none")
@@ -213,21 +272,51 @@ func readStatus(world config.World) (map[string]any, bool) {
 		st["stale_reason"] = staleReason
 		return st, true
 	}
-	st := baseStatus(world, "running")
-	st["pid"] = m.PID
-	st["weaver_id"] = m.DaemonID
-	st["socket_path"] = m.SocketPath
-	st["nrepl"] = m.NREPL
-	st["started_at"] = m.StartedAt
-	st["database_path"] = m.DatabasePath
-	return st, false
+	return statusFromMetadata(m, "running"), false
+}
+
+func readStatusFile(path string) (map[string]any, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var m client.Metadata
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, fmt.Errorf("malformed weaver metadata %s: %w", path, err)
+	}
+	world := config.World{ConfigDir: m.ConfigDir, StateDir: m.StateDir, DataDir: m.DataDir, DBPath: m.DatabasePath}
+	if staleReason := validateMetadata(world, m); staleReason != "" {
+		if strings.HasPrefix(staleReason, "pid ") {
+			st := statusFromMetadata(m, "stale")
+			st["stale_reason"] = staleReason
+			return st, nil
+		}
+		return nil, fmt.Errorf("malformed weaver metadata %s: %s", path, staleReason)
+	}
+	return statusFromMetadata(m, "running"), nil
+}
+
+func statusFromMetadata(m client.Metadata, state string) map[string]any {
+	return map[string]any{
+		"state":         state,
+		"config_dir":    m.ConfigDir,
+		"state_dir":     m.StateDir,
+		"data_dir":      m.DataDir,
+		"database_path": m.DatabasePath,
+		"name":          m.Name,
+		"pid":           m.PID,
+		"weaver_id":     m.DaemonID,
+		"socket_path":   m.SocketPath,
+		"nrepl":         m.NREPL,
+		"started_at":    m.StartedAt,
+	}
 }
 
 func validateMetadata(world config.World, m client.Metadata) string {
-	if m.ProtocolVersion != 1 || m.PID == 0 || m.DatabasePath == "" || m.DaemonID == "" || m.ConfigDir == "" || m.DataDir == "" || m.SocketPath == "" || m.StartedAt == "" || m.NREPL.Host == "" || m.NREPL.Port == 0 {
+	if m.ProtocolVersion != 1 || m.PID == 0 || m.DatabasePath == "" || m.DaemonID == "" || m.ConfigDir == "" || m.StateDir == "" || m.DataDir == "" || strings.TrimSpace(m.Name) == "" || m.SocketPath == "" || m.StartedAt == "" || m.NREPL.Host == "" || m.NREPL.Port == 0 {
 		return "malformed weaver metadata: missing required fields"
 	}
-	if !samePath(m.ConfigDir, world.ConfigDir) || !samePath(m.DataDir, world.DataDir) || !samePath(m.DatabasePath, world.DBPath) || !samePath(m.SocketPath, filepath.Join(world.StateDir, "weaver.sock")) {
+	if !samePath(m.ConfigDir, world.ConfigDir) || !samePath(m.StateDir, world.StateDir) || !samePath(m.DataDir, world.DataDir) || !samePath(m.DatabasePath, world.DBPath) || !samePath(m.SocketPath, filepath.Join(world.StateDir, "weaver.sock")) {
 		return "weaver metadata identity mismatch"
 	}
 	if !processAlive(m.PID) {
@@ -284,12 +373,21 @@ func cleanupWorldArtifacts(world config.World) {
 }
 
 func baseStatus(world config.World, state string) map[string]any {
+	return baseStatusWithName(world, state, "")
+}
+
+func baseStatusWithName(world config.World, state string, requestedName string) map[string]any {
+	name, err := friendlyName(world, requestedName)
+	if err != nil {
+		name = ""
+	}
 	return map[string]any{
 		"state":         state,
 		"config_dir":    world.ConfigDir,
 		"state_dir":     world.StateDir,
 		"data_dir":      world.DataDir,
 		"database_path": world.DBPath,
+		"name":          name,
 	}
 }
 

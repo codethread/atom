@@ -2,7 +2,7 @@
   "Public helper API for applying batch graph mutations.
 
   Calls route directly when executing inside a weaver runtime, otherwise through
-  the connected helper REPL world. The weaver API owns payload validation and
+  an explicit connected client world. The weaver API owns payload validation and
   transactional persistence."
   (:require [skein.client :as client]
             [skein.repl :as repl]
@@ -12,8 +12,8 @@
 (defn apply!
   "Apply one transactional batch graph mutation payload through the selected weaver.
 
-  Returns the weaver API result. Fails loudly when no helper REPL world is
-  connected or when the payload is invalid."
+  Returns the weaver API result. Fails loudly when there is neither an in-process
+  weaver runtime nor an explicit connected client world, or when the payload is invalid."
   [payload]
   (if-let [rt @runtime/current-runtime]
     (api/apply-batch rt payload)

@@ -1,6 +1,7 @@
 (ns skein.weaver.runtime
   "Start, stop, and supervise the in-process weaver daemon runtime."
-  (:require [nrepl.server :as nrepl]
+  (:require [clojure.string :as str]
+            [nrepl.server :as nrepl]
             [skein.weaver.config :as config]
             [skein.weaver.metadata :as metadata]
             [skein.weaver.socket :as socket]
@@ -149,6 +150,9 @@
       (finally
         (.setContextClassLoader thread previous-loader)))))
 
+(defn- default-name [world]
+  (.getName (clojure.java.io/file (:config-dir world))))
+
 (defn start!
   "Start a weaver runtime for `db-file` and optional `world`.
 
@@ -156,7 +160,7 @@
   config, and fails if this process already owns a runtime."
   ([] (start! nil {}))
   ([db-file] (start! db-file {}))
-  ([db-file {:keys [world]}]
+  ([db-file {:keys [world name]}]
    (when @current-runtime
      (throw (ex-info "A weaver runtime is already active in this process" {:metadata (:metadata @current-runtime)})))
    (let [world (or world (config/world))
@@ -183,6 +187,7 @@
                                           :canonical-db-path canonical-path
                                           :nonce nonce
                                           :world world
+                                          :name (or name (default-name world))
                                           :started-at (str (Instant/now))})
            runtime-base {:datasource ds
                          :query-registry (atom {})
@@ -247,7 +252,8 @@
     (case (first remaining)
       nil {:config-dir (require-main-dir! opts :config-dir "--config-dir")
            :state-dir (require-main-dir! opts :state-dir "--state-dir")
-           :data-dir (require-main-dir! opts :data-dir "--data-dir")}
+           :data-dir (require-main-dir! opts :data-dir "--data-dir")
+           :name (:name opts)}
       "--config-dir" (let [[_ dir & more] remaining]
                        (when-not dir
                          (throw (ex-info "--config-dir requires a directory" {:args args})))
@@ -260,13 +266,17 @@
                      (when-not dir
                        (throw (ex-info "--data-dir requires a directory" {:args args})))
                      (recur more (assoc opts :data-dir dir)))
-      (throw (ex-info "Usage: skein.weaver.runtime --config-dir <dir> --state-dir <dir> --data-dir <dir>" {:args args})))))
+      "--name" (let [[_ name & more] remaining]
+                  (when (str/blank? name)
+                    (throw (ex-info "--name requires a non-blank value" {:args args})))
+                  (recur more (assoc opts :name name)))
+      (throw (ex-info "Usage: skein.weaver.runtime --config-dir <dir> --state-dir <dir> --data-dir <dir> [--name <name>]" {:args args})))))
 
 (defn -main
   "Start a foreground weaver process from command-line arguments."
   [& args]
-  (let [{:keys [config-dir state-dir data-dir]} (parse-main-args args)]
-    (start! nil {:world (config/world config-dir state-dir data-dir)})
+  (let [{:keys [config-dir state-dir data-dir name]} (parse-main-args args)]
+    (start! nil {:world (config/world config-dir state-dir data-dir) :name name})
     (println "weaver started")
     (while @current-runtime
       (Thread/sleep 100))))

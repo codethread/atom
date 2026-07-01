@@ -136,7 +136,7 @@
     (spit (java.io.File. config-dir "libs.edn")
           "{:libs {smoke/lib {:local/root \"libs/smoke-lib\"}\n        smoke/missing {:local/root \"libs/missing-lib\"}}}\n")
     (spit (java.io.File. config-dir "init.clj")
-          "(require '[skein.libs.alpha :as libs])\n(libs/sync!)\n(libs/use! :smoke/lib {:ns 'smoke.lib :libs #{'smoke/lib}})\n(libs/use! :smoke/layer {:ns 'smoke.layer :libs #{'smoke/lib} :after [:smoke/lib] :call 'smoke.layer/install!})\n(libs/use! :smoke/optional-missing {:ns 'smoke.missing :libs #{'smoke/missing}})\n")
+          "(require '[skein.runtime.alpha :as runtime])\n(runtime/sync!)\n(runtime/use! :smoke/lib {:ns 'smoke.lib :libs #{'smoke/lib}})\n(runtime/use! :smoke/layer {:ns 'smoke.layer :libs #{'smoke/lib} :after [:smoke/lib] :call 'smoke.layer/install!})\n(runtime/use! :smoke/optional-missing {:ns 'smoke.missing :libs #{'smoke/missing}})\n")
     (.getCanonicalPath marker)))
 
 (defn outside-repo-dir []
@@ -218,7 +218,8 @@
         op (run-process! "Go CLI op help succeeds" [strand-bin "op" "--help"])
         pattern (run-process! "Go CLI pattern help succeeds" [strand-bin "pattern" "--help"])
         weaver (run-process! "Go CLI weaver help succeeds" [strand-bin "weaver" "--help"])
-        start (run-process! "Go CLI weaver start help succeeds" [strand-bin "weaver" "start" "--help"])]
+        start (run-process! "Go CLI weaver start help succeeds" [strand-bin "weaver" "start" "--help"])
+        repl (run-process! "Go CLI weaver repl help succeeds" [strand-bin "weaver" "repl" "--help"])]
     (doseq [needle ["Available Commands:" "add" "list" "weaver"]]
       (assert-contains root needle "Go CLI root help shows command tree"))
     (doseq [needle ["add <title>" "--state" "--attr"]]
@@ -229,7 +230,10 @@
       (assert-contains pattern needle "Go CLI pattern help shows children"))
     (doseq [needle ["start" "status" "stop"]]
       (assert-contains weaver needle "Go CLI subcommand help shows children"))
-    (assert-contains start "--config-dir" "Go CLI nested subcommand help shows selected world flag")))
+    (assert-contains start "--config-dir" "Go CLI nested subcommand help shows selected world flag")
+    (doseq [needle ["Attach directly to the selected world's live weaver nREPL"
+                    "send stdin Clojure forms to the running weaver"]]
+      (assert-contains repl needle "Go CLI weaver repl help shows live attach semantics"))))
 
 (defn stop-cli-daemon-config! [config-dir daemon]
   (run-cli-config! config-dir "weaver" "stop")
@@ -261,7 +265,7 @@
         (run-cli-config! config-dir "weaver" "status")
         (assert (.isFile config-file) "clean bootstrap preserves/creates config.json")
         (assert-file-contents (java.io.File. config-dir "libs.edn") "{:libs {}}\n" "clean bootstrap creates empty libs.edn")
-        (assert-file-contents (java.io.File. config-dir "init.clj") "(require '[skein.libs.alpha :as libs])\n\n(libs/sync!)\n" "clean bootstrap creates libs sync init.clj template")
+        (assert-file-contents (java.io.File. config-dir "init.clj") "(require '[skein.runtime.alpha :as runtime])\n\n(runtime/sync!)\n" "clean bootstrap creates runtime sync init.clj template")
         (assert (.isDirectory (java.io.File. config-dir "libs")) "clean bootstrap creates libs directory")
         (assert (not (.exists (java.io.File. config-dir ".git"))) "clean bootstrap does not run git init")
         (let [strand-id (cli-add-config! config-dir "Bootstrap clean strand" "--attr" "owner=ct")]
@@ -305,15 +309,35 @@
 (defn smoke-startup-transformations! [db-file]
   (let [config-dir (bootstrap-config-dir db-file "startup-transform")
         init-path (java.io.File. config-dir "init.clj")
-        event-marker (java.io.File. config-dir "event-handler.txt")]
+        event-marker (java.io.File. config-dir "event-handler.txt")
+        lib-root (java.io.File. config-dir "libs/smoke-runtime-lib")]
     (delete-tree! (smoke-config-dir-named (str db-file ".startup-transform")))
     (write-client-config-to-dir! config-dir)
-    (spit (java.io.File. config-dir "libs.edn") "{:libs {}}\n")
+    (.mkdirs (java.io.File. lib-root "src"))
+    (spit (java.io.File. lib-root "deps.edn") "{:paths [\"src\"]}\n")
+    (spit (java.io.File. config-dir "libs.edn") "{:libs {smoke/runtime-lib {:local/root \"libs/smoke-runtime-lib\"}}}\n")
     (spit init-path
-          (str "(ns smoke.startup\n  (:require [clojure.spec.alpha :as s]\n            [skein.libs.alpha :as libs]\n            [skein.events.alpha :as events]\n            [skein.graph.alpha :as graph]\n            [skein.hooks.alpha :as hooks]\n            [skein.views.alpha :as views]\n            [skein.weaver.api :as api]))\n(libs/sync!)\n(api/register-query! 'smoke-owned [:= [:attr :owner] \"smoke\"])\n(s/def ::title string?)\n(s/def ::review-input (s/keys :req-un [::title]))\n(defn reject-blocked-owner [ctx]\n  (when (= \"blocked\" (get-in ctx [:strand/after :attributes :owner]))\n    (throw (ex-info \"smoke hook rejected blocked owner\" {:code :smoke/blocked-owner}))))\n(hooks/register! :smoke/reject-blocked-owner #{:strand/add-before-commit} 'smoke.startup/reject-blocked-owner)\n(defn review-pattern [{:keys [input]}]\n  (let [title (:title input)]\n    [{:ref 'impl :title title :attributes {:owner \"smoke\"}}\n     {:ref 'review :title (str \"Review: \" title) :attributes {:kind \"review\"} :edges [{:type \"depends-on\" :to 'impl}]}]))\n(api/register-pattern! 'review-task 'smoke.startup/review-pattern ::review-input)\n(def event-marker " (pr-str (.getCanonicalPath event-marker)) ")\n(defn record-added! [event]\n  (spit event-marker (:title (:strand event))))\n(defn smoke-owned-view [{:keys [params]}]\n  (let [ids (graph/query-ids! 'smoke-owned {})]\n    {:params params\n     :ids ids\n     :strands (graph/strands-by-ids ids)}))\n(views/register-view! 'smoke-owned-view 'smoke.startup/smoke-owned-view)\n(events/register! :smoke/record-added #{:strand/added} 'smoke.startup/record-added! {:source :smoke})\n"))
+          (str "(ns smoke.startup\n  (:require [clojure.spec.alpha :as s]\n            [skein.runtime.alpha :as runtime]\n            [skein.events.alpha :as events]\n            [skein.graph.alpha :as graph]\n            [skein.hooks.alpha :as hooks]\n            [skein.views.alpha :as views]\n            [skein.weaver.api :as api]))\n(runtime/sync!)\n(api/register-query! 'smoke-owned [:= [:attr :owner] \"smoke\"])\n(s/def ::title string?)\n(s/def ::review-input (s/keys :req-un [::title]))\n(defn reject-blocked-owner [ctx]\n  (when (= \"blocked\" (get-in ctx [:strand/after :attributes :owner]))\n    (throw (ex-info \"smoke hook rejected blocked owner\" {:code :smoke/blocked-owner}))))\n(hooks/register! :smoke/reject-blocked-owner #{:strand/add-before-commit} 'smoke.startup/reject-blocked-owner)\n(defn review-pattern [{:keys [input]}]\n  (let [title (:title input)]\n    [{:ref 'impl :title title :attributes {:owner \"smoke\"}}\n     {:ref 'review :title (str \"Review: \" title) :attributes {:kind \"review\"} :edges [{:type \"depends-on\" :to 'impl}]}]))\n(api/register-pattern! 'review-task 'smoke.startup/review-pattern ::review-input)\n(def event-marker " (pr-str (.getCanonicalPath event-marker)) ")\n(defn record-added! [event]\n  (spit event-marker (:title (:strand event))))\n(defn smoke-owned-view [{:keys [params]}]\n  (let [ids (graph/query-ids! 'smoke-owned {})]\n    {:params params\n     :ids ids\n     :strands (graph/strands-by-ids ids)}))\n(views/register-view! 'smoke-owned-view 'smoke.startup/smoke-owned-view)\n(events/register! :smoke/record-added #{:strand/added} 'smoke.startup/record-added! {:source :smoke})\n"))
     (let [daemon (start-cli-daemon-config! config-dir)]
       (try
         (run-cli-config! config-dir "weaver" "status")
+        (let [loader-compat (edn/read-string
+                             (run-cli-config-stdin!
+                              config-dir
+                              "(do\n  (require '[skein.runtime.alpha :as runtime] '[skein.libs.alpha :as libs])\n  {:runtime-approved (runtime/approved)\n   :libs-approved (libs/approved)\n   :runtime-syncs (runtime/syncs)\n   :libs-syncs (libs/syncs)})\n"
+                              "weaver" "repl" "--stdin"))]
+          (assert= (:runtime-approved loader-compat)
+                   (:libs-approved loader-compat)
+                   "live REPL exposes skein.libs.alpha compatibility over approved config")
+          (assert= (:runtime-syncs loader-compat)
+                   (:libs-syncs loader-compat)
+                   "live REPL exposes skein.libs.alpha compatibility over sync state")
+          (assert= "libs/smoke-runtime-lib"
+                   (get-in loader-compat [:libs-approved :libs 'smoke/runtime-lib :local/root])
+                   "live REPL compatibility reads real approved library config")
+          (assert= :loaded
+                   (get-in loader-compat [:libs-syncs :libs 'smoke/runtime-lib :status])
+                   "live REPL compatibility reads real approved library sync state"))
         (let [strand-id (cli-add-config! config-dir "Startup transformed strand" "--attr" "owner=smoke")
               rejected-output (run-cli-config-fails! config-dir "add" "Hook rejected strand" "--attr" "owner=blocked")
               _ (assert-contains rejected-output "hook/failed" "startup hook rejection reaches CLI as hook/failed")
@@ -347,7 +371,7 @@
                                 "weaver" "repl" "--stdin"))]
             (assert= ["Runtime patterned smoke" "Review: Runtime patterned smoke"]
                      (titles (:created runtime-woven))
-                     "running weaver accepts runtime pattern registration through connected REPL"))
+                     "running weaver accepts runtime pattern registration through live REPL attach"))
           (spit init-path
                 (clojure.string/replace
                  (slurp init-path)
@@ -356,7 +380,7 @@
           (let [reload-payload (edn/read-string
                                 (run-cli-config-stdin!
                                  config-dir
-                                 "(do\n  (require '[skein.libs.alpha :as libs])\n  (libs/reload!)\n  {:patterns (patterns)\n   :woven (weave! 'reload-review {:title \"Reload patterned smoke\"})})\n"
+                                 "(do\n  (require '[skein.runtime.alpha :as runtime])\n  (runtime/reload!)\n  {:patterns (patterns)\n   :woven (weave! 'reload-review {:title \"Reload patterned smoke\"})})\n"
                                  "weaver" "repl" "--stdin"))]
             (assert= ["reload-review" "review-task"]
                      (mapv :name (:patterns reload-payload))
@@ -388,11 +412,12 @@
     (run-process! "repo weaver start succeeds" repo nil [strand-bin "weaver" "start"])
     (wait-for-repo-weaver! repo)
     (try
-      (let [strand-id (:id (parse-json (run-process! "repo add strand succeeds" repo nil [strand-bin "add" "Repo smoke strand" "--attr" "owner=smoke"])))
+      (let [_strand-id (:id (parse-json (run-process! "repo add strand succeeds" repo nil [strand-bin "add" "Repo smoke strand" "--attr" "owner=smoke"])))
             listed (parse-json (run-process! "repo list succeeds" repo nil [strand-bin "list"]))
-            repl-listed (edn/read-string (run-process! "repo stdin repl succeeds" repo "(strands)\n" [strand-bin "weaver" "repl" "--stdin"]))]
+            runtime-out (run-process! "repo stdin repl succeeds" repo "@skein.weaver.runtime/current-runtime\n" [strand-bin "weaver" "repl" "--stdin"])]
         (assert= ["Repo smoke strand"] (titles listed) "repo world list sees CLI-created strand")
-        (assert= strand-id (:id (first repl-listed)) "repo world stdin REPL attaches through mill"))
+        (assert (clojure.string/includes? runtime-out ":metadata") "repo world stdin REPL evaluates in the live weaver JVM")
+        (assert (clojure.string/includes? runtime-out (str (.getCanonicalPath repo) "/.skein")) "repo world stdin REPL uses the selected running weaver"))
       (finally
         (run-process! "repo weaver stop succeeds" repo nil [strand-bin "weaver" "stop"])
         (delete-tree! (.toPath repo))))))

@@ -9,7 +9,7 @@ make install
 mill start
 ```
 
-`make install` builds `strand` and `mill` and records this checkout as mill's install-time source for weaver/REPL launch. `strand init` creates only the selected world's alpha config marker; do not write source paths into `config.json`.
+`make install` builds `strand` and `mill` and records this checkout as mill's install-time source for weaver launch and the thin nREPL attach client. `strand init` creates only the selected world's alpha config marker; do not write source paths into `config.json`.
 
 Start the weaver in one terminal:
 
@@ -61,19 +61,19 @@ strand --config-dir "$world" weaver repl
 Non-interactive trusted forms:
 
 ```sh
-printf '(ready)\n' | strand --config-dir "$world" weaver repl --stdin
+printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" weaver repl --stdin
 ```
 
 Runtime library startup config may use:
 
 ```clojure
-(require '[skein.libs.alpha :as libs]
+(require '[skein.runtime.alpha :as runtime]
          '[skein.graph.alpha :as graph]
          '[skein.views.alpha :as views])
-(libs/sync!)
+(runtime/sync!)
 ```
 
-`libs.edn` approves local roots under the selected config-dir; `skein.libs.alpha/sync!` makes approved roots available to the weaver; `libs/use!` activates modules for the weaver lifetime.
+Shipped `skein.*.alpha` namespaces are privileged built-in helpers. `libs.edn` approves user/community local roots; `skein.runtime.alpha/sync!` makes approved roots available; `runtime/use!` activates modules for the weaver lifetime. `skein.libs.alpha` remains compatibility-only.
 
 ## Validation
 

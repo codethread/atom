@@ -38,6 +38,7 @@ type MillWorldRequest struct {
 	CWD       string `json:"cwd,omitempty"`
 	ConfigDir string `json:"config_dir,omitempty"`
 	Source    string `json:"source,omitempty"`
+	Name      string `json:"name,omitempty"`
 }
 
 type MillResponse struct {

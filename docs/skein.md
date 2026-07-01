@@ -35,7 +35,7 @@ running weaver
 
 clients
   strand CLI       -> mill -> weaver JSON socket, small safe command set
-  weaver REPL      -> mill resolution -> connected Clojure helper context
+  weaver REPL      -> mill resolution -> direct live nREPL attach to the weaver JVM
 ```
 
 Different config dirs are different worlds. Use `--config-dir <dir>` when you want an isolated world for experiments, agent work, or tests.
@@ -72,7 +72,7 @@ The important file is `config.json`:
 
 ## Agent guidance files
 
-From a Skein source checkout, `make install` installs the Go CLIs (`strand` and `mill`) and records the checkout as mill's default source for weaver and helper REPL launch. After that, use the CLIs directly: `mill start`, `strand init`, and `strand weaver start`.
+From a Skein source checkout, `make install` installs the Go CLIs (`strand` and `mill`) and records the checkout as mill's default source for weaver launch and the thin nREPL attach client. After that, use the CLIs directly: `mill start`, `strand init`, and `strand weaver start`.
 
 `strand init` is the normal repo bootstrap path. It creates or completes the canonical repo `.skein` world, writes local `config.json` with the alpha format marker when absent, and leaves shared config files ready to commit. It does not run `git init`, persist source, or initialize database storage; weaver startup prepares storage.
 
@@ -120,7 +120,7 @@ strand --config-dir "$world" weaver status
 The weaver exposes two local transports:
 
 - a Unix socket used by the Go `strand` CLI;
-- an nREPL endpoint used by the connected helper REPL.
+- an nREPL endpoint used by the live weaver REPL.
 
 A selected config-dir may have one running weaver. Runtime registries are weaver-lifetime state, so named queries, weave patterns, views, and synced library state should be loaded from startup config if you want them to appear after every restart.
 
@@ -238,7 +238,7 @@ Because attributes are userland, your own config and libraries should define the
 
 Queries can be registered in weaver memory, then consumed by the REPL or CLI.
 
-From the connected REPL, `defquery!` registers a query for the current weaver lifetime only:
+From the live weaver REPL, `defquery!` registers a query for the current weaver lifetime only:
 
 ```clojure
 (defquery! 'agent-docs
@@ -259,14 +259,14 @@ Named query registries are not durable by themselves. If you want a query after 
 For a simple persistent query, put it directly in `init.clj`:
 
 ```clojure
-(require '[skein.libs.alpha :as libs]
+(require '[skein.runtime.alpha :as runtime]
          '[skein.weaver.api :as api])
 
-(libs/sync!)
+(runtime/sync!)
 (api/register-query! 'mine [:= [:attr :owner] "ct"])
 ```
 
-For a world that already activates a local library with `libs/use!`, follow that existing pattern instead: add the `api/register-query!` call to the library's `install!` function so reload/startup installs everything from one place.
+For a world that already activates a local library with `runtime/use!`, follow that existing pattern instead: add the `api/register-query!` call to the library's `install!` function so reload/startup installs everything from one place.
 
 Defining a Clojure var that contains query data is not the same as registering a named query. A local var can be passed to graph helpers from your own code, but `strand list --query mine` only works after `mine` has been registered in the weaver's named-query registry.
 
@@ -274,9 +274,9 @@ Defining a Clojure var that contains query data is not the same as registering a
 
 ## REPL
 
-The REPL is the trusted, high-power surface. Use it for richer inspection, custom query authoring, config reloads, and calling your own library code.
+The REPL is the trusted, high-power surface. `strand weaver repl` attaches directly to the selected running weaver nREPL, so forms evaluate in the weaver JVM with weaver process authority. Use it for richer inspection, custom query authoring, config reloads, and calling your own library code. Prefer blessed helper/API paths for operations that should preserve validation, hooks, events, and normalized return shapes.
 
-Open a connected REPL:
+Open a live weaver REPL:
 
 ```sh
 strand --config-dir "$world" weaver repl
@@ -292,17 +292,17 @@ Useful forms:
 (ready)
 ```
 
-Script a connected helper REPL with stdin:
+Script the live weaver REPL with stdin:
 
 ```sh
-printf '(ready)\n' | strand --config-dir "$world" weaver repl --stdin
+printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" weaver repl --stdin
 ```
 
-The REPL helper namespace includes common strand functions, but library-workspace helpers are explicit. Require them when needed:
+The REPL helper namespace includes common strand functions. Privileged runtime loader/config helpers are explicit built-in namespaces, not ordinary user libraries; require them when needed:
 
 ```clojure
-(require '[skein.libs.alpha :as libs])
-(libs/reload!)
+(require '[skein.runtime.alpha :as runtime])
+(runtime/reload!)
 ```
 
 ## Startup config
@@ -323,9 +323,9 @@ The generated `init.clj` is intentionally small:
 
 ```clojure
 ;; init.clj
-(require '[skein.libs.alpha :as libs])
+(require '[skein.runtime.alpha :as runtime])
 
-(libs/sync!)
+(runtime/sync!)
 ```
 
 The weaver loads startup files in order: `init.clj`, then `init.local.clj`. Missing files are skipped; present failing files fail loudly with file context. Use startup-loaded code to register queries, weave patterns, load approved libraries, register views, and install conventions for your world. Simple worlds can put shared registrations directly in `init.clj` and personal overlays in gitignored `init.local.clj`; reusable or larger worlds should keep `init.clj` minimal and install behavior from a local library.
@@ -333,19 +333,21 @@ The weaver loads startup files in order: `init.clj`, then `init.local.clj`. Miss
 A direct `init.clj` query registration can look like this:
 
 ```clojure
-(require '[skein.libs.alpha :as libs]
+(require '[skein.runtime.alpha :as runtime]
          '[skein.weaver.api :as api])
 
-(libs/sync!)
+(runtime/sync!)
 (api/register-query! 'mine [:= [:attr :owner] "ct"])
 ```
 
 Use reload during development:
 
 ```clojure
-(require '[skein.libs.alpha :as libs])
-(libs/reload!)
+(require '[skein.runtime.alpha :as runtime])
+(runtime/reload!)
 ```
+
+`skein.runtime.alpha` is a privileged built-in runtime loader/config helper namespace shipped with Skein. It is not an ordinary user/community library, and `skein.libs.alpha` remains only as an alpha compatibility alias for existing config. New docs and config should use `skein.runtime.alpha`.
 
 Reload clears weaver-lifetime library sync state, module-use state, named queries, weave patterns, views, lifecycle hooks, event handlers, queued events, and recent event failures, then reloads `init.clj` followed by `init.local.clj`. Missing files are skipped; present failures fail loudly.
 
@@ -394,10 +396,10 @@ Implement the library:
 Activate it from `init.clj`:
 
 ```clojure
-(require '[skein.libs.alpha :as libs])
+(require '[skein.runtime.alpha :as runtime])
 
-(libs/sync!)
-(libs/use! :my/workflow
+(runtime/sync!)
+(runtime/use! :my/workflow
   {:ns 'my.workflow
    :libs #{'my/workflow}
    :call 'my.workflow/install!})
@@ -406,10 +408,10 @@ Activate it from `init.clj`:
 Key points:
 
 - `libs.edn` is approval. It says which local roots the weaver may load.
-- `libs/sync!` makes approved roots available to the weaver.
-- `libs/use!` activates one module and records whether it loaded, skipped, or failed.
+- `runtime/sync!` makes approved roots available to the weaver.
+- `runtime/use!` activates one module and records whether it loaded, skipped, or failed.
 - `:call` must name a fully qualified zero-argument function.
-- Direct `require` from `strand weaver repl` is not the supported activation path for newly synced weaver libraries. The connected helper REPL is a separate client process; use `libs/use!` or `libs/reload!` so loading and installation happen inside the weaver runtime.
+- Direct `require` from `strand weaver repl` evaluates in the weaver JVM and is useful for trusted experimentation. For repeatable module activation and reload introspection, use `runtime/use!` or `runtime/reload!` from startup config or the live REPL.
 - Extension code runs with weaver authority. Only load trusted code.
 - There is no per-module isolation or unload guarantee. Restart the weaver for a clean runtime if needed.
 
@@ -453,7 +455,7 @@ Like queries and views, patterns are weaver-lifetime runtime state. Register the
 
 ## Views and graph helpers
 
-Skein ships built-in alpha namespaces for trusted runtime transformations:
+Skein ships built-in privileged alpha namespaces for trusted runtime transformations. They are source-visible helper namespaces from the Skein checkout/classpath, not user/community libraries that need `libs.edn` approval:
 
 ```clojure
 (require '[skein.graph.alpha :as graph]
@@ -481,7 +483,7 @@ Views let you register named read-only transformations backed by weaver-loadable
   {:installed true})
 ```
 
-Call a registered view from trusted Clojure, usually a connected REPL:
+Call a registered view from trusted Clojure, usually the live weaver REPL:
 
 ```clojure
 (require '[skein.views.alpha :as views])
@@ -501,7 +503,7 @@ Like queries, views are weaver-lifetime runtime state. Register them from startu
 
 ## Events
 
-Skein ships `skein.events.alpha` for trusted config and connected REPL workflows that need to react to strand mutations. There are no public JSON socket or `strand` CLI commands for event registration.
+Skein ships `skein.events.alpha` for trusted config and live REPL workflows that need to react to strand mutations. There are no public JSON socket or `strand` CLI commands for event registration.
 
 Register handlers from startup-loaded code or weaver-loadable libraries:
 
@@ -615,10 +617,10 @@ Spec: [`devflow/specs/repl-api.md`](../devflow/specs/repl-api.md)
 
 Covers:
 
-- connected helper REPL functions;
+- live weaver REPL functions;
 - `strand weaver repl --stdin` behavior;
 - query registration and execution;
-- `skein.libs.alpha` helpers;
+- `skein.runtime.alpha` loader/config helpers;
 - graph, view, event, and explicit batch helper namespaces;
 - runtime library workspace activation.
 

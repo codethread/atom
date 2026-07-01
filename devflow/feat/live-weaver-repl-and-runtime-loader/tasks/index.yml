@@ -2,35 +2,35 @@ tasks:
   - id: 1
     description: Direct stdin live nREPL attach
     task_file: tasks/001-direct-stdin-live-nrepl-attach.md
-    status: pending
+    status: complete
     blocked_by: []
   - id: 2
     description: Interactive live nREPL attach
     task_file: tasks/002-interactive-live-nrepl-attach.md
-    status: pending
+    status: complete
     blocked_by: [1, 3]
   - id: 3
     description: In-process repl helper dispatch
     task_file: tasks/003-in-process-repl-helper-dispatch.md
-    status: pending
+    status: complete
     blocked_by: []
   - id: 4
     description: Runtime loader namespace split
     task_file: tasks/004-runtime-loader-namespace-split.md
-    status: pending
+    status: complete
     blocked_by: [3]
   - id: 5
     description: Library namespace cleanup proof
     task_file: tasks/005-library-namespace-cleanup-proof.md
-    status: pending
+    status: complete
     blocked_by: [4]
   - id: 6
     description: Docs and help language refresh
     task_file: tasks/006-docs-and-help-language-refresh.md
-    status: pending
+    status: complete
     blocked_by: [2, 5]
   - id: 7
     description: End-to-end validation cleanup
     task_file: tasks/007-end-to-end-validation-cleanup.md
-    status: pending
+    status: complete
     blocked_by: [6]

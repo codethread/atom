@@ -117,3 +117,41 @@ Outcome: Add or update integration tests for mill-routed direct REPL attach, std
 ### LWRL-PLAN-001.DN4 Task queue creation — 2026-06-30
 
 - Added an AFK-ready task queue in `tasks/` with seven slices: direct stdin attach, in-process `skein.repl` dispatch, interactive attach, `skein.runtime.alpha` namespace split, library namespace cleanup proof, docs/help refresh, and end-to-end validation. Slices are ordered to produce an early live nREPL proof while preserving explicit client bridge compatibility.
+
+### LWRL-PLAN-001.DN5 Task 1 implementation — 2026-06-30
+
+- `strand weaver repl --stdin` now launches a thin `skein.repl --attach-stdin host port` client using mill-returned nREPL metadata and evaluates user forms in the selected weaver JVM. Existing connected-helper `--stdin` and `connect!` code remains for explicit client/test workflows until later slices reshape helper dispatch.
+
+### LWRL-PLAN-001.DN6 Task 3 implementation — 2026-06-30
+
+- `skein.repl` helpers now use `@skein.weaver.runtime/current-runtime` and dispatch core strand/query/relation/burn operations through `skein.weaver.api` when evaluated inside the weaver JVM without an explicit connected world. The connected client bridge remains available when `connect!` selects a world and is still exercised by tests using the explicit client path.
+- `load-queries!` now checks for an active in-process runtime or connected world before reading the requested file, preserving the fail-loud no-world error instead of leaking local file errors first.
+
+### LWRL-PLAN-001.DN7 Task 2 implementation — 2026-06-30
+
+- Default `strand weaver repl` now launches the same thin `skein.repl` attach client topology as `--stdin`, using mill-returned nREPL host/port and evaluating user forms in the selected weaver JVM. The interactive attach client prepares the weaver-side `skein.repl` namespace with `(require 'skein.repl)` before prompting.
+- Added a deterministic non-stdin attach proof that drives scripted interactive input against a disposable running weaver nREPL and verifies live runtime introspection output.
+
+### LWRL-PLAN-001.DN8 Task 4 implementation — 2026-06-30
+
+- Added `skein.runtime.alpha` as the privileged approved-root/config loader helper and converted `skein.libs.alpha` to a compatibility shim over it. Runtime helper tests now exercise the new namespace while retaining explicit shim coverage.
+- Fresh generated `init.clj` now uses `skein.runtime.alpha`; `dev/user.clj` no longer aliases `skein.weaver.runtime` as `runtime` so the generated template can load in the default user namespace.
+- Deep-review follow-up fixed generated-template reload from live REPL contexts by avoiding the `runtime` alias for `skein.weaver.runtime` in REPL/dev helper namespaces, and updated root specs to name `skein.runtime.alpha` while preserving `skein.libs.alpha` compatibility.
+
+### LWRL-PLAN-001.DN9 Task 5 implementation — 2026-06-30
+
+- Audited `src/skein/libs`: only the explicit `skein.libs.alpha` compatibility shim and userland-style `skein.libs.ephemeral` remain.
+- Rewrote `skein.libs.ephemeral` to compose documented `skein.repl` and `skein.graph.alpha` helpers instead of carrying its own daemon/client/runtime dispatch helper.
+- Added focused library tests proving the ephemeral example avoids privileged loader/config/runtime references and works through the public helper surface against an active runtime.
+
+### LWRL-PLAN-001.DN10 Task 6 docs/help refresh — 2026-06-30
+
+- Refreshed README, getting-started, Skein reference, crash-course examples, smoke copy, and helper namespace docstrings so default `strand weaver repl` is described as direct live nREPL attachment into the weaver JVM.
+- Moved public docs examples to `skein.runtime.alpha`; remaining `skein.libs.alpha` references are compatibility/test-shim references.
+- Clarified that shipped `skein.*.alpha` namespaces are privileged built-in helpers, while user/community libraries are trusted Clojure loaded via config, approved roots, or live REPL experimentation.
+
+### LWRL-PLAN-001.DN11 Task 7 validation cleanup — 2026-06-30
+
+- Primary validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
+- Smoke coverage now additionally proves `skein.libs.alpha` compatibility from live `strand weaver repl --stdin` while retaining direct live runtime introspection, in-process helpers, and fresh `skein.runtime.alpha` config bootstrap coverage.
+- No generated SQLite, runtime metadata, sockets, temporary worlds, or built CLI artifacts remained after validation.

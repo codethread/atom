@@ -2,7 +2,10 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
             [skein.events.alpha :as events]
+            [skein.graph.alpha :as graph]
             [skein.libs.alpha :as libs]
+            [skein.libs.ephemeral :as ephemeral]
+            [skein.runtime.alpha :as runtime-alpha]
             [skein.weaver.config :as daemon-config]
             [skein.weaver.api :as api]
             [skein.client :as client]
@@ -30,6 +33,17 @@
 
 (defn fresh-reload-handler [event]
   (swap! reload-deliveries conj (:event/id event)))
+
+(defn- ns-requires [resource-path]
+  (->> (slurp (io/resource resource-path))
+       java.io.StringReader.
+       java.io.PushbackReader.
+       read
+       (filter #(and (seq? %) (= :require (first %))))
+       first
+       rest
+       (map first)
+       set))
 
 (defn- with-runtime [f]
   (let [db-file (db-test/temp-db-file)
@@ -74,7 +88,7 @@
 (deftest approved-returns-empty-libs-when-files-are-missing
   (with-runtime
     (fn [_ _]
-      (is (= {:libs {}} (libs/approved))))))
+      (is (= {:libs {}} (runtime-alpha/approved))))))
 
 (deftest approved-fails-loudly-when-local-libs-edn-is-malformed
   (with-runtime
@@ -82,7 +96,7 @@
       (write-local-libs! config-dir "{:libs")
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"libs.local.edn is malformed or unreadable"
-                            (libs/approved))))))
+                            (runtime-alpha/approved))))))
 
 (deftest approved-includes-shared-only-and-local-only-libraries
   (with-runtime
@@ -97,7 +111,7 @@
                        'demo/local {:local/root "libs/local"
                                     :root (.getCanonicalPath local-root)
                                     :source (local-source config-dir)}}}
-               (libs/approved)))))))
+               (runtime-alpha/approved)))))))
 
 (deftest approved-local-libs-override-shared-by-coordinate
   (with-runtime
@@ -109,9 +123,9 @@
         (is (= {:local/root "libs/local"
                 :root (.getCanonicalPath local-root)
                 :source (local-source config-dir)}
-               (get-in (libs/approved) [:libs 'demo/override])))
+               (get-in (runtime-alpha/approved) [:libs 'demo/override])))
         (is (not= (.getCanonicalPath shared-root)
-                  (get-in (libs/approved) [:libs 'demo/override :root])))))))
+                  (get-in (runtime-alpha/approved) [:libs 'demo/override :root])))))))
 
 (deftest approved-fails-when-libs-edn-is-not-a-file
   (with-runtime
@@ -119,7 +133,7 @@
       (.mkdirs (io/file config-dir "libs.edn"))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"malformed or unreadable"
-                            (libs/approved))))))
+                            (runtime-alpha/approved))))))
 
 (deftest approved-normalizes-relative-and-absolute-roots
   (with-runtime
@@ -137,7 +151,7 @@
                        'demo/relative {:local/root "libs/demo"
                                        :root (.getCanonicalPath relative-root)
                                        :source (shared-source config-dir)}}}
-               (libs/approved)))))))
+               (runtime-alpha/approved)))))))
 
 (deftest approved-expands-home-relative-roots
   (with-runtime
@@ -148,7 +162,7 @@
         (is (= {:libs {'demo/home {:local/root "~/dev/projects/my-lib"
                                    :root (.getCanonicalPath home-root)
                                    :source (shared-source config-dir)}}}
-               (libs/approved)))))))
+               (runtime-alpha/approved)))))))
 
 (deftest approved-canonicalizes-symlink-roots
   (with-runtime
@@ -162,7 +176,7 @@
         (is (= {:libs {'demo/link {:local/root "libs/link"
                                    :root (.getCanonicalPath target)
                                    :source (shared-source config-dir)}}}
-               (libs/approved)))))))
+               (runtime-alpha/approved)))))))
 
 (deftest approved-does-not-reject-missing-local-roots
   (with-runtime
@@ -172,7 +186,7 @@
         (is (= {:libs {'demo/missing {:local/root "libs/missing"
                                       :root (.getCanonicalPath missing)
                                       :source (shared-source config-dir)}}}
-               (libs/approved)))))))
+               (runtime-alpha/approved)))))))
 
 (deftest approved-routes-through-connected-helper-context
   (with-redefs [runtime/current-runtime (atom nil)
@@ -186,37 +200,73 @@
             :opts {}
             :op :approved-libs
             :args nil}
-           (libs/approved)))
+           (runtime-alpha/approved)))
     (is (= {:config-dir "/tmp/skein-connected-world"
             :opts {}
             :op :sync-approved-libs
             :args nil}
-           (libs/sync!)))
+           (runtime-alpha/sync!)))
     (is (= {:config-dir "/tmp/skein-connected-world"
             :opts {}
             :op :approved-lib-syncs
             :args nil}
-           (libs/syncs)))
+           (runtime-alpha/syncs)))
     (is (= {:config-dir "/tmp/skein-connected-world"
             :opts {}
             :op :reload-config!
             :args nil}
-           (libs/reload!)))
+           (runtime-alpha/reload!)))
     (is (= {:config-dir "/tmp/skein-connected-world"
             :opts {}
             :op :use!
             :args [:demo {:ns 'demo.core}]}
-           (libs/use! :demo {:ns 'demo.core})))
+           (runtime-alpha/use! :demo {:ns 'demo.core})))
     (is (= {:config-dir "/tmp/skein-connected-world"
             :opts {}
             :op :uses
             :args nil}
-           (libs/uses)))
+           (runtime-alpha/uses)))
     (is (= {:config-dir "/tmp/skein-connected-world"
             :opts {}
             :op :use
             :args [:demo]}
-           (libs/use :demo)))))
+           (runtime-alpha/use :demo)))))
+
+(deftest libs-alpha-compatibility-shim-retains-loader-surface
+  (with-redefs [runtime/current-runtime (atom nil)
+                repl/connected-config-dir (constantly "/tmp/skein-connected-world")
+                skein.client/call-world (fn [config-dir opts op & args]
+                                         {:config-dir config-dir
+                                          :opts opts
+                                          :op op
+                                          :args args})]
+    (is (= {:config-dir "/tmp/skein-connected-world"
+            :opts {}
+            :op :approved-libs
+            :args nil}
+           (libs/approved)))
+    (is (= :sync-approved-libs (:op (libs/sync!))))
+    (is (= :approved-lib-syncs (:op (libs/syncs))))
+    (is (= :reload-config! (:op (libs/reload!))))
+    (is (= :use! (:op (libs/use! :demo {:ns 'demo.core}))))
+    (is (= :uses (:op (libs/uses))))
+    (is (= :use (:op (libs/use :demo))))))
+
+(deftest ephemeral-library-composes-public-helper-surfaces
+  (is (= '#{skein.graph.alpha skein.repl}
+         (ns-requires "skein/libs/ephemeral.clj")))
+  (with-runtime
+    (fn [_ _]
+      (let [parent (repl/strand! "Parent")
+            child (ephemeral/ephemeral! (:id parent) "Scratch" {:owner "agent"})]
+        (is (= "true" (get-in child [:attributes :ephemeral])))
+        (is (= [[(:id parent) (:id child) "parent-of"]]
+               (mapv (juxt :from_strand_id :to_strand_id :edge_type)
+                     (:edges (graph/subgraph [(:id parent)])))))
+        (is (= [(:id child)] (ephemeral/ephemeral-ids)))
+        (is (= {:burned [(:id child)] :count 1}
+               (select-keys (ephemeral/burn-ephemeral!) [:burned :count])))
+        (is (= [] (ephemeral/ephemeral-ids)))))))
 
 (deftest event-helpers-route-through-connected-helper-context
   (with-redefs [runtime/current-runtime (atom nil)
@@ -299,14 +349,14 @@
                ["blank root" (pr-str {:libs {'demo/lib {:local/root "  "}}}) #"requires non-blank string"]]]
         (testing label
           (write-libs! config-dir content)
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo pattern (libs/approved))))))))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo pattern (runtime-alpha/approved))))))))
 
 (deftest approved-applies-structural-validation-to-local-libs
   (with-runtime
     (fn [_ config-dir]
       (write-local-libs! config-dir (pr-str {:libs {'demo/lib {:local/root " "}}}))
       (try
-        (libs/approved)
+        (runtime-alpha/approved)
         (is false "expected libs.local.edn structural validation to fail")
         (catch clojure.lang.ExceptionInfo e
           (is (re-find #"requires non-blank string" (ex-message e)))
@@ -321,7 +371,7 @@
        (make-array java.nio.file.attribute.FileAttribute 0))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"libs.local.edn is malformed or unreadable"
-                            (libs/approved))))))
+                            (runtime-alpha/approved))))))
 
 (deftest sync-loads-approved-local-root-and-exposes-state
   (with-runtime
@@ -336,19 +386,19 @@
                             :root (.getCanonicalPath root)
                             :source (shared-source config-dir)
                             :status :loaded}}}
-               (libs/sync!)))
+               (runtime-alpha/sync!)))
         (is (= {:libs {lib {:lib lib
                             :local/root "libs/demo"
                             :root (.getCanonicalPath root)
                             :source (shared-source config-dir)
                             :status :loaded}}}
-               (libs/syncs)))
+               (runtime-alpha/syncs)))
         (is (= {:libs {lib {:lib lib
                             :local/root "libs/demo"
                             :root (.getCanonicalPath root)
                             :source (shared-source config-dir)
                             :status :already-available}}}
-               (libs/sync!)))))))
+               (runtime-alpha/sync!)))))))
 
 (deftest daemon-init-runs-with-library-classloader-after-sync
   (let [db-file (db-test/temp-db-file)
@@ -362,15 +412,15 @@
       (write-libs! config-dir (pr-str {:libs {lib {:local/root "libs/init-demo"}}}))
       (spit (io/file config-dir "init.clj")
             (str "(do\n"
-                 "  (require '[skein.libs.alpha :as libs])\n"
-                 "  (libs/sync!)\n"
+                 "  (require '[skein.runtime.alpha :as runtime-alpha])\n"
+                 "  (runtime-alpha/sync!)\n"
                  "  (require '" ns-sym ")\n"
                  "  (spit " (pr-str (str result-file))
                  " (pr-str ((requiring-resolve '" (symbol (str ns-sym "/marker")) ")))))\n"))
       (let [rt (runtime/start! db-file {:world (test-world (.getCanonicalPath config-dir))})]
         (try
           (is (= :synced-lib-loaded (read-string (slurp result-file))))
-          (is (= :loaded (get-in (libs/syncs) [:libs lib :status])))
+          (is (= :loaded (get-in (runtime-alpha/syncs) [:libs lib :status])))
           (finally
             (runtime/stop! rt))))
       (finally
@@ -389,10 +439,10 @@
                                       :source (shared-source config-dir)
                                       :status :failed
                                       :reason :missing-root}}}
-               (libs/sync!)))
+               (runtime-alpha/sync!)))
         (write-libs! config-dir "{:libs")
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"malformed or unreadable" (libs/sync!)))
-        (is (= {:libs {}} (libs/syncs)))))))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"malformed or unreadable" (runtime-alpha/sync!)))
+        (is (= {:libs {}} (runtime-alpha/syncs)))))))
 
 (deftest sync-records-runtime-add-failures-as-failed-outcomes
   (with-runtime
@@ -401,7 +451,7 @@
         (.mkdirs root)
         (spit (io/file root "deps.edn") "{:paths [}")
         (write-libs! config-dir (pr-str {:libs {'demo/bad-deps {:local/root "libs/bad-deps"}}}))
-        (let [result (get-in (libs/sync!) [:libs 'demo/bad-deps])]
+        (let [result (get-in (runtime-alpha/sync!) [:libs 'demo/bad-deps])]
           (is (= {:lib 'demo/bad-deps
                   :local/root "libs/bad-deps"
                   :root (.getCanonicalPath root)
@@ -432,7 +482,7 @@
                                       :source (shared-source config-dir)
                                       :status :failed
                                       :reason :unreadable-root}}}
-               (libs/sync!)))))))
+               (runtime-alpha/sync!)))))))
 
 (defn- write-module-file! [config-dir relative-path content]
   (let [file (io/file config-dir relative-path)]
@@ -447,7 +497,7 @@
         (spit (io/file config-dir "init.clj")
               (str "(spit " (pr-str (str result-file)) " (pr-str :reloaded))\n"
                    ":reload-return\n"))
-        (let [result (libs/reload!)]
+        (let [result (runtime-alpha/reload!)]
           (is (= :loaded (:status result)))
           (is (= [{:name "init.clj"
                    :file (.getCanonicalPath (io/file config-dir "init.clj"))
@@ -462,13 +512,21 @@
       (is (= {:status :loaded
               :files []
               :returns []}
-             (libs/reload!))))))
+             (runtime-alpha/reload!))))))
+
+(deftest reload-loads-generated-runtime-template-from-live-repl-namespace
+  (with-runtime
+    (fn [_ config-dir]
+      (spit (io/file config-dir "init.clj")
+            "(require '[skein.runtime.alpha :as runtime])\n\n(runtime/sync!)\n")
+      (binding [*ns* (the-ns 'skein.repl)]
+        (is (= :loaded (:status (runtime-alpha/reload!))))))))
 
 (deftest reload-clears-prior-runtime-config-state-before-loading
   (with-runtime
     (fn [rt config-dir]
       (write-module-file! config-dir "modules/stale.clj" "(ns demo.stale)\n(defn handler [_] :ok)\n")
-      (is (= :loaded (:status (libs/use! :stale {:file "modules/stale.clj"}))))
+      (is (= :loaded (:status (runtime-alpha/use! :stale {:file "modules/stale.clj"}))))
       (api/register-query rt 'stale [:= [:attr :owner] "stale"])
       (api/register-view! rt 'stale-view 'demo.stale/view)
       (reset! reload-deliveries [])
@@ -482,8 +540,8 @@
       (is (seq (api/recent-event-failures rt)))
       (spit (io/file config-dir "init.clj")
             "(require '[skein.weaver.api :as api] '[skein.weaver.runtime :as runtime])\n(api/register-query @runtime/current-runtime 'fresh [:= [:attr :owner] \"fresh\"])\n(api/register-event-handler! @runtime/current-runtime :fresh #{:strand/added} 'skein.libs-test/fresh-reload-handler {})\n")
-      (is (= :loaded (:status (libs/reload!))))
-      (is (nil? (libs/use :stale)))
+      (is (= :loaded (:status (runtime-alpha/reload!))))
+      (is (nil? (runtime-alpha/use :stale)))
       (is (nil? (get (api/queries rt) "stale")))
       (is (= [:= [:attr :owner] "fresh"] (get (api/queries rt) "fresh")))
       (is (= [] (api/views rt)))
@@ -505,12 +563,12 @@
             root (write-local-lib! config-dir "use-ns" ns-sym)
             expected-file (io/file root "src" "demo" (str "use_ns_" suffix ".clj"))]
         (write-libs! config-dir (pr-str {:libs {lib {:local/root "libs/use-ns"}}}))
-        (libs/sync!)
-        (let [result (libs/use! :demo/ns {:ns ns-sym :libs [lib]})]
+        (runtime-alpha/sync!)
+        (let [result (runtime-alpha/use! :demo/ns {:ns ns-sym :libs [lib]})]
           (is (= :loaded (:status result)))
           (is (= ns-sym (get-in result [:loaded :ns])))
           (is (= (.getCanonicalPath expected-file) (get-in result [:loaded :file])))
-          (is (= result (libs/use :demo/ns)))
+          (is (= result (runtime-alpha/use :demo/ns)))
           (is (= :synced-lib-loaded ((requiring-resolve (symbol (str ns-sym "/marker")))))))))))
 
 (deftest use-searches-multiple-synced-roots-for-namespace-source
@@ -525,8 +583,8 @@
         (write-local-lib! config-dir "first" first-ns)
         (write-libs! config-dir (pr-str {:libs {first-lib {:local/root "libs/first"}
                                                second-lib {:local/root "libs/second"}}}))
-        (libs/sync!)
-        (let [result (libs/use! :demo/second {:ns second-ns :libs #{first-lib second-lib}})]
+        (runtime-alpha/sync!)
+        (let [result (runtime-alpha/use! :demo/second {:ns second-ns :libs #{first-lib second-lib}})]
           (is (= :loaded (:status result)))
           (is (= (.getCanonicalPath (io/file root "src" "demo" (str "second_lib_" suffix ".clj")))
                  (get-in result [:loaded :file]))))))))
@@ -540,8 +598,8 @@
             lib (symbol (str "demo/missing-ns-lib-" suffix))
             root (write-local-lib! config-dir "missing-ns" existing-ns)]
         (write-libs! config-dir (pr-str {:libs {lib {:local/root "libs/missing-ns"}}}))
-        (libs/sync!)
-        (let [result (libs/use! :demo/missing-ns {:ns missing-ns :libs [lib]})]
+        (runtime-alpha/sync!)
+        (let [result (runtime-alpha/use! :demo/missing-ns {:ns missing-ns :libs [lib]})]
           (is (= :failed (:status result)))
           (is (= "Could not locate namespace source in synced library roots" (get-in result [:error :message])))
           (is (= {:ns missing-ns
@@ -557,7 +615,7 @@
             file-rel "modules/file_mod.clj"]
         (write-module-file! config-dir file-rel
                             (str "(ns " ns-sym ")\n(defn install! [] {:installed true})\n"))
-        (let [result (libs/use! :demo/file {:file file-rel
+        (let [result (runtime-alpha/use! :demo/file {:file file-rel
                                             :call (symbol (str ns-sym "/install!"))})]
           (is (= :loaded (:status result)))
           (is (= (.getCanonicalPath (io/file config-dir file-rel)) (get-in result [:loaded :file])))
@@ -574,9 +632,9 @@
             root (write-local-lib! config-dir "override-gated-local" ns-sym)]
         (write-libs! config-dir (pr-str {:libs {lib {:local/root "libs/missing-shared"}}}))
         (write-local-libs! config-dir (pr-str {:libs {lib {:local/root "libs/override-gated-local"}}}))
-        (is (= :loaded (get-in (libs/sync!) [:libs lib :status])))
-        (is (= (local-source config-dir) (get-in (libs/syncs) [:libs lib :source])))
-        (let [result (libs/use! :override/gated {:ns ns-sym :libs [lib]})]
+        (is (= :loaded (get-in (runtime-alpha/sync!) [:libs lib :status])))
+        (is (= (local-source config-dir) (get-in (runtime-alpha/syncs) [:libs lib :source])))
+        (let [result (runtime-alpha/use! :override/gated {:ns ns-sym :libs [lib]})]
           (is (= :loaded (:status result)))
           (is (= (.getCanonicalPath (io/file root "src" "demo" (str "override_gated_" suffix ".clj")))
                  (get-in result [:loaded :file]))))))))
@@ -591,10 +649,10 @@
         (write-local-lib! config-dir "gated" ns-sym)
         (write-libs! config-dir (pr-str {:libs {approved-lib {:local/root "libs/gated"}
                                                failed-lib {:local/root "libs/missing"}}}))
-        (is (= :not-approved (:reason (libs/use! :not-approved {:ns ns-sym :libs ['demo/not-approved]}))))
-        (is (= :not-synced (:reason (libs/use! :not-synced {:ns ns-sym :libs [approved-lib]}))))
-        (libs/sync!)
-        (let [result (libs/use! :sync-failed {:ns ns-sym :libs [failed-lib]})]
+        (is (= :not-approved (:reason (runtime-alpha/use! :not-approved {:ns ns-sym :libs ['demo/not-approved]}))))
+        (is (= :not-synced (:reason (runtime-alpha/use! :not-synced {:ns ns-sym :libs [approved-lib]}))))
+        (runtime-alpha/sync!)
+        (let [result (runtime-alpha/use! :sync-failed {:ns ns-sym :libs [failed-lib]})]
           (is (= :skipped (:status result)))
           (is (= :sync-failed (:reason result)))
           (is (= :failed (get-in result [:sync :status]))))))))
@@ -605,22 +663,22 @@
       (let [suffix (.replace (str (java.util.UUID/randomUUID)) "-" "")
             ns-sym (symbol (str "demo.after" suffix))]
         (write-module-file! config-dir "modules/after.clj" (str "(ns " ns-sym ")\n"))
-        (is (= :loaded (:status (libs/use! :base {:file "modules/after.clj"}))))
-        (is (= :missing-after (:reason (libs/use! :child {:ns ns-sym :after [:base :missing]}))))))))
+        (is (= :loaded (:status (runtime-alpha/use! :base {:file "modules/after.clj"}))))
+        (is (= :missing-after (:reason (runtime-alpha/use! :child {:ns ns-sym :after [:base :missing]}))))))))
 
 (deftest use-records-failures-and-required-rethrows
   (with-runtime
     (fn [_ config-dir]
       (write-module-file! config-dir "modules/bad.clj" "(throw (ex-info \"boom\" {:bad true}))\n")
-      (is (= :failed (:status (libs/use! :bad {:file "modules/bad.clj"}))))
+      (is (= :failed (:status (runtime-alpha/use! :bad {:file "modules/bad.clj"}))))
       (is (thrown? Exception
-                   (libs/use! :required-bad {:file "modules/bad.clj" :required? true})))
-      (is (= :failed (:status (libs/use :required-bad))))
+                   (runtime-alpha/use! :required-bad {:file "modules/bad.clj" :required? true})))
+      (is (= :failed (:status (runtime-alpha/use :required-bad))))
       (let [suffix (.replace (str (java.util.UUID/randomUUID)) "-" "")
             ns-sym (symbol (str "demo.callfail" suffix))]
         (write-module-file! config-dir "modules/call_fail.clj"
                             (str "(ns " ns-sym ")\n(defn install! [] (throw (ex-info \"call boom\" {})))\n"))
-        (let [result (libs/use! :call-fail {:file "modules/call_fail.clj"
+        (let [result (runtime-alpha/use! :call-fail {:file "modules/call_fail.clj"
                                             :call (symbol (str ns-sym "/install!"))})]
           (is (= :failed (:status result))))))))
 
@@ -642,17 +700,17 @@
                ["bad call" :bad {:ns 'demo.core :call 'install!} #":call must"]
                ["bad required" :bad {:ns 'demo.core :required? :yes} #":required\? must"]]]
         (testing label
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo pattern (libs/use! key opts))))))))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo pattern (runtime-alpha/use! key opts))))))))
 
 (deftest use-duplicate-keys-replace-previous-state
   (with-runtime
     (fn [_ config-dir]
       (write-module-file! config-dir "modules/dup1.clj" "(ns demo.dup1)\n")
       (write-module-file! config-dir "modules/dup2.clj" "(ns demo.dup2)\n")
-      (is (= "modules/dup1.clj" (get-in (libs/use! :dup {:file "modules/dup1.clj"}) [:opts :file])))
-      (is (= "modules/dup2.clj" (get-in (libs/use! :dup {:file "modules/dup2.clj"}) [:opts :file])))
-      (is (= #{:dup} (set (keys (libs/uses)))))
-      (is (= "modules/dup2.clj" (get-in (libs/use :dup) [:opts :file]))))))
+      (is (= "modules/dup1.clj" (get-in (runtime-alpha/use! :dup {:file "modules/dup1.clj"}) [:opts :file])))
+      (is (= "modules/dup2.clj" (get-in (runtime-alpha/use! :dup {:file "modules/dup2.clj"}) [:opts :file])))
+      (is (= #{:dup} (set (keys (runtime-alpha/uses)))))
+      (is (= "modules/dup2.clj" (get-in (runtime-alpha/use :dup) [:opts :file]))))))
 
 (deftest use-gates-before-load-and-call-side-effects
   (with-runtime
@@ -662,12 +720,12 @@
                             (str "(ns demo.gated-effect)\n"
                                  "(spit " (pr-str (str side-effect-file)) " :loaded)\n"
                                  "(defn install! [] (spit " (pr-str (str side-effect-file)) " :called))\n"))
-        (is (= :not-approved (:reason (libs/use! :gate/not-approved
+        (is (= :not-approved (:reason (runtime-alpha/use! :gate/not-approved
                                                  {:file "modules/gated_effect.clj"
                                                   :libs ['demo/not-approved]
                                                   :call 'demo.gated-effect/install!}))))
         (is (false? (.exists side-effect-file)))
-        (is (= :missing-after (:reason (libs/use! :gate/missing-after
+        (is (= :missing-after (:reason (runtime-alpha/use! :gate/missing-after
                                                 {:file "modules/gated_effect.clj"
                                                  :after [:missing]
                                                  :call 'demo.gated-effect/install!}))))

@@ -15,7 +15,7 @@ func writeMeta(t *testing.T, stateDir, sock string, pid int) {
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	m := Metadata{ProtocolVersion: 1, PID: pid, DatabasePath: filepath.Join(filepath.Dir(stateDir), "data", "skein.sqlite"), DaemonID: "daemon-1", ConfigDir: filepath.Dir(stateDir), DataDir: filepath.Join(filepath.Dir(stateDir), "data"), SocketPath: sock, StartedAt: "now"}
+	m := Metadata{ProtocolVersion: 1, PID: pid, DatabasePath: filepath.Join(filepath.Dir(stateDir), "data", "skein.sqlite"), DaemonID: "daemon-1", ConfigDir: filepath.Dir(stateDir), StateDir: stateDir, DataDir: filepath.Join(filepath.Dir(stateDir), "data"), Name: filepath.Base(filepath.Dir(stateDir)), SocketPath: sock, StartedAt: "now"}
 	m.NREPL.Host = "127.0.0.1"
 	m.NREPL.Port = 9999
 	b, _ := json.Marshal(m)

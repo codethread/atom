@@ -28,6 +28,7 @@ type server struct {
 type weaverChild struct {
 	cmd   *exec.Cmd
 	world config.World
+	name  string
 	done  chan error
 }
 
@@ -61,6 +62,15 @@ func main() {
 		}
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}})
+	weaver := &cobra.Command{Use: "weaver", Short: "Inspect supervised weavers"}
+	weaver.AddCommand(&cobra.Command{Use: "list", Short: "List known selected-world weavers", RunE: func(cmd *cobra.Command, args []string) error {
+		result, err := client.MillCall("weaver-list", client.MillWorldRequest{})
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
+	}})
+	root.AddCommand(weaver)
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -147,6 +157,13 @@ func (s *server) handle(conn net.Conn) {
 		result, err := s.weaverStatus(req.World)
 		if err != nil {
 			_ = json.NewEncoder(conn).Encode(errorResponse(req.RequestID, "domain", "mill/weaver-status-failed", "weaver status failed", err.Error()))
+			return
+		}
+		_ = json.NewEncoder(conn).Encode(client.MillResponse{ProtocolVersion: client.MillProtocolVersion, RequestID: req.RequestID, OK: true, Result: result})
+	case "weaver-list":
+		result, err := s.weaverList()
+		if err != nil {
+			_ = json.NewEncoder(conn).Encode(errorResponse(req.RequestID, "domain", "mill/weaver-list-failed", "weaver list failed", err.Error()))
 			return
 		}
 		_ = json.NewEncoder(conn).Encode(client.MillResponse{ProtocolVersion: client.MillProtocolVersion, RequestID: req.RequestID, OK: true, Result: result})

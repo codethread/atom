@@ -1,66 +1,56 @@
 (ns skein.libs.alpha
-  "Connected helper API for trusted runtime library workflows.
+  "Compatibility shim for the privileged runtime loader/config helper API.
 
-  This namespace routes library allowlist, sync, config reload, and module-use
-  operations to the selected Skein weaver runtime. Inside a daemon process calls
-  use the in-process runtime; from a connected helper REPL they route through the
-  active weaver client connection."
+  New config and code should require `skein.runtime.alpha`. This namespace remains
+  during alpha migration so existing `skein.libs.alpha` config keeps working."
   (:refer-clojure :exclude [sync use])
-  (:require [skein.client :as client]
-            [skein.repl :as repl]
-            [skein.weaver.runtime :as runtime]))
-
-(defn- call-daemon [op & args]
-  (if-let [rt @runtime/current-runtime]
-    (apply (requiring-resolve (symbol "skein.weaver.api" (name op))) rt args)
-    (apply client/call-world (repl/connected-config-dir) (repl/connected-opts) op args)))
+  (:require [skein.runtime.alpha :as runtime]))
 
 (defn approved
-  "Return the normalized library allowlist for the selected weaver config dir.
+  "Return the normalized approved library roots for the selected weaver config dir.
 
-  Reads the effective `libs.edn` plus `libs.local.edn` overlay through the
-  active runtime and returns `{:libs ...}` with canonical local roots and source
-  metadata. Malformed allowlists fail loudly with ExceptionInfo."
+  Compatibility wrapper for `skein.runtime.alpha/approved`."
   []
-  (call-daemon :approved-libs))
+  (runtime/approved))
 
 (defn sync!
   "Load approved local roots into the selected weaver runtime.
 
-  Returns `{:libs ...}` with one result per approved library and records the
-  results in weaver-lifetime sync state. Structural allowlist errors throw;
-  per-library load failures are returned as failed result maps."
+  Compatibility wrapper for `skein.runtime.alpha/sync!`."
   []
-  (call-daemon :sync-approved-libs))
+  (runtime/sync!))
 
 (defn syncs
-  "Return the selected weaver runtime's most recent approved-library sync state."
+  "Return the selected weaver runtime's most recent approved-root sync state.
+
+  Compatibility wrapper for `skein.runtime.alpha/syncs`."
   []
-  (call-daemon :approved-lib-syncs))
+  (runtime/syncs))
 
 (defn reload!
   "Reload startup files from the selected config dir in the active weaver.
 
-  Clears runtime extension registries before loading `init.clj` then
-  `init.local.clj` when present and returns the load result map."
+  Compatibility wrapper for `skein.runtime.alpha/reload!`."
   []
-  (call-daemon :reload-config!))
+  (runtime/reload!))
 
 (defn use!
   "Activate a weaver-side module and record its use state.
 
-  `key` must be a keyword. `opts` selects exactly one module source with `:ns`
-  or `:file`, and may include `:libs`, `:after`, `:call`, and `:required?` gates.
-  Returns a loaded, skipped, or failed module-use result map."
+  Compatibility wrapper for `skein.runtime.alpha/use!`."
   [key opts]
-  (call-daemon :use! key opts))
+  (runtime/use! key opts))
 
 (defn uses
-  "Return the selected weaver runtime's module-use registry as data-first maps."
+  "Return the selected weaver runtime's module-use registry as data-first maps.
+
+  Compatibility wrapper for `skein.runtime.alpha/uses`."
   []
-  (call-daemon :uses))
+  (runtime/uses))
 
 (defn use
-  "Return one module-use registry entry from the selected weaver runtime by key."
+  "Return one module-use registry entry from the selected weaver runtime by key.
+
+  Compatibility wrapper for `skein.runtime.alpha/use`."
   [key]
-  (call-daemon :use key))
+  (runtime/use key))

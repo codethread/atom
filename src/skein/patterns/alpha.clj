@@ -2,7 +2,7 @@
   "Public helper API for registering, inspecting, and invoking weave patterns.
 
   Calls route directly when executing inside a weaver runtime, otherwise through
-  the connected helper REPL world. The weaver API owns pattern validation,
+  an explicit connected client world. The weaver API owns pattern validation,
   function resolution, input spec validation, and transactional batch creation."
   (:require [skein.client :as client]
             [skein.weaver.api :as api]
@@ -25,7 +25,7 @@
   `fn-sym` must be a fully qualified function symbol loadable in the weaver JVM.
   `input-spec` is a clojure.spec name used for pre-invocation validation and
   caller explanation. Routes directly when called inside the weaver JVM, or
-  through the connected helper REPL world."
+  through an explicit connected client world."
   ([name fn-sym input-spec]
    (call-daemon :register-pattern! name fn-sym input-spec))
   ([name doc fn-sym input-spec]

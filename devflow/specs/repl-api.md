@@ -39,10 +39,10 @@ weave!
 
 ## SPEC-003.P3 Contracts
 
-- **SPEC-003.C1:** `connect!` selects one active weaver connection by Skein world. It requires an explicit selected config-dir and state metadata, either passed by `strand weaver repl` after mill world resolution or supplied directly by standalone Clojure/test helpers. It never accepts a database path and no longer silently falls back to an XDG global world.
-- **SPEC-003.C2:** `strand weaver repl` requires a running `mill`, asks it to resolve the selected world and verify that world's weaver is running, preloads `skein.repl`, calls `connect!` for the selected weaver world, and presents the prompt. Mill does not proxy nREPL; the helper JVM connects directly to the selected weaver nREPL endpoint using mill-provided runtime metadata.
-- **SPEC-003.C3:** `strand weaver repl --stdin` uses the same preloaded, connected helper context, reads forms from stdin, evaluates them in order, prints one direct normal Clojure result per top-level form, and exits. Callers that want one machine-readable payload should wrap work in one top-level `do` or `let`.
-- **SPEC-003.C4:** Helpers that need a weaver fail before connection with remediation that points to `strand weaver repl` or `connect!`; weaver/transport failures surface loudly as Clojure exceptions.
+- **SPEC-003.C1:** `connect!` selects one active weaver connection by Skein world for explicit Clojure client/test workflows. It requires an explicit selected config-dir and optional state metadata supplied directly by standalone Clojure/test helpers. It never accepts a database path and no longer silently falls back to an XDG global world. Default `strand weaver repl` does not call `connect!`.
+- **SPEC-003.C2:** `strand weaver repl` requires a running `mill`, asks it to resolve the selected world, verify that world's weaver is running, and return nREPL metadata, then attaches the user's terminal to the selected weaver nREPL endpoint. Mill does not proxy nREPL. Any launched attach client is transport/UI only: user forms are evaluated in the weaver JVM, not in a separate local runtime or through the fixed API bridge.
+- **SPEC-003.C3:** `strand weaver repl --stdin` attaches to the selected running weaver nREPL, reads and evaluates top-level stdin forms in the weaver JVM in order, prints one direct normal Clojure result per form, and exits non-zero on read, eval, or transport failure. Callers that want one machine-readable payload should wrap work in one top-level `do` or `let`.
+- **SPEC-003.C4:** Helpers that need a weaver use `@skein.weaver.runtime/current-runtime` when evaluated inside the active weaver JVM. Outside an active weaver process, they fail before connection with remediation that points to `strand weaver repl` or `connect!`; explicit connected helper/client workflows route through the selected world after `connect!`. Weaver/transport failures surface loudly as Clojure exceptions.
 - **SPEC-003.C5:** `init!` is a trusted idempotent helper for explicit schema initialization/testing. Normal CLI setup does not require calling it because weaver startup prepares empty stores.
 - **SPEC-003.C6:** `strand!` creates a strand and returns the created row. Supported arities include a title alone, title with attributes, and title with options containing optional `:state` and `:attributes`.
 - **SPEC-003.C7:** `update!` accepts a strand id and patch map with optional `:title`, `:state`, `:attributes`, and `:edges`. Generic update accepts `active|closed`; `replaced` is reserved for supersession. Other lifecycle keys are not core strand fields.
@@ -58,17 +58,17 @@ weave!
 - **SPEC-003.C14:** `strand`, `strands`, `query`, and `ready` return rows with JSON-bearing columns normalized to Clojure values and with the `state` lifecycle field.
 - **SPEC-003.C15:** `ready` returns active strands whose direct `depends-on` dependencies are not active and may be further filtered by an ad hoc or registered query. This is equivalent to `[:and [:= :state "active"] [:not [:edge/out "depends-on" [:= :state "active"]]]]`.
 - **SPEC-003.C15a:** `declare-acyclic-relation!` declares a valid relation name acyclic in durable storage and is idempotent. It fails loudly if edges of that relation already exist. `acyclic-relations` lists declared acyclic relation names.
-- **SPEC-003.C16:** Blessed library-workspace helpers live in explicit `skein.libs.alpha`, not in the preloaded `skein.repl` helper namespace.
-- **SPEC-003.C17:** `skein.libs.alpha` exposes approved library config helpers, approved-local-root sync helpers, resilient module activation with `use!`, and weaver-lifetime sync/use introspection.
-- **SPEC-003.C18:** `skein.libs.alpha` helpers route to the selected weaver world when called from connected REPL clients. Direct `require` in a connected helper REPL remains local to the helper JVM.
-- **SPEC-003.C19:** `skein.libs.alpha` is the documented library-workspace path, but trusted users may require lower-level namespaces or read raw SQLite when they accept compatibility cost.
+- **SPEC-003.C16:** Blessed library-workspace helpers live in explicit `skein.runtime.alpha`, not in the preloaded `skein.repl` helper namespace.
+- **SPEC-003.C17:** `skein.runtime.alpha` exposes approved library config helpers, approved-local-root sync helpers, resilient module activation with `use!`, and weaver-lifetime sync/use introspection.
+- **SPEC-003.C18:** `skein.runtime.alpha` helpers execute against the active `current-runtime` when called inside the live weaver JVM. In explicit connected client/test workflows, they route to the selected weaver world after `connect!`.
+- **SPEC-003.C19:** `skein.runtime.alpha` is the documented library-workspace path, but trusted users may require lower-level namespaces or read raw SQLite when they accept compatibility cost.
 - **SPEC-003.C20:** `defpattern!` registers a simple pattern name, optional non-blank doc string, fully qualified function symbol, and input spec name in the active weaver's in-memory pattern registry. Supported arities are `(defpattern! name fn-sym input-spec)` and `(defpattern! name doc fn-sym input-spec)`. Duplicate registration replaces the prior entry. The same operations are available through the blessed `skein.patterns.alpha` namespace for trusted startup config, activated libraries, and connected REPL workflows.
 - **SPEC-003.C21:** `patterns`, `pattern`, and `pattern-explain` inspect active weaver pattern state. Missing pattern lookup fails loudly. Explanations return serializable caller guidance based on the registered spec.
 - **SPEC-003.C22:** `weave!` validates input against the registered spec, calls the registered function with `{:input input}`, requires the result to be a valid batch strand vector, and creates the batch atomically through the weaver.
 
 ## SPEC-003.P4 Runtime transformation helpers
 
-Skein ships blessed source-visible runtime transformation namespaces for trusted config and connected REPL workflows:
+Skein ships blessed source-visible runtime transformation namespaces for trusted config, live weaver REPL, and explicit connected client workflows:
 
 - `skein.graph.alpha` exposes `(query-ids! query params)`, `(burn-by-id! id)`, `(burn-by-ids! ids)`, `(strands-by-ids ids)`, `(ancestor-root-ids seed-ids)`, `(ancestor-root-ids seed-ids opts)`, `(subgraph root-ids)`, and `(subgraph root-ids opts)`. Traversal opts may include `:type` for the declared acyclic relation to walk and default to `"parent-of"`; annotation relations fail loudly. `ancestor-root-ids` also preserves `:where`/`:params` filtering.
 - `skein.views.alpha` exposes `(register-view! name fn-sym)`, `(view! name params)`, and `(views)`. View registration accepts a simple view name and a fully qualified function symbol, not an arbitrary client-side function value.
@@ -77,7 +77,7 @@ Skein ships blessed source-visible runtime transformation namespaces for trusted
 - `skein.hooks.alpha` exposes `(register! key types fn-sym)`, `(register! key types fn-sym opts)`, `(unregister! key)`, and `(hooks)`. Hook keys are stable keywords, symbols, or non-blank strings; hook type sets are non-empty keyword sets; function symbols are fully qualified and weaver-resolvable; `opts` may include `:order` and data-first metadata. Registration replaces by key, `hooks` returns deterministic data-first entries, validation hooks return normally or throw, and transform hooks return `{:hook/value replacement}`.
 - `skein.batch.alpha` exposes `(apply! payload)` for transactional batch graph mutation payloads with `:refs`, `:strands`, `:edges`, and `:burn`. It returns normalized Clojure data from the weaver operation, including final refs, created rows, updated before/after rows, burned rows, and edge outcomes, without a JSON envelope.
 
-Helpers execute weaver-side when called from `init.clj` or activated runtime libraries, and route to the selected weaver world when called from connected REPL clients. Connected helper REPL users who want to register new view, pattern, event handler, or hook functions should place them in weaver-loadable config/library code and register their symbols. View, pattern, event, and hook registrations are weaver-lifetime runtime state unless user config reloads them on startup.
+Helpers execute weaver-side when called from `init.clj`, activated runtime libraries, or the live weaver REPL. Explicit connected client users who want to register new view, pattern, event handler, or hook functions should place them in weaver-loadable config/library code and register their symbols. View, pattern, event, and hook registrations are weaver-lifetime runtime state unless user config reloads them on startup.
 
 User config may require `skein.graph.alpha`, `skein.patterns.alpha`, `skein.views.alpha`, `skein.events.alpha`, `skein.hooks.alpha`, and `skein.batch.alpha` so users can inspect and extend the blessed path. These built-in namespaces come from the Skein checkout on the weaver classpath; they do not require `libs.edn` approval.
 
@@ -87,36 +87,36 @@ Event handlers receive one event map and may perform trusted side effects, inclu
 
 ## SPEC-003.P5 Runtime library workspace helpers
 
-`skein.libs.alpha` is the blessed alpha namespace for trusted config and connected REPL library workspace workflows. It is explicit and is not preloaded into `skein.repl`.
+`skein.runtime.alpha` is the blessed alpha namespace for trusted config, live weaver REPL, and explicit connected client library workspace workflows. It is explicit and is not preloaded into `skein.repl`. `skein.libs.alpha` remains an alpha compatibility alias for the same loader/config helper functions, but new config and examples use `skein.runtime.alpha`.
 
 Approved library config is the effective overlay of `libs.edn` and `libs.local.edn` in the selected config-dir. Both files use the same MVP EDN grammar: exactly one top-level key, `:libs`, whose value is a map from symbol library coordinates to maps containing exactly one required key, `:local/root`, a non-blank string path. Unknown top-level keys, non-symbol coordinates, missing `:libs` in a present file, non-map entries, unknown per-lib keys, and missing/non-string `:local/root` fail loudly as structural config errors. Missing files contribute no libraries. When both files define the same coordinate, the `libs.local.edn` entry replaces the `libs.edn` entry.
 
-Relative `:local/root` values resolve against selected config-dir; absolute roots are accepted as explicit user-approved paths; leading `~` and `~/` expand to the user home directory. Normalized approved config returns entries shaped as `{lib-symbol {:local/root original-path :root canonical-path :source {:kind :shared|:local :file path}}}`. Per-library missing or unreadable local roots are not structural config errors; `(libs/sync!)` records them as failed sync outcomes so optional module activation can skip without aborting weaver startup.
+Relative `:local/root` values resolve against selected config-dir; absolute roots are accepted as explicit user-approved paths; leading `~` and `~/` expand to the user home directory. Normalized approved config returns entries shaped as `{lib-symbol {:local/root original-path :root canonical-path :source {:kind :shared|:local :file path}}}`. Per-library missing or unreadable local roots are not structural config errors; `(runtime/sync!)` records them as failed sync outcomes so optional module activation can skip without aborting weaver startup.
 
 Helpers include:
 
-- `(libs/approved)` returns normalized approved config.
-- `(libs/sync!)` uses Clojure runtime dependency tooling to add approved local roots and returns structured results for loaded, already-available, and failed libraries.
-- `(libs/syncs)` returns weaver-lifetime approved-library sync state.
-- `(libs/reload!)` clears weaver-lifetime approved-library sync state, module-use state, named queries, views, patterns, lifecycle hooks, event handlers, queued events, and recent event failures, then reloads selected config-dir startup files in order (`init.clj`, then `init.local.clj`) inside the active weaver and returns loaded file metadata plus final return values. Missing startup files are skipped; present failing files throw with file context. Event dispatch resumes after the fully layered config loads. Reload does not unload already-loaded Clojure namespaces or vars.
-- `(libs/use! key opts)` records one weaver-lifetime module-use attempt under keyword `key`; duplicate keys replace prior state for reload workflows.
-- `(libs/uses)` and `(libs/use key)` expose weaver-lifetime module-use state.
+- `(runtime/approved)` returns normalized approved config.
+- `(runtime/sync!)` uses Clojure runtime dependency tooling to add approved local roots and returns structured results for loaded, already-available, and failed libraries.
+- `(runtime/syncs)` returns weaver-lifetime approved-library sync state.
+- `(runtime/reload!)` clears weaver-lifetime approved-library sync state, module-use state, named queries, views, patterns, lifecycle hooks, event handlers, queued events, and recent event failures, then reloads selected config-dir startup files in order (`init.clj`, then `init.local.clj`) inside the active weaver and returns loaded file metadata plus final return values. Missing startup files are skipped; present failing files throw with file context. Event dispatch resumes after the fully layered config loads. Reload does not unload already-loaded Clojure namespaces or vars.
+- `(runtime/use! key opts)` records one weaver-lifetime module-use attempt under keyword `key`; duplicate keys replace prior state for reload workflows.
+- `(runtime/uses)` and `(runtime/use key)` expose weaver-lifetime module-use state.
 
 `use!` options identify exactly one load target with `:ns` for weaver-side namespace loading or `:file` for selected-config-dir-relative weaver-side `load-file`; `:file` must be relative and must resolve within the selected config-dir. For `:ns`, the weaver first searches synced local-root classpath entries from each root's `deps.edn :paths` (defaulting to `["src"]`) and `load-file`s the namespace source using Clojure's hyphen-to-underscore path mapping; if no synced source exists it falls back to ordinary `require`. Options may include `:libs`, a vector or set of symbol library coordinate keys that must be approved and available before target loading; `:after`, a vector of prior loaded `use!` keys; `:call`, a fully qualified zero-arity function symbol to resolve and call after successful load; and `:required? true` for strict load/call failure behavior.
 
 Malformed `use!` options always throw. Unmet `:libs` requirements record and return `{:status :skipped ...}` before target loading, with reasons including `:not-approved`, `:not-synced`, or `:sync-failed` when known. Unmet `:after` requirements record and return `{:status :skipped ...}` with reason `:missing-after`. Load or call exceptions record and return `{:status :failed ...}` by default; `:required? true` rethrows after recording. Raw `require` remains the strict fail-fast path for required config.
 
-Maven/remote dependency coordinates, version-range matching, alternate approved-library config files, source fetching, and direct connected-helper-REPL `require` of newly synced weaver libraries are outside the MVP contract.
+Maven/remote dependency coordinates, version-range matching, alternate approved-library config files, source fetching, and direct explicit-client `require` of newly synced weaver libraries are outside the MVP contract.
 
 ## SPEC-003.P6 Example library init
 
 Selected config-dir startup files (`init.clj`, then `init.local.clj`) may sync approved local roots and activate optional modules:
 
 ```clojure
-(require '[skein.libs.alpha :as libs])
+(require '[skein.runtime.alpha :as runtime])
 
-(libs/sync!)
-(libs/use! :my/module
+(runtime/sync!)
+(runtime/use! :my/module
   {:ns 'my.module.alpha
    :libs #{'my/module}
    :call 'my.module.alpha/install!})

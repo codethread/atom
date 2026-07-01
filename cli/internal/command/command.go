@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -20,6 +21,8 @@ type App struct {
 }
 type Options struct {
 	ConfigDir, StateDir, DataDir, Source string
+	NreplHost, NreplPort                 string
+	Name                                 string
 	ConfigDirExplicit                    bool
 }
 type ExitError struct {
@@ -261,8 +264,15 @@ func (a *App) rootCommand() *cobra.Command {
 
 	weaver := &cobra.Command{Use: "weaver", Short: "Manage the local weaver"}
 	start := &cobra.Command{Use: "start", Short: "Start the selected world's weaver through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return a.millWeaverCommand(o, "weaver-start")
+		name, _ := cmd.Flags().GetString("name")
+		if cmd.Flags().Changed("name") && strings.TrimSpace(name) == "" {
+			return errors.New("--name requires a non-empty value")
+		}
+		r := o
+		r.Name = name
+		return a.millWeaverCommand(r, "weaver-start")
 	}}
+	start.Flags().String("name", "", "friendly name for this weaver (defaults to config-dir basename)")
 	weaver.AddCommand(start)
 	weaver.AddCommand(&cobra.Command{Use: "status", Short: "Show selected-world weaver status through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.millWeaverCommand(o, "weaver-status")
@@ -270,11 +280,11 @@ func (a *App) rootCommand() *cobra.Command {
 	weaver.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the selected world's weaver through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.millWeaverCommand(o, "weaver-stop")
 	}})
-	repl := &cobra.Command{Use: "repl", Short: "Start a connected Clojure helper REPL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	repl := &cobra.Command{Use: "repl", Short: "Attach directly to the selected world's live weaver nREPL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		stdin, _ := cmd.Flags().GetBool("stdin")
 		return a.withResolvedConfig(o, func(r Options) error { return a.launchRepl(r, stdin) })
 	}}
-	repl.Flags().Bool("stdin", false, "read Clojure forms from stdin, print one result per top-level form, then exit")
+	repl.Flags().Bool("stdin", false, "send stdin Clojure forms to the running weaver, print one result per top-level form, then exit")
 	weaver.AddCommand(repl)
 	root.AddCommand(weaver)
 	return root
@@ -388,15 +398,9 @@ func weaverArgs(o Options) []string {
 func replArgs(o Options, stdin bool) []string {
 	args := []string{"-M", "-m", "skein.repl"}
 	if stdin {
-		args = append(args, "--stdin")
+		return append(args, "--attach-stdin", o.NreplHost, o.NreplPort)
 	}
-	if o.ConfigDir != "" {
-		args = append(args, o.ConfigDir)
-	}
-	if o.StateDir != "" {
-		args = append(args, o.StateDir)
-	}
-	return args
+	return append(args, "--attach", o.NreplHost, o.NreplPort)
 }
 
 func runProcess(source string, args []string, in io.Reader, out, errOut io.Writer) error {
@@ -438,7 +442,7 @@ func (a *App) millWeaverCommand(o Options, operation string) error {
 	if err != nil {
 		return err
 	}
-	result, err := millCall(operation, client.MillWorldRequest{CWD: cwd, ConfigDir: o.ConfigDir})
+	result, err := millCall(operation, client.MillWorldRequest{CWD: cwd, ConfigDir: o.ConfigDir, Name: o.Name})
 	if err != nil {
 		return err
 	}
@@ -466,6 +470,45 @@ func (a *App) launchWeaver(o Options) error {
 	return runWeaverProcess(o, a.Stdout, a.Stderr)
 }
 
+func nreplEndpoint(v any) (string, string, error) {
+	nrepl, ok := v.(map[string]any)
+	if !ok {
+		return "", "", errors.New("malformed mill weaver-repl-context response: missing nrepl")
+	}
+	host, ok := nrepl["host"].(string)
+	if !ok || host == "" {
+		return "", "", errors.New("malformed mill weaver-repl-context response: missing nrepl.host")
+	}
+	port, err := parseNreplPort(nrepl["port"])
+	if err != nil {
+		return "", "", err
+	}
+	return host, port, nil
+}
+
+func parseNreplPort(v any) (string, error) {
+	var port int
+	switch p := v.(type) {
+	case string:
+		parsed, err := strconv.Atoi(p)
+		if err != nil {
+			return "", errors.New("malformed mill weaver-repl-context response: missing nrepl.port")
+		}
+		port = parsed
+	case float64:
+		if p != float64(int(p)) {
+			return "", errors.New("malformed mill weaver-repl-context response: missing nrepl.port")
+		}
+		port = int(p)
+	default:
+		return "", errors.New("malformed mill weaver-repl-context response: missing nrepl.port")
+	}
+	if port <= 0 || port > 65535 {
+		return "", errors.New("malformed mill weaver-repl-context response: missing nrepl.port")
+	}
+	return strconv.Itoa(port), nil
+}
+
 func (a *App) launchRepl(o Options, stdin bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -486,16 +529,17 @@ func (a *App) launchRepl(o Options, stdin bool) error {
 	if state != "running" {
 		return fmt.Errorf("no running weaver for selected world (state: %s); start one with: strand weaver start", state)
 	}
-	stateDir, ok := status["state_dir"].(string)
-	if !ok || stateDir == "" {
-		return errors.New("malformed mill weaver-repl-context response: missing state_dir")
-	}
 	source, ok := status["source"].(string)
 	if !ok || source == "" {
 		return errors.New("malformed mill weaver-repl-context response: missing source")
 	}
+	nreplHost, nreplPort, err := nreplEndpoint(status["nrepl"])
+	if err != nil {
+		return err
+	}
 	o.Source = source
-	o.StateDir = stateDir
+	o.NreplHost = nreplHost
+	o.NreplPort = nreplPort
 	return runReplProcess(o, stdin, a.Stdin, a.Stdout, a.Stderr)
 }
 

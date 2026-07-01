@@ -74,11 +74,11 @@ Skein stores:
 
 ## Runtime customization
 
-Named queries, weave patterns, weaver-memory views, and runtime libraries are loaded into the selected Skein world, then consumed by helpers or by small CLI commands such as `list --query <name>` and `weave --pattern <name>`.
+Named queries, weave patterns, weaver-memory views, and trusted runtime libraries are loaded into the selected Skein world, then consumed by helpers or by small CLI commands such as `list --query <name>` and `weave --pattern <name>`. Built-in `skein.*.alpha` namespaces are privileged shipped helpers; user/community libraries are trusted Clojure loaded through config, approved roots, or live REPL work.
 
 Fresh `strand init` creates `.skein/init.clj`, `.skein/libs.edn`, `.skein/.gitignore`, and a local `.skein/config.json` alpha marker for repo config. It does not persist source; mill resolves the Skein source for weaver/REPL launch from `SKEIN_SOURCE`, install-time source, or a canonical Skein checkout cwd. Keep shared workflow config in committed `init.clj`/`libs.edn`; keep personal workflow libraries in gitignored `init.local.clj`/`libs.local.edn`.
 
-Use `strand weaver repl` for trusted interactive work and `(skein.libs.alpha/reload!)` to hot-reload `init.clj` followed by `init.local.clj`.
+Use `strand weaver repl` to attach directly to the running weaver nREPL for trusted interactive work, and `(skein.runtime.alpha/reload!)` to hot-reload `init.clj` followed by `init.local.clj`.
 
 ## Documentation
 

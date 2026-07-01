@@ -59,7 +59,7 @@ func TestWeaverLifecycleWithFakeLauncher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if launchedSource != source || !reflect.DeepEqual(launchedArgs, weaverArgs(world)) {
+	if launchedSource != source || !reflect.DeepEqual(launchedArgs, weaverArgs(world, filepath.Base(world.ConfigDir))) {
 		t.Fatalf("unexpected launch source/args: source=%q args=%#v", launchedSource, launchedArgs)
 	}
 	if status["state"] != "running" || status["pid"] == nil || status["weaver_id"] != "weaver-one" || status["socket_path"] == nil || status["nrepl"] == nil {
@@ -102,6 +102,66 @@ func TestWeaverLifecycleWithFakeLauncher(t *testing.T) {
 	}
 	if strings.Contains(logText, "weaver running config_dir=") {
 		t.Fatalf("idempotent start should not log a lifecycle transition:\n%s", logText)
+	}
+}
+
+func TestWeaverListIncludesSupervisedAndMetadataDiscovered(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
+	source := tempSource(t)
+	cfgA := tempConfig(t, source)
+	cfgB := tempConfig(t, source)
+	worldA, err := config.RuntimeWorld(cfgA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worldB, err := config.RuntimeWorld(cfgB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() })
+	writeWeaverMetadata(t, worldA, cmd.Process.Pid, "weaver-a")
+	writeWeaverMetadata(t, worldB, os.Getpid(), "weaver-b")
+	s := server{children: map[string]*weaverChild{worldA.ConfigDir: &weaverChild{cmd: cmd, world: worldA, done: make(chan error, 1)}}}
+	rows, err := s.weaverList()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected two weavers, got %#v", rows)
+	}
+	byID := map[any]map[string]any{}
+	for _, row := range rows {
+		byID[row["weaver_id"]] = row
+	}
+	for _, id := range []string{"weaver-a", "weaver-b"} {
+		row := byID[id]
+		if row == nil || row["state"] != "running" || row["name"] == "" || row["config_dir"] == "" || row["state_dir"] == "" || row["data_dir"] == "" || row["database_path"] == "" || row["socket_path"] == "" || row["nrepl"] == nil || row["started_at"] == "" {
+			t.Fatalf("bad list row for %s: %#v", id, row)
+		}
+	}
+}
+
+func TestFriendlyNameRejectsWhitespaceOnly(t *testing.T) {
+	world := config.World{ConfigDir: filepath.Join(t.TempDir(), "cfg")}
+	if _, err := friendlyName(world, " \t\n"); err == nil || !strings.Contains(err.Error(), "must not be blank") {
+		t.Fatalf("expected blank name error, got %v", err)
+	}
+}
+
+func TestValidateMetadataRejectsWhitespaceOnlyName(t *testing.T) {
+	world := config.World{ConfigDir: filepath.Join(t.TempDir(), "cfg")}
+	world.StateDir = filepath.Join(t.TempDir(), "state")
+	world.DataDir = filepath.Join(t.TempDir(), "data")
+	world.DBPath = filepath.Join(world.DataDir, "skein.sqlite")
+	m := client.Metadata{ProtocolVersion: 1, PID: os.Getpid(), DatabasePath: world.DBPath, DaemonID: "weaver", ConfigDir: world.ConfigDir, StateDir: world.StateDir, DataDir: world.DataDir, Name: "   ", SocketPath: filepath.Join(world.StateDir, "weaver.sock"), StartedAt: "now"}
+	m.NREPL.Host = "127.0.0.1"
+	m.NREPL.Port = 5555
+	if got := validateMetadata(world, m); got != "malformed weaver metadata: missing required fields" {
+		t.Fatalf("expected malformed metadata for blank name, got %q", got)
 	}
 }
 
@@ -205,7 +265,7 @@ func TestWeaverStatusDistinguishesStaleMetadata(t *testing.T) {
 	if err != nil || status["state"] != "stale" || status["stale_reason"] == nil {
 		t.Fatalf("expected malformed stale status, got %#v err=%v", status, err)
 	}
-	if err := os.WriteFile(filepath.Join(world.StateDir, "weaver.json"), []byte(`{"protocol_version":1,"pid":1,"database_path":"/wrong","weaver_id":"wrong","config_dir":"/wrong","data_dir":"/wrong","socket_path":"/wrong","started_at":"now","nrepl":{"host":"127.0.0.1","port":1}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(world.StateDir, "weaver.json"), []byte(`{"protocol_version":1,"pid":1,"database_path":"/wrong","weaver_id":"wrong","config_dir":"/wrong","state_dir":"/wrong","data_dir":"/wrong","name":"wrong","socket_path":"/wrong","started_at":"now","nrepl":{"host":"127.0.0.1","port":1}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	status, err = s.weaverStatus(req)
@@ -433,7 +493,7 @@ func writeWeaverMetadata(t *testing.T, world config.World, pid int, id string) {
 	if err := os.MkdirAll(world.StateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	meta := `{"protocol_version":1,"pid":` + intString(pid) + `,"database_path":"` + world.DBPath + `","weaver_id":"` + id + `","config_dir":"` + world.ConfigDir + `","data_dir":"` + world.DataDir + `","socket_path":"` + filepath.Join(world.StateDir, "weaver.sock") + `","started_at":"` + time.Now().UTC().Format(time.RFC3339Nano) + `","nrepl":{"host":"127.0.0.1","port":5555}}`
+	meta := `{"protocol_version":1,"pid":` + intString(pid) + `,"database_path":"` + world.DBPath + `","weaver_id":"` + id + `","config_dir":"` + world.ConfigDir + `","state_dir":"` + world.StateDir + `","data_dir":"` + world.DataDir + `","name":"` + filepath.Base(world.ConfigDir) + `","socket_path":"` + filepath.Join(world.StateDir, "weaver.sock") + `","started_at":"` + time.Now().UTC().Format(time.RFC3339Nano) + `","nrepl":{"host":"127.0.0.1","port":5555}}`
 	if err := os.WriteFile(filepath.Join(world.StateDir, "weaver.json"), []byte(meta), 0o644); err != nil {
 		t.Fatal(err)
 	}

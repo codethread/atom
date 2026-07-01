@@ -1,0 +1,83 @@
+# skein.nvim
+
+Small Neovim helper for connecting [Conjure](https://github.com/Olical/conjure) to a running Skein weaver nREPL.
+
+Requires Neovim with Lua support. On Neovim 0.10+ the plugin uses `vim.system`; on older versions it falls back to synchronous `vim.fn.system` for `mill weaver list`.
+
+## Install with lazy.nvim
+
+```lua
+{
+  dir = "/Users/ct/dev/projects/skein-src__repl/integrations/neovim",
+  name = "skein.nvim",
+  dependencies = { "Olical/conjure" },
+  ft = { "clojure" },
+  cmd = { "SkeinConnect" },
+}
+```
+
+For a cloned/plugin-manager path, replace `dir` with the appropriate `url` or local path.
+
+## Minimal Conjure setup
+
+Conjure must be loaded for Clojure buffers before `:SkeinConnect` runs. A terse lazy.nvim setup:
+
+```lua
+{
+  "Olical/conjure",
+  ft = { "clojure" },
+  init = function()
+    vim.g["conjure#mapping#doc_word"] = false
+    vim.g["conjure#client#clojure#nrepl#connection#auto_repl#enabled"] = false
+  end,
+  config = function()
+    require("conjure.main")
+    -- Optional if you use tree-sitter aware extraction in your config:
+    -- require("conjure.extract")
+  end,
+}
+```
+
+If your config loads plugins from `FileType` autocommands, call `require("conjure.main")` for the `clojure` filetype and then bind `:SkeinConnect`, for example:
+
+```lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "clojure",
+  callback = function(event)
+    require("conjure.main")
+    vim.keymap.set("n", "<localleader>sc", "<cmd>SkeinConnect<cr>", {
+      buffer = event.buf,
+      desc = "Connect to Skein weaver",
+    })
+  end,
+})
+```
+
+## Usage
+
+1. Ensure `mill` is on `$PATH` and running:
+
+   ```sh
+   mill start
+   ```
+
+2. Start a weaver in the target Skein world:
+
+   ```sh
+   strand weaver start
+   ```
+
+3. In Neovim, open a Clojure buffer and run:
+
+   ```vim
+   :SkeinConnect
+   ```
+
+The command runs `mill weaver list`, decodes the JSON rows, shows running weavers with their friendly name, shortened config path, state, and nREPL endpoint, then runs:
+
+```vim
+:ConjureConnect <host> <port>
+:ConjureEval (do (require 'skein.repl) (in-ns 'skein.repl))
+```
+
+Errors are reported with `vim.notify` if `mill` is missing, the JSON is malformed, no weavers are running, the selected row lacks nREPL metadata, Conjure commands are unavailable, or Conjure connection/eval commands fail.

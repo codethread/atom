@@ -1617,6 +1617,45 @@
         (metadata/delete! world)
         (delete-tree! (io/file (:config-dir world)))))))
 
+(deftest runtime-metadata-rejects-blank-friendly-name
+  (let [world (temp-world)
+        db-file (db-test/temp-db-file)]
+    (try
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"Weaver name must not be blank"
+                            (metadata/metadata-shape {:pid 1
+                                                      :host "127.0.0.1"
+                                                      :port 5555
+                                                      :canonical-db-path (metadata/canonical-db-path db-file)
+                                                      :nonce "weaver"
+                                                      :world world
+                                                      :name "  "
+                                                      :started-at "now"})))
+      (is (true? (metadata/stale-or-missing?
+                  {:pid 1
+                   :transport :nrepl
+                   :protocol-version 1
+                   :endpoint {:host "127.0.0.1" :port 5555}
+                   :config-dir (:config-dir world)
+                   :state-dir (:state-dir world)
+                   :data-dir (:data-dir world)
+                   :canonical-db-path (metadata/canonical-db-path db-file)
+                   :nonce "weaver"
+                   :socket-path (str (:state-dir world) "/weaver.sock")
+                   :started-at "now"
+                   :name "  "})))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"--name requires a non-blank value"
+                            ((ns-resolve 'skein.weaver.runtime 'parse-main-args)
+                             ["--config-dir" (:config-dir world)
+                              "--state-dir" (:state-dir world)
+                              "--data-dir" (:data-dir world)
+                              "--name" "  "])))
+      (finally
+        (metadata/delete! world)
+        (db-test/delete-sqlite-family! db-file)
+        (delete-tree! (io/file (:config-dir world)))))))
+
 (deftest runtime-metadata-records-canonical-loopback-identity
   (with-runtime
     (fn [rt db-file]
@@ -1630,6 +1669,8 @@
         (is (= file (metadata/metadata-file (:metadata rt))))
         (is (pos-int? (get-in status [:endpoint :port])))
         (is (string? (:nonce status)))
+        (is (= (.getName (io/file (:config-dir status))) (:name status)))
+        (is (= (:name status) (get json-disk "name")))
         (is (= :nrepl (:transport status)))
         (is (= 1 (:protocol-version status)))
         (is (string? (:socket-path status)))

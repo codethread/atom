@@ -151,6 +151,7 @@
      "protocol_version" (:protocol-version m)
      "config_dir" (:config-dir m)
      "state_dir" (:state-dir m)
+     "name" (:name m)
      "data_dir" (:data-dir m)
      "database_path" (:canonical-db-path m)
      "weaver_id" (:nonce m)

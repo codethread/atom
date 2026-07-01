@@ -1,5 +1,5 @@
 (ns user
-  (:require [skein.weaver.runtime :as runtime]
+  (:require [skein.weaver.runtime :as weaver-runtime]
             [skein.repl :refer :all]))
 
 (defonce ^:private demo-runtime (atom nil))
@@ -25,7 +25,7 @@
     (throw (ex-info "Demo weaver is already started from this REPL" {:world @demo-world})))
   (let [world (new-demo-world!)]
     (reset! demo-world world)
-    (reset! demo-runtime (runtime/start! nil {:world world}))
+    (reset! demo-runtime (weaver-runtime/start! nil {:world world}))
     {:config-dir (:config-dir world)
      :status :weaver-started}))
 
@@ -34,7 +34,7 @@
   []
   (let [rt (or @demo-runtime
                (throw (ex-info "No demo weaver was started from this REPL" {:world @demo-world})))]
-    (runtime/stop! rt)
+    (weaver-runtime/stop! rt)
     (let [world @demo-world]
       (reset! demo-runtime nil)
       (reset! demo-world nil)

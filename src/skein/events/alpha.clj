@@ -2,7 +2,7 @@
   "Public helper API for registering and inspecting weaver event handlers.
 
   Calls route directly when executing inside a weaver runtime, otherwise through
-  the connected helper REPL world. The weaver API owns event handler validation,
+  an explicit connected client world. The weaver API owns event handler validation,
   function resolution, registry state, and asynchronous failure capture."
   (:require [skein.client :as client]
             [skein.repl :as repl]

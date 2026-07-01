@@ -317,11 +317,11 @@ func TestWeaverStartRoutesThroughMill(t *testing.T) {
 		return map[string]any{"state": "starting"}, nil
 	}
 	t.Cleanup(func() { millCall = orig })
-	out, err := run("--config-dir", cfg, "weaver", "start")
+	out, err := run("--config-dir", cfg, "weaver", "start", "--name", "editor")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if operation != "weaver-start" || world.ConfigDir != cfg || world.CWD == "" || strings.TrimSpace(out) != `{"state":"starting"}` {
+	if operation != "weaver-start" || world.ConfigDir != cfg || world.Name != "editor" || world.CWD == "" || strings.TrimSpace(out) != `{"state":"starting"}` {
 		t.Fatalf("unexpected mill route op=%s world=%#v out=%q", operation, world, out)
 	}
 }
@@ -332,14 +332,13 @@ func TestWeaverReplUsesMillReturnedSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := tempSource(t)
-	stateDir := filepath.Join(t.TempDir(), "state")
 	origMill := millCall
 	var operation string
 	var world client.MillWorldRequest
 	millCall = func(op string, req client.MillWorldRequest) (any, error) {
 		operation = op
 		world = req
-		return map[string]any{"state": "running", "source": source, "state_dir": stateDir}, nil
+		return map[string]any{"state": "running", "source": source, "nrepl": map[string]any{"host": "127.0.0.1", "port": float64(7888)}}, nil
 	}
 	origRun := runReplProcess
 	var launched Options
@@ -350,7 +349,7 @@ func TestWeaverReplUsesMillReturnedSource(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
-	if _, err := run("--config-dir", cfg, "weaver", "repl", "--stdin"); err != nil {
+	if _, err := run("--config-dir", cfg, "weaver", "repl"); err != nil {
 		t.Fatal(err)
 	}
 	realCfg, err := filepath.EvalSymlinks(cfg)
@@ -360,8 +359,14 @@ func TestWeaverReplUsesMillReturnedSource(t *testing.T) {
 	if operation != "weaver-repl-context" || world.ConfigDir != realCfg || world.CWD == "" {
 		t.Fatalf("unexpected mill route op=%s world=%#v", operation, world)
 	}
-	if launched.Source != source || launched.StateDir != stateDir || launched.ConfigDir != realCfg || !launchedStdin {
+	if launched.Source != source || launched.ConfigDir != realCfg || launched.NreplHost != "127.0.0.1" || launched.NreplPort != "7888" || launchedStdin {
 		t.Fatalf("unexpected repl launch options=%#v stdin=%v", launched, launchedStdin)
+	}
+	if got := replArgs(launched, false); !reflect.DeepEqual(got, []string{"-M", "-m", "skein.repl", "--attach", "127.0.0.1", "7888"}) {
+		t.Fatalf("unexpected interactive repl args: %#v", got)
+	}
+	if got := replArgs(launched, true); !reflect.DeepEqual(got, []string{"-M", "-m", "skein.repl", "--attach-stdin", "127.0.0.1", "7888"}) {
+		t.Fatalf("unexpected stdin repl args: %#v", got)
 	}
 }
 
@@ -377,7 +382,6 @@ func TestDiscoveredWeaverReplUsesMillReturnedSourceWithoutConfigSource(t *testin
 	}
 	withChdir(t, repo)
 	source := tempSource(t)
-	stateDir := filepath.Join(t.TempDir(), "state")
 	origMill := millCall
 	var world client.MillWorldRequest
 	millCall = func(op string, req client.MillWorldRequest) (any, error) {
@@ -385,12 +389,14 @@ func TestDiscoveredWeaverReplUsesMillReturnedSourceWithoutConfigSource(t *testin
 			t.Fatalf("unexpected mill op: %s", op)
 		}
 		world = req
-		return map[string]any{"state": "running", "source": source, "state_dir": stateDir}, nil
+		return map[string]any{"state": "running", "source": source, "nrepl": map[string]any{"host": "localhost", "port": "7889"}}, nil
 	}
 	origRun := runReplProcess
 	var launched Options
+	var launchedStdin bool
 	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
 		launched = o
+		launchedStdin = stdin
 		return nil
 	}
 	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
@@ -404,8 +410,41 @@ func TestDiscoveredWeaverReplUsesMillReturnedSourceWithoutConfigSource(t *testin
 	if world.ConfigDir != realCfg || world.CWD == "" {
 		t.Fatalf("unexpected discovered world request: %#v", world)
 	}
-	if launched.ConfigDir != realCfg || launched.Source != source || launched.StateDir != stateDir {
-		t.Fatalf("unexpected discovered repl launch options: %#v", launched)
+	if launched.ConfigDir != realCfg || launched.Source != source || launched.NreplHost != "localhost" || launched.NreplPort != "7889" || !launchedStdin {
+		t.Fatalf("unexpected discovered repl launch options: %#v stdin=%v", launched, launchedStdin)
+	}
+	if got := replArgs(launched, launchedStdin); !reflect.DeepEqual(got, []string{"-M", "-m", "skein.repl", "--attach-stdin", "localhost", "7889"}) {
+		t.Fatalf("unexpected discovered stdin repl args: %#v", got)
+	}
+}
+
+func TestWeaverReplRequiresNreplMetadata(t *testing.T) {
+	cfg := testConfig(t)
+	cases := []struct {
+		name   string
+		status map[string]any
+		want   string
+	}{
+		{"missing nrepl", map[string]any{"state": "running", "source": tempSource(t)}, "missing nrepl"},
+		{"missing host", map[string]any{"state": "running", "source": tempSource(t), "nrepl": map[string]any{"port": float64(7888)}}, "missing nrepl.host"},
+		{"missing port", map[string]any{"state": "running", "source": tempSource(t), "nrepl": map[string]any{"host": "127.0.0.1"}}, "missing nrepl.port"},
+		{"non-numeric port", map[string]any{"state": "running", "source": tempSource(t), "nrepl": map[string]any{"host": "127.0.0.1", "port": "abc"}}, "missing nrepl.port"},
+		{"fractional port", map[string]any{"state": "running", "source": tempSource(t), "nrepl": map[string]any{"host": "127.0.0.1", "port": 7888.5}}, "missing nrepl.port"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			origMill := millCall
+			millCall = func(op string, req client.MillWorldRequest) (any, error) { return tc.status, nil }
+			origRun := runReplProcess
+			runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {
+				t.Fatal("repl process should not launch with malformed nrepl metadata")
+				return nil
+			}
+			t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
+			if _, err := run("--config-dir", cfg, "weaver", "repl", "--stdin"); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %q error, got %v", tc.want, err)
+			}
+		})
 	}
 }
 
@@ -416,7 +455,7 @@ func TestWeaverReplStoppedStateDoesNotRequireSource(t *testing.T) {
 		if op != "weaver-repl-context" {
 			t.Fatalf("unexpected mill op: %s", op)
 		}
-		return map[string]any{"state": "none", "state_dir": filepath.Join(t.TempDir(), "state")}, nil
+		return map[string]any{"state": "none"}, nil
 	}
 	origRun := runReplProcess
 	runReplProcess = func(o Options, stdin bool, in io.Reader, out, errOut io.Writer) error {

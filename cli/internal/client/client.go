@@ -27,7 +27,9 @@ type Metadata struct {
 	DatabasePath    string `json:"database_path"`
 	DaemonID        string `json:"weaver_id"`
 	ConfigDir       string `json:"config_dir"`
+	StateDir        string `json:"state_dir"`
 	DataDir         string `json:"data_dir"`
+	Name            string `json:"name"`
 	SocketPath      string `json:"socket_path"`
 	StartedAt       string `json:"started_at"`
 	NREPL           struct {
@@ -174,11 +176,14 @@ func (c *SocketClient) metadata() (Metadata, string, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return Metadata{}, "", fmt.Errorf("%w: %v", c.daemonStateError("malformed weaver metadata"), err)
 	}
-	if m.ProtocolVersion != protocolVersion || m.PID == 0 || m.DatabasePath == "" || m.DaemonID == "" || m.ConfigDir == "" || m.DataDir == "" || m.SocketPath == "" || m.StartedAt == "" || m.NREPL.Host == "" || m.NREPL.Port == 0 {
+	if m.ProtocolVersion != protocolVersion || m.PID == 0 || m.DatabasePath == "" || m.DaemonID == "" || m.ConfigDir == "" || m.StateDir == "" || m.DataDir == "" || strings.TrimSpace(m.Name) == "" || m.SocketPath == "" || m.StartedAt == "" || m.NREPL.Host == "" || m.NREPL.Port == 0 {
 		return Metadata{}, "", c.daemonStateError("malformed weaver metadata: missing required fields")
 	}
 	if c.Config.ConfigDir != "" && !samePath(m.ConfigDir, c.Config.ConfigDir) {
 		return Metadata{}, "", c.daemonStateError("weaver metadata config dir mismatch: %s", m.ConfigDir)
+	}
+	if !samePath(m.StateDir, c.Config.StateDir) {
+		return Metadata{}, "", c.daemonStateError("weaver metadata state dir mismatch: %s", m.StateDir)
 	}
 	if !samePath(m.SocketPath, filepath.Join(c.Config.StateDir, "weaver.sock")) {
 		return Metadata{}, "", c.daemonStateError("weaver metadata socket mismatch: %s", m.SocketPath)
@@ -193,7 +198,7 @@ func validateLifecycleResult(operation string, result any, meta Metadata) error 
 	switch operation {
 	case "status":
 		m, ok := result.(map[string]any)
-		if !ok || m["healthy"] != true || m["protocol_version"] != float64(protocolVersion) || !samePositivePID(m["pid"], meta.PID) || m["database_path"] != meta.DatabasePath || m["weaver_id"] != meta.DaemonID || m["socket_path"] != meta.SocketPath || m["config_dir"] != meta.ConfigDir || m["data_dir"] != meta.DataDir || m["started_at"] != meta.StartedAt || !validNREPL(m["nrepl"]) {
+		if !ok || m["healthy"] != true || m["protocol_version"] != float64(protocolVersion) || !samePositivePID(m["pid"], meta.PID) || m["database_path"] != meta.DatabasePath || m["weaver_id"] != meta.DaemonID || m["socket_path"] != meta.SocketPath || m["config_dir"] != meta.ConfigDir || m["state_dir"] != meta.StateDir || m["data_dir"] != meta.DataDir || m["name"] != meta.Name || m["started_at"] != meta.StartedAt || !validNREPL(m["nrepl"]) {
 			return errors.New("malformed weaver response: invalid status result")
 		}
 	case "stop":

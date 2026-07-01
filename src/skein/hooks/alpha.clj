@@ -2,7 +2,7 @@
   "Public helper API for registering and inspecting weaver lifecycle hooks.
 
   Calls route directly when executing inside a weaver runtime, otherwise through
-  the connected helper REPL world. The weaver API owns hook validation, function
+  an explicit connected client world. The weaver API owns hook validation, function
   resolution, registry state, and synchronous invocation by later lifecycle gates."
   (:require [skein.client :as client]
             [skein.repl :as repl]

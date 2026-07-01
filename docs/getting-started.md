@@ -17,14 +17,14 @@ On top of that model you get two ways to work:
 - A small, predictable **CLI** (`strand`) for everyday CRUD and safe, scriptable
   consumption of existing state. It always emits JSON.
 - A live **Lisp machine**: the long-lived weaver owns the store and runtime
-  state, and a connected Clojure REPL lets you query, mutate, and _extend_
-  Skein at runtime — registering queries, patterns, views, event handlers, and
-  custom operations without restarting anything.
+  state, and `strand weaver repl` attaches directly to that running weaver JVM
+  so you can query, mutate, and _extend_ Skein at runtime — registering queries,
+  patterns, views, event handlers, and custom operations without restarting anything.
 
 The CLI stays thin on purpose; runtime customization belongs in trusted config
 and the REPL. See [PHILOSOPHY.md](../devflow/PHILOSOPHY.md) for the reasoning.
 
-Install the CLIs from the Skein checkout. `make install` records this checkout as mill's install-time source for future weaver and helper REPL launches; it does not affect what `strand init` writes.
+Install the CLIs from the Skein checkout. `make install` records this checkout as mill's install-time source for future weaver launches and thin nREPL attach clients; it does not affect what `strand init` writes.
 
 ```sh
 make install
@@ -110,7 +110,7 @@ explicit deletion.
 
 ## REPL workflow
 
-Open a connected helper REPL:
+Open a live weaver REPL:
 
 ```sh
 strand weaver repl
@@ -231,9 +231,9 @@ Generated `.skein/.gitignore` ignores `config.json`, `init.local.clj`,
 Skein behavior. The generated `init.clj` is a small resilient bootstrap:
 
 ```clojure
-(require '[skein.libs.alpha :as libs])
+(require '[skein.runtime.alpha :as runtime])
 
-(libs/sync!)
+(runtime/sync!)
 ```
 
 Create your own config or library files when you need runtime behavior.
@@ -242,7 +242,7 @@ register queries, register weave patterns, register views, register event
 handlers, or call your own install functions. `init.local.clj` is loaded after
 `init.clj` for personal machine-specific behavior.
 
-Built-in `skein.graph.alpha`, `skein.patterns.alpha`, `skein.views.alpha`, `skein.events.alpha`, and `skein.batch.alpha` come from the configured Skein checkout. User/community libraries are approved separately in `libs.edn` and `libs.local.edn` and synced through `skein.libs.alpha`. `libs.local.edn` overlays `libs.edn` by coordinate, so a personal workflow library or fork can replace a shared entry without changing committed config:
+Built-in `skein.*.alpha` namespaces are privileged helpers shipped on the Skein classpath, not ordinary user/community libraries. User/community libraries are trusted Clojure roots approved in `libs.edn` / `libs.local.edn`, synced through `skein.runtime.alpha`, and experimented with from the live REPL. `libs.local.edn` overlays `libs.edn` by coordinate, so a personal workflow library or fork can replace a shared entry without changing committed config:
 
 ```clojure
 ;; .skein/libs.edn, committed
@@ -257,9 +257,9 @@ Built-in `skein.graph.alpha`, `skein.patterns.alpha`, `skein.views.alpha`, `skei
 
 ```clojure
 ;; .skein/init.local.clj, gitignored
-(require '[skein.libs.alpha :as libs])
-(libs/sync!)
-(libs/use! :personal/ops
+(require '[skein.runtime.alpha :as runtime])
+(runtime/sync!)
+(runtime/use! :personal/ops
   {:ns 'personal.ops.alpha
    :libs #{'personal/ops}
    :call 'personal.ops.alpha/install!})
@@ -400,7 +400,7 @@ handler. Do not run reload examples against the default repo world unless you
 intend to reload its shared `.skein` config:
 
 ```sh
-printf '(do (require '\''[skein.libs.alpha :as libs]) (libs/reload!))\n' \
+printf '(do (require '\''[skein.runtime.alpha :as runtime]) (runtime/reload!))\n' \
   | strand --config-dir "$world" weaver repl --stdin
 ```
 
@@ -478,20 +478,20 @@ Register event handlers from trusted config or weaver-loadable libraries when yo
 (events/recent-failures)
 ```
 
-Hot-reload the selected config-dir `init.clj` from a connected REPL:
+Hot-reload the selected config-dir `init.clj` from the live weaver REPL:
 
 ```clojure
-(require '[skein.libs.alpha :as libs])
-(libs/reload!)
+(require '[skein.runtime.alpha :as runtime])
+(runtime/reload!)
 ```
 
 Reload clears weaver-lifetime library sync state, module-use state, named queries, views, patterns, event handlers, queued events, and recent event failures, then re-runs `init.clj` followed by `init.local.clj`.
 
-Use the connected stdin REPL for scripts. Include `--config-dir` when scripting
+Use the live stdin REPL for scripts. Include `--config-dir` when scripting
 against a disposable or test world:
 
 ```sh
-printf '(ready)\n' | strand --config-dir "$world" weaver repl --stdin
+printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" weaver repl --stdin
 ```
 
 ## Stop the weaver
@@ -499,5 +499,5 @@ printf '(ready)\n' | strand --config-dir "$world" weaver repl --stdin
 Stop the weaver when finished:
 
 ```sh
-strand weaver stop
+strand --config-dir "$world" weaver stop
 ```

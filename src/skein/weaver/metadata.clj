@@ -3,7 +3,8 @@
   (:require [clojure.data.json :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.pprint :as pprint])
+            [clojure.pprint :as pprint]
+            [clojure.string :as str])
   (:import [java.lang ProcessHandle]
            [java.nio.file Files StandardCopyOption]
            [java.util UUID]))
@@ -40,13 +41,17 @@
 
 (defn metadata-shape
   "Return the canonical EDN metadata map for a running weaver."
-  [{:keys [pid host port canonical-db-path nonce started-at world]}]
-  (let [socket-path (.getPath (socket-file world))]
+  [{:keys [pid host port canonical-db-path nonce started-at world name]}]
+  (let [socket-path (.getPath (socket-file world))
+        name (or name (.getName (io/file (:config-dir world))))]
+    (when (str/blank? name)
+      (throw (ex-info "Weaver name must not be blank" {:name name})))
     {:pid pid
      :transport :nrepl
      :protocol-version protocol-version
      :endpoint {:host host :port port}
      :config-dir (:config-dir world)
+     :name name
      :state-dir (:state-dir world)
      :data-dir (:data-dir world)
      :canonical-db-path canonical-db-path
@@ -62,6 +67,7 @@
    "weaver_id" (:nonce metadata)
    "config_dir" (:config-dir metadata)
    "state_dir" (:state-dir metadata)
+   "name" (:name metadata)
    "data_dir" (:data-dir metadata)
    "database_path" (:canonical-db-path metadata)
    "socket_path" (:socket-path metadata)
@@ -135,6 +141,7 @@
             (= :nrepl (:transport metadata))
             (= protocol-version (:protocol-version metadata))
             (string? (:config-dir metadata))
+            (not (str/blank? (:name metadata)))
             (string? (:data-dir metadata))
             (string? (:socket-path metadata))
             (string? (get-in metadata [:endpoint :host]))

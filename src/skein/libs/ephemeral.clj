@@ -1,27 +1,11 @@
 (ns skein.libs.ephemeral
-  "Userland helpers for temporary, parent-owned work strands."
+  "Userland helpers for temporary, parent-owned work strands.
+
+  This namespace is intentionally authorable example code: it composes the
+  documented `skein.repl` and `skein.graph.alpha` helper surfaces and owns no
+  privileged loader/config/runtime implementation."
   (:require [skein.graph.alpha :as graph]
-            [skein.repl :as repl]
-            [skein.weaver.runtime :as runtime]))
-
-(defn- call-daemon [op & args]
-  (if-let [rt @runtime/current-runtime]
-    (apply (requiring-resolve (symbol "skein.weaver.api" (name op))) rt args)
-    (apply (requiring-resolve 'skein.client/call-world) (repl/connected-config-dir) (repl/connected-opts) op args)))
-
-(defn strand!
-  "Create a normal persistent strand."
-  ([title]
-   (strand! title {} {}))
-  ([title attributes]
-   (strand! title attributes {}))
-  ([title attributes lifecycle]
-   (call-daemon :add (merge {:title title :attributes attributes} lifecycle))))
-
-(defn update!
-  "Apply a patch to a persistent strand through the active weaver."
-  [id patch]
-  (call-daemon :update id patch))
+            [skein.repl :as repl]))
 
 (defn ephemeral!
   "Create a userland ephemeral strand under parent-id.
@@ -32,8 +16,8 @@
   ([parent-id title]
    (ephemeral! parent-id title {}))
   ([parent-id title attributes]
-   (let [strand (strand! title (merge {:ephemeral "true"} attributes))]
-     (update! parent-id {:edges [{:type "parent-of" :to (:id strand)}]})
+   (let [strand (repl/strand! title (merge {:ephemeral "true"} attributes))]
+     (repl/update! parent-id {:edges [{:type "parent-of" :to (:id strand)}]})
      strand)))
 
 (def ephemeral-query

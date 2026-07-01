@@ -2,7 +2,7 @@
   "Public helper API for query selection, strand hydration, and graph traversal.
 
   Calls route directly when executing inside a weaver runtime, otherwise through
-  the connected helper REPL world. The weaver API owns validation, persistence,
+  an explicit connected client world. The weaver API owns validation, persistence,
   query evaluation, and relation traversal semantics."
   (:require [skein.client :as client]
             [skein.repl :as repl]
@@ -24,8 +24,8 @@
   "Return strand ids matching an ad hoc query definition or weaver-registered query name.
 
   When called inside the weaver JVM, executes directly against the active weaver
-  runtime. When called from a connected helper REPL, routes to the selected
-  weaver world from `skein.repl/connect!` / `strand weaver repl`."
+  runtime. When called from an explicit connected client, routes to the selected
+  weaver world from `skein.repl/connect!`."
   [query params]
   (call-daemon :query-ids query params))
 
@@ -34,7 +34,7 @@
 
   Burning physically deletes each strand and its incident edges, then returns
   burn metadata. Missing ids fail loudly in the weaver operation. Routes directly
-  through the weaver runtime or the connected helper REPL world."
+  through the weaver runtime or an explicit connected client world."
   [ids]
   (call-daemon :burn-by-ids ids))
 
@@ -48,7 +48,7 @@
 
   Duplicate ids are collapsed by first occurrence, empty input returns [], and
   missing ids fail loudly in the weaver operation. Routes directly through the
-  weaver runtime or the connected helper REPL world."
+  weaver runtime or an explicit connected client world."
   [ids]
   (call-daemon :strands-by-ids ids))
 
@@ -59,7 +59,7 @@
   omitted `:type` defaults to `parent-of`. With opts `:where`, returns topmost
   matching ancestors on each path; without opts, returns graph roots with no
   parent in the traversed relation. Routes directly through the weaver runtime
-  or the connected helper REPL world."
+  or an explicit connected client world."
   ([seed-ids]
    (call-daemon :ancestor-root-ids seed-ids))
   ([seed-ids opts]
@@ -71,7 +71,7 @@
   Opts may include `:type` for the declared acyclic relation to traverse;
   omitted `:type` defaults to `parent-of`. The result shape is
   `{:root-ids [...] :strands [...] :edges [...]}`. Routes directly through the
-  weaver runtime or the connected helper REPL world."
+  weaver runtime or an explicit connected client world."
   ([root-ids]
    (call-daemon :subgraph root-ids))
   ([root-ids opts]

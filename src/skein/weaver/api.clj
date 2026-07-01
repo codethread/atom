@@ -903,7 +903,7 @@
   symbol must resolve to a function that accepts one context map with `:op/name`
   and `:op/argv`, and returns JSON-compatible data. Registry contents live only
   for the current weaver lifetime and are normally installed from init.clj or a
-  connected REPL. Duplicate names replace prior entries for reload workflows."
+  live REPL or explicit connected client. Duplicate names replace prior entries for reload workflows."
   ([op-name fn-sym]
    (register-op! (current-runtime) op-name nil fn-sym))
   ([a b c]
@@ -945,7 +945,7 @@
   {:summary "strand op invokes trusted weaver-side operations by name."
    :usage "strand op <name> [args...]"
    :details ["The Go CLI stops parsing after the operation name and forwards the remaining arguments as strings."
-             "Register handlers from trusted init.clj, activated libraries, or a connected REPL with skein.weaver.api/register-op!."
+             "Register handlers from trusted init.clj, activated libraries, or the live REPL with skein.weaver.api/register-op!."
              "Handlers receive {:op/name <canonical-name> :op/argv [<strings>...]} and return JSON-compatible data."]
    :registered (ops (current-runtime))})
 
