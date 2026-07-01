@@ -1,8 +1,8 @@
 # REPL API Delta: Live Weaver REPL And Runtime Loader
 
 **Document ID:** `LWRL-DELTA-REPL-001`
-**Status:** Planned
-**Last Updated:** 2026-06-30
+**Status:** Merged
+**Last Updated:** 2026-07-01
 **Updates:** [REPL API](../../../specs/repl-api.md)
 **Feature:** [live-weaver-repl-and-runtime-loader](../proposal.md)
 

@@ -42,3 +42,4 @@ Archived feature folders preserve historical planning context. Current shipped c
 - `26-06-29__weaver-lifecycle-hooks` — shipped synchronous trusted lifecycle hooks for payload gating, attribute normalization, and pre-commit mutation policy.
 - `26-06-30__mill-router-runtime` — shipped local Go `mill` router/supervisor, mill-routed `strand` commands, Git-root repo bootstrap, XDG runtime/data worlds, startup storage initialization, and connected REPL attachment through mill metadata.
 - `26-06-30__mill-owned-source` — shipped mill-owned source resolution, marker-only config, and repository-canonical default weavers shared across linked Git worktrees.
+- `26-07-01__live-weaver-repl-and-runtime-loader` — shipped direct live weaver nREPL attachment, `skein.runtime.alpha` loader/config helper namespace, friendly weaver discovery, and Neovim/Conjure integration.

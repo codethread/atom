@@ -1,8 +1,8 @@
 # CLI Surface Delta: Live Weaver REPL And Runtime Loader
 
 **Document ID:** `LWRL-DELTA-CLI-001`
-**Status:** Planned
-**Last Updated:** 2026-06-30
+**Status:** Merged
+**Last Updated:** 2026-07-01
 **Updates:** [CLI Surface](../../../specs/cli.md)
 **Feature:** [live-weaver-repl-and-runtime-loader](../proposal.md)
 

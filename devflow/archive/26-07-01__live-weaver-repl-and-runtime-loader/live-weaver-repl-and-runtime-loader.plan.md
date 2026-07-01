@@ -6,8 +6,8 @@
 **RFC:** None
 **Root specs:** [REPL API](../../specs/repl-api.md), [Weaver Runtime](../../specs/daemon-runtime.md), [CLI Surface](../../specs/cli.md)
 **Feature specs:** [repl-api.delta.md](./specs/repl-api.delta.md), [daemon-runtime.delta.md](./specs/daemon-runtime.delta.md), [cli.delta.md](./specs/cli.delta.md)
-**Status:** Reviewed
-**Last Updated:** 2026-06-30
+**Status:** Shipped
+**Last Updated:** 2026-07-01
 
 ## LWRL-PLAN-001.P1 Goal and scope
 
@@ -155,3 +155,9 @@ Outcome: Add or update integration tests for mill-routed direct REPL attach, std
 - Primary validation passed: `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test`, `(cd cli && go test ./...)`, and `PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke`.
 - Smoke coverage now additionally proves `skein.libs.alpha` compatibility from live `strand weaver repl --stdin` while retaining direct live runtime introspection, in-process helpers, and fresh `skein.runtime.alpha` config bootstrap coverage.
 - No generated SQLite, runtime metadata, sockets, temporary worlds, or built CLI artifacts remained after validation.
+
+### LWRL-PLAN-001.DN12 Finish/archive — 2026-07-01
+
+- Shipped live weaver REPL attachment, direct `--stdin` evaluation in the weaver JVM, in-process `skein.repl` helper dispatch, `skein.runtime.alpha` loader/config namespace with `skein.libs.alpha` compatibility, library namespace cleanup, friendly weaver names, `mill weaver list`, and the initial Neovim/Conjure integration under `integrations/neovim`.
+- Promoted the staged CLI, REPL API, and Weaver Runtime deltas into the root specs through the implementation commits and marked feature-local deltas merged. No RFCs were associated with this feature.
+- Validation during implementation passed for Go CLI tests and Clojure tests; smoke validation passed before the final weaver-list/Neovim integration follow-up, which added focused Go/Clojure validation and Neovim headless plugin loading checks.
