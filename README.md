@@ -11,7 +11,7 @@ A few terms you'll see throughout:
 - **mill** — the local supervisor you start once; it routes each command to the right weaver.
 - **`strand` CLI** — a thin, JSON-only control surface for scripts and agents.
 - **REPL** — a live, trusted Clojure connection to the weaver for customization and exploration.
-- **world** — one isolated Skein setup, chosen by config directory (a repo's `.skein`, or an explicit `--config-dir`).
+- **workspace** — one isolated Skein setup, chosen by workspace directory (a repo's `.skein`, or an explicit `--workspace`).
 
 Most agent tools ship a fixed schema and someone else's workflow. Skein ships primitives and a running Lisp, so you build the workflow you actually want:
 
@@ -30,14 +30,14 @@ make install
 mill start
 ```
 
-In the Git repo you want to work in, create a world and start its weaver:
+In the Git repo you want to work in, create a workspace and start its weaver:
 
 ```sh
 mkdir -p ~/learn-skein
 cd ~/learn-skein
 git init
 strand init          # create this repo's .skein config
-strand weaver start  # boot the weaver for this world
+strand weaver start  # boot the weaver for this workspace
 ```
 
 Add a few strands, including one that depends on another:
@@ -62,30 +62,30 @@ strand weaver repl  # live Clojure REPL (optional)
 strand weaver stop
 ```
 
-By default (no `--config-dir`), `strand` finds the canonical Git repository root and uses that repo as its world, so linked worktrees of the same repository share one world. Outside a supported Git layout, no-flag commands fail loudly rather than guess — they won't silently create a world from your current directory or fall back to a global default. See [Getting started](./docs/getting-started.md) for the full walkthrough.
+By default (no `--workspace`), `strand` finds the canonical Git repository root and uses that repo as its workspace, so linked worktrees of the same repository share one workspace. Outside a supported Git layout, no-flag commands fail loudly rather than guess — they won't silently create a workspace from your current directory or fall back to a global default. See [Getting started](./docs/getting-started.md) for the full walkthrough.
 
 ### Isolated weavers
 
-For agent or testing work, prefer an explicit disposable world instead of a repo's default one:
+For agent or testing work, prefer an explicit disposable workspace instead of a repo's default one:
 
 ```sh
-world=$(mktemp -d)
+workspace=$(mktemp -d)
 ```
 
-Pass `--config-dir "$world"` on **every** command that should target it — the flag is not remembered between commands. With `mill` running:
+Pass `--workspace "$workspace"` on **every** command that should target it — the flag is not remembered between commands. With `mill` running:
 
 ```sh
-strand --config-dir "$world" init
-strand --config-dir "$world" weaver start
+strand --workspace "$workspace" init
+strand --workspace "$workspace" weaver start
 ```
 
 Then use it from another terminal:
 
 ```sh
-strand --config-dir "$world" add "Sketch strand model" --state closed --attr example_outcome=sketched
+strand --workspace "$workspace" add "Sketch strand model" --state closed --attr example_outcome=sketched
 ```
 
-An explicit `--config-dir <dir>` world keeps trusted config in that directory. Runtime metadata, sockets, and SQLite data live under mill-owned XDG state paths, keyed to the selected config.
+An explicit `--workspace <dir>` workspace keeps trusted config in that directory. Runtime metadata, sockets, and SQLite data live under mill-owned XDG state paths, keyed to the selected config.
 
 ## Data model
 
@@ -99,13 +99,13 @@ Skein stores:
 
 Superseding is a first-class move: `strand supersede <old-id> <replacement-id>` records `replacement --supersedes--> old`, marks the old strand `replaced`, and rewires its direct dependents onto the replacement.
 
-Everything else — outcomes, categories, temporary markers, priorities — lives in attributes your world chooses, not in built-in fields.
+Everything else — outcomes, categories, temporary markers, priorities — lives in attributes your workspace chooses, not in built-in fields.
 
 ## Runtime customization
 
 The CLI stays thin on purpose; the power lives in the weaver. It's a real Clojure image — the full language, macros and all — so your customizations can be as expressive as you want, and you can introspect or redefine any of them from a live REPL without a restart.
 
-Richer behavior — named queries, weave patterns, weaver-memory views, event handlers, custom `strand op` commands, and trusted runtime spools — is loaded into your world, then consumed by helpers or by small CLI commands such as `list --query <name>` and `weave --pattern <name>`.
+Richer behavior — named queries, weave patterns, weaver-memory views, event handlers, custom `strand op` commands, and trusted runtime spools — is loaded into your workspace, then consumed by helpers or by small CLI commands such as `list --query <name>` and `weave --pattern <name>`.
 
 Two kinds of code can extend the weaver:
 

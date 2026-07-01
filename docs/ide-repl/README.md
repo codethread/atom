@@ -23,16 +23,16 @@ Start mill in a durable terminal:
 mill start
 ```
 
-From the repository or Skein world you want to work with, start its weaver:
+From the repository or Skein workspace you want to work with, start its weaver:
 
 ```sh
 strand weaver start
 ```
 
-If you are using an explicit world, pass the same config dir you use for all other commands:
+If you are using an explicit workspace, pass the same workspace you use for all other commands:
 
 ```sh
-strand --config-dir "$world" weaver start
+strand --workspace "$workspace" weaver start
 ```
 
 ## Find the nREPL port
@@ -43,7 +43,7 @@ List running weavers through mill:
 mill weaver list
 ```
 
-The output is JSON. Find the row for your world and use its `nrepl.host` and `nrepl.port` fields, for example:
+The output is JSON. Find the row for your workspace and use its `nrepl.host` and `nrepl.port` fields, for example:
 
 ```json
 [

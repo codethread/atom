@@ -9,7 +9,7 @@ make install
 mill start
 ```
 
-`make install` builds `strand` and `mill` and records this checkout as mill's install-time source for weaver launch and the thin nREPL attach client. `strand init` creates only the selected world's alpha config marker; do not write source paths into `config.json`.
+`make install` builds `strand` and `mill` and records this checkout as mill's install-time source for weaver launch and the thin nREPL attach client. `strand init` creates only the selected workspace's alpha config marker; do not write source paths into `config.json`.
 
 Start the weaver in one terminal:
 
@@ -26,19 +26,19 @@ strand weaver status
 strand weaver stop
 ```
 
-## Disposable worlds for development
+## Disposable workspaces for development
 
-Use explicit config dirs for tests, smoke reproduction, examples, and agent work:
+Use explicit workspaces for tests, smoke reproduction, examples, and agent work:
 
 ```sh
-world=$(mktemp -d)
-strand --config-dir "$world" init
-strand --config-dir "$world" weaver start
-design=$(strand --config-dir "$world" add "Sketch model" --state closed --attr priority=high)
-docs=$(strand --config-dir "$world" add "Write docs" --attr owner=agent)
-strand --config-dir "$world" update "$docs" --edge depends-on:$design
-strand --config-dir "$world" ready
-strand --config-dir "$world" weaver stop
+workspace=$(mktemp -d)
+strand --workspace "$workspace" init
+strand --workspace "$workspace" weaver start
+design=$(strand --workspace "$workspace" add "Sketch model" --state closed --attr priority=high)
+docs=$(strand --workspace "$workspace" add "Write docs" --attr owner=agent)
+strand --workspace "$workspace" update "$docs" --edge depends-on:$design
+strand --workspace "$workspace" ready
+strand --workspace "$workspace" weaver stop
 ```
 
 `strand init` bootstraps missing `config.json`, `spools.edn`, `init.clj`, `spools/`, and `.gitignore` files/directories without overwriting existing user files. `config.json` contains only `{"configFormat":"alpha"}`.
@@ -46,7 +46,7 @@ strand --config-dir "$world" weaver stop
 ## REPL and runtime config
 
 ```sh
-strand --config-dir "$world" weaver repl
+strand --workspace "$workspace" weaver repl
 ```
 
 ```clojure
@@ -61,7 +61,7 @@ strand --config-dir "$world" weaver repl
 Non-interactive trusted forms:
 
 ```sh
-printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" weaver repl --stdin
+printf '@skein.weaver.runtime/current-runtime\n' | strand --workspace "$workspace" weaver repl --stdin
 ```
 
 Runtime spool startup config may use:
@@ -88,10 +88,10 @@ After validation, `git status --short` should not show generated SQLite, socket,
 ## Debugging SQLite state
 
 ```sh
-# Smoke worlds are created under a short /tmp/sk<pid>/ root while the suite runs.
-sqlite3 /tmp/sk<pid>/smoke-cli.sqlite.config-dir/data/skein.sqlite '.schema'
-sqlite3 /tmp/sk<pid>/smoke-cli.sqlite.config-dir/data/skein.sqlite 'select id, title, state, attributes from strands;'
-sqlite3 /tmp/sk<pid>/smoke-cli.sqlite.config-dir/data/skein.sqlite 'select from_strand_id, to_strand_id, edge_type, attributes from strand_edges;'
+# Smoke workspaces are created under a short /tmp/sk<pid>/ root while the suite runs.
+sqlite3 /tmp/sk<pid>/smoke-cli.sqlite.workspace/data/skein.sqlite '.schema'
+sqlite3 /tmp/sk<pid>/smoke-cli.sqlite.workspace/data/skein.sqlite 'select id, title, state, attributes from strands;'
+sqlite3 /tmp/sk<pid>/smoke-cli.sqlite.workspace/data/skein.sqlite 'select from_strand_id, to_strand_id, edge_type, attributes from strand_edges;'
 ```
 
 ## Implementation boundaries

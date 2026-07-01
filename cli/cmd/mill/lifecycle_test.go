@@ -438,7 +438,7 @@ func TestStartFailsWhenWeaverExitsBeforeReadyMetadata(t *testing.T) {
 
 func configDirArg(args []string) string {
 	for i, arg := range args {
-		if arg == "--config-dir" && i+1 < len(args) {
+		if arg == "--workspace" && i+1 < len(args) {
 			return args[i+1]
 		}
 	}

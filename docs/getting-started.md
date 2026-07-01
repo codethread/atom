@@ -33,7 +33,7 @@ make install
 ## Table of contents
 
 - [Core ideas](#core-ideas)
-- [Choosing a world](#choosing-a-world)
+- [Choosing a workspace](#choosing-a-workspace)
 - [Start the weaver](#start-the-weaver)
 - [Add and inspect strands](#add-and-inspect-strands)
 - [Close and delete strands](#close-and-delete-strands)
@@ -44,15 +44,15 @@ make install
 - [Example: a small userland kanban op](#example-a-small-userland-kanban-op)
 - [Stop the weaver](#stop-the-weaver)
 
-## Choosing a world
+## Choosing a workspace
 
-By default, `strand` is **repo-first**. With no `--config-dir`, `mill` resolves the canonical repository root and uses that repo's `.skein` directory as your world; linked worktrees of the same repository share it.
+By default, `strand` is **repo-first**. With no `--workspace`, `mill` resolves the canonical repository root and uses that repo's `.skein` directory as your workspace; linked worktrees of the same repository share it.
 
 That `.skein` directory holds trusted config only. The mill-owned runtime state — metadata, sockets, and SQLite data — lives under Skein's XDG state root, not in your repo.
 
-Outside a supported Git layout, no-flag commands fail with remediation rather than guess. They won't create an accidental world from your current directory or fall back to a global personal world.
+Outside a supported Git layout, no-flag commands fail with remediation rather than guess. They won't create an accidental workspace from your current directory or fall back to a global personal workspace.
 
-Initialize a repo world from the Git repo you want to use Skein in:
+Initialize a repo workspace from the Git repo you want to use Skein in:
 
 ```sh
 strand init
@@ -66,25 +66,25 @@ Mill resolves the Skein source checkout it uses to launch the weaver from, in or
 
 `strand init` does not persist a source path in `.skein/config.json`.
 
-`strand init` without `--config-dir` creates or completes `.skein` at the Git
-root and fails loudly outside Git. To work in a separate, disposable world
+`strand init` without `--workspace` creates or completes `.skein` at the Git
+root and fails loudly outside Git. To work in a separate, disposable workspace
 instead (recommended for tests and isolated agent work), create one and target it
-with `--config-dir`:
+with `--workspace`:
 
 ```sh
-world=$(mktemp -d)
-strand --config-dir "$world" init
+workspace=$(mktemp -d)
+strand --workspace "$workspace" init
 ```
 
-`--config-dir` is not sticky: pass the same path on **every** command that should
-target that world (for example `strand --config-dir "$world" weaver start`). The
-basic repo-world examples below omit the flag for readability, but examples that
-reload config or create demo data use an explicit disposable `$world` so you do
-not casually mutate or reload the default repo world.
+`--workspace` is not sticky: pass the same path on **every** command that should
+target that workspace (for example `strand --workspace "$workspace" weaver start`). The
+basic repo workspace examples below omit the flag for readability, but examples that
+reload config or create demo data use an explicit disposable `$workspace` so you do
+not casually mutate or reload the default repo workspace.
 
 ## Start the weaver
 
-Start mill once in a durable terminal, then ask it to start the selected world's weaver. Weaver startup prepares storage; there is no separate post-start `strand init` or database init step.
+Start mill once in a durable terminal, then ask it to start the selected workspace's weaver. Weaver startup prepares storage; there is no separate post-start `strand init` or database init step.
 
 ```sh
 mill start
@@ -225,7 +225,7 @@ strand ready --query mine
 
 ## Startup config and runtime helpers
 
-Fresh `strand init` creates missing workspace files without overwriting existing files. For repo worlds, the usual layout is:
+Fresh `strand init` creates missing workspace files without overwriting existing files. For repo workspaces, the usual layout is:
 
 ```text
 .skein/
@@ -348,8 +348,8 @@ The `op` surface is intentionally generic: Skein only routes argv to a trusted
 weaver-side handler. Workflow behavior such as a kanban board belongs in your
 config or spool code, not in core Skein.
 
-For a safe demo, use a disposable world and append this handler to
-`$world/init.clj` rather than the default repo `.skein/init.clj`:
+For a safe demo, use a disposable workspace and append this handler to
+`$workspace/init.clj` rather than the default repo `.skein/init.clj`:
 
 ```clojure
 (require '[clojure.string :as str])
@@ -407,20 +407,20 @@ For a safe demo, use a disposable world and append this handler to
 (api/register-op! 'kanban "Show strands grouped by :attr kanban" 'user/kanban-op)
 ```
 
-Reload that disposable world's config so its running weaver installs the
-handler. Do not run reload examples against the default repo world unless you
+Reload that disposable workspace's config so its running weaver installs the
+handler. Do not run reload examples against the default repo workspace unless you
 intend to reload its shared `.skein` config:
 
 ```sh
 printf '(do (require '\''[skein.runtime.alpha :as runtime-alpha]) (runtime-alpha/reload!))\n' \
-  | strand --config-dir "$world" weaver repl --stdin
+  | strand --workspace "$workspace" weaver repl --stdin
 ```
 
 Create a few demo strands with one batch call. Batch entries use temporary
 `:ref` values so the result can report generated ids:
 
 ```sh
-cat <<'EOF' | strand --config-dir "$world" weaver repl --stdin
+cat <<'EOF' | strand --workspace "$workspace" weaver repl --stdin
 (do
   (require '[skein.batch.alpha :as batch])
   (batch/apply!
@@ -444,18 +444,18 @@ cat <<'EOF' | strand --config-dir "$world" weaver repl --stdin
 EOF
 ```
 
-Invoke the custom operation in that disposable world. `--max` is optional and
+Invoke the custom operation in that disposable workspace. `--max` is optional and
 defaults to 5 rows:
 
 ```sh
-strand --config-dir "$world" op kanban --max 15
+strand --workspace "$workspace" op kanban --max 15
 ```
 
 `strand` keeps public command output JSON-only, so render the table field when
 you want terminal-friendly ASCII:
 
 ```sh
-strand --config-dir "$world" op kanban --max 15 | jq -r .table
+strand --workspace "$workspace" op kanban --max 15 | jq -r .table
 ```
 
 Produces something like:
@@ -490,7 +490,7 @@ Register event handlers from trusted config or weaver-loadable spools when you w
 (events/recent-failures)
 ```
 
-Hot-reload the selected config-dir `init.clj` from the live weaver REPL:
+Hot-reload the selected workspace `init.clj` from the live weaver REPL:
 
 ```clojure
 (require '[skein.runtime.alpha :as runtime-alpha])
@@ -499,11 +499,11 @@ Hot-reload the selected config-dir `init.clj` from the live weaver REPL:
 
 Reload clears weaver-lifetime spool sync state, module-use state, named queries, views, patterns, custom ops, lifecycle hooks, event handlers, queued events, and recent event failures, then re-runs `init.clj` followed by `init.local.clj`.
 
-Use the live stdin REPL for scripts. Include `--config-dir` when scripting
-against a disposable or test world:
+Use the live stdin REPL for scripts. Include `--workspace` when scripting
+against a disposable or test workspace:
 
 ```sh
-printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" weaver repl --stdin
+printf '@skein.weaver.runtime/current-runtime\n' | strand --workspace "$workspace" weaver repl --stdin
 ```
 
 ## Stop the weaver
@@ -511,5 +511,5 @@ printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" 
 Stop the weaver when finished:
 
 ```sh
-strand --config-dir "$world" weaver stop
+strand --workspace "$workspace" weaver stop
 ```

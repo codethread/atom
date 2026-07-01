@@ -10,14 +10,14 @@ The short version:
 - The **REPL** is the trusted, high-power surface for customization and exploration.
 - Your workflow model lives mostly in custom **attributes** and your own config/spool code.
 
-This guide is written for Skein users and for agents working inside a user's Skein world. Maintainer-facing contracts live in [`devflow/specs/`](../devflow/specs/); see the [spec index](#spec-index) at the end.
+This guide is written for Skein users and for agents working inside a user's Skein workspace. Maintainer-facing contracts live in [`devflow/specs/`](../devflow/specs/); see the [spec index](#spec-index) at the end.
 
 ## Mental model
 
-Skein is daemon-core-first behind a small router. You start `mill` once, ask it to start a weaver for a selected world, then clients send requests through `mill` to that weaver.
+Skein is daemon-core-first behind a small router. You start `mill` once, ask it to start a weaver for a selected workspace, then clients send requests through `mill` to that weaver.
 
 ```text
-selected config-dir (normally canonical repo .skein)
+selected workspace (normally canonical repo .skein)
   config.json      -> local, gitignored alpha config marker
   init.clj         -> shared trusted startup code loaded by the weaver
   init.local.clj   -> personal startup overlay loaded after init.clj
@@ -38,11 +38,11 @@ clients
   weaver REPL      -> mill resolution -> direct live nREPL attach to the weaver JVM
 ```
 
-Different config dirs are different worlds. Use `--config-dir <dir>` when you want an isolated world for experiments, agent work, or tests.
+Different workspaces are different workspaces. Use `--workspace <dir>` when you want an isolated workspace for experiments, agent work, or tests.
 
-## Worlds and config dirs
+## Workspaces and workspaces
 
-The ordinary world is repository-scoped. Without `--config-dir`, `mill` resolves the canonical repository root and uses that repo's `.skein` directory as the selected config-dir. Linked worktrees for the same repository share this default world. Outside supported Git layouts, no-flag commands fail loudly. `strand init` creates or completes `.skein` at the canonical Git root and fails loudly outside supported Git layouts:
+The ordinary workspace is repository-scoped. Without `--workspace`, `mill` resolves the canonical repository root and uses that repo's `.skein` directory as the selected workspace. Linked worktrees for the same repository share this default workspace. Outside supported Git layouts, no-flag commands fail loudly. `strand init` creates or completes `.skein` at the canonical Git root and fails loudly outside supported Git layouts:
 
 ```sh
 strand init
@@ -50,13 +50,13 @@ strand init
 
 Mill resolves the Skein source checkout used to launch the weaver from `SKEIN_SOURCE`, the install-time source recorded by `make install`, or a canonical Skein checkout cwd. `strand init` does not persist a source path in `.skein/config.json`.
 
-A world can also be selected explicitly with:
+A workspace can also be selected explicitly with:
 
 ```sh
-strand --config-dir /path/to/world ...
+strand --workspace /path/to/workspace ...
 ```
 
-For explicit worlds, `/path/to/world` is the config workspace. Runtime state,
+For explicit workspaces, `/path/to/workspace` is the config workspace. Runtime state,
 metadata, sockets, and data are owned by mill under Skein's XDG state root for
 the selected config identity.
 
@@ -74,7 +74,7 @@ The important file is `config.json`:
 
 From a Skein source checkout, `make install` installs the Go CLIs (`strand` and `mill`) and records the checkout as mill's default source for weaver launch and the thin nREPL attach client. After that, use the CLIs directly: `mill start`, `strand init`, and `strand weaver start`.
 
-`strand init` is the normal repo bootstrap path. It creates or completes the canonical repo `.skein` world, writes local `config.json` with the alpha format marker when absent, and leaves shared config files ready to commit. It does not run `git init`, persist source, or initialize database storage; weaver startup prepares storage.
+`strand init` is the normal repo bootstrap path. It creates or completes the canonical repo `.skein` workspace, writes local `config.json` with the alpha format marker when absent, and leaves shared config files ready to commit. It does not run `git init`, persist source, or initialize database storage; weaver startup prepares storage.
 
 User-facing Skein documentation lives in the source checkout under `docs/`; the canonical user reference is `docs/skein.md`.
 
@@ -98,23 +98,23 @@ The weaver is the application core. It is a long-lived local Clojure process tha
 - the approved-spool sync state;
 - runtime module activation state.
 
-Start mill once, then start the selected world's weaver:
+Start mill once, then start the selected workspace's weaver:
 
 ```sh
 mill start
-strand --config-dir "$world" weaver start
+strand --workspace "$workspace" weaver start
 ```
 
 Stop it:
 
 ```sh
-strand --config-dir "$world" weaver stop
+strand --workspace "$workspace" weaver stop
 ```
 
 Check it:
 
 ```sh
-strand --config-dir "$world" weaver status
+strand --workspace "$workspace" weaver status
 ```
 
 The weaver exposes two local transports:
@@ -122,7 +122,7 @@ The weaver exposes two local transports:
 - a Unix socket used by the Go `strand` CLI;
 - an nREPL endpoint used by the live weaver REPL.
 
-A selected config-dir may have one running weaver. Runtime registries are weaver-lifetime state, so named queries, weave patterns, views, and synced spool state should be loaded from startup config if you want them to appear after every restart.
+A selected workspace may have one running weaver. Runtime registries are weaver-lifetime state, so named queries, weave patterns, views, and synced spool state should be loaded from startup config if you want them to appear after every restart.
 
 ## CLI
 
@@ -131,16 +131,16 @@ The `strand` CLI is intentionally small. It is for scripts, low-friction agent u
 Common commands:
 
 ```sh
-strand --config-dir "$world" init
-strand --config-dir "$world" add "Write docs" --attr owner=agent --attr area=docs
-strand --config-dir "$world" update <id> --state closed
-strand --config-dir "$world" update <id> --edge depends-on:<other-id>
-strand --config-dir "$world" show <id>
-strand --config-dir "$world" list
-strand --config-dir "$world" ready
-strand --config-dir "$world" burn <id>
-strand --config-dir "$world" pattern explain <pattern-name>
-printf '{"title":"New work"}\n' | strand --config-dir "$world" weave --pattern <pattern-name>
+strand --workspace "$workspace" init
+strand --workspace "$workspace" add "Write docs" --attr owner=agent --attr area=docs
+strand --workspace "$workspace" update <id> --state closed
+strand --workspace "$workspace" update <id> --edge depends-on:<other-id>
+strand --workspace "$workspace" show <id>
+strand --workspace "$workspace" list
+strand --workspace "$workspace" ready
+strand --workspace "$workspace" burn <id>
+strand --workspace "$workspace" pattern explain <pattern-name>
+printf '{"title":"New work"}\n' | strand --workspace "$workspace" weave --pattern <pattern-name>
 ```
 
 The public strand/weaver commands emit JSON. CLI attributes are string-valued `key=value` pairs; richer Clojure data belongs in config or REPL workflows.
@@ -181,13 +181,13 @@ A strand has:
 Close work when it is no longer active. There is no special `done` command; use `update --state closed` and optionally record your own outcome attribute:
 
 ```sh
-strand --config-dir "$world" update <id> --state closed --attr outcome=done
+strand --workspace "$workspace" update <id> --state closed --attr outcome=done
 ```
 
 Burn only when you want deletion:
 
 ```sh
-strand --config-dir "$world" burn <id>
+strand --workspace "$workspace" burn <id>
 ```
 
 ## Edges and readiness
@@ -197,13 +197,13 @@ Edges connect strands with open relation names such as `depends-on`, `parent-of`
 A `depends-on` edge from `A` to `B` means: `A` is blocked while `B` is active.
 
 ```sh
-strand --config-dir "$world" update "$docs" --edge depends-on:"$design"
+strand --workspace "$workspace" update "$docs" --edge depends-on:"$design"
 ```
 
 `ready` returns active strands whose direct `depends-on` targets are inactive or absent:
 
 ```sh
-strand --config-dir "$world" ready
+strand --workspace "$workspace" ready
 ```
 
 Self-edges fail for every relation. Declared acyclic relations such as `depends-on`, `parent-of`, and `supersedes` reject relation-local cycles; annotation relations may form non-self cycles.
@@ -215,14 +215,14 @@ Skein's core is deliberately small. Most workflow meaning hangs off `attributes`
 Examples:
 
 ```sh
-strand --config-dir "$world" add "Draft release notes" \
+strand --workspace "$workspace" add "Draft release notes" \
   --attr owner=agent \
   --attr project=skein \
   --attr kind=doc \
   --attr priority=high
 ```
 
-Your world can decide what attributes mean. For example:
+Your workspace can decide what attributes mean. For example:
 
 - `owner=agent` can mean an agent should pick it up;
 - `kind=feature` can identify feature roots;
@@ -232,7 +232,7 @@ Your world can decide what attributes mean. For example:
 
 Skein stores attributes as JSON text. CLI input is simple string pairs; `--attr temporary=true` stores the string `"true"`, not a JSON boolean. Trusted Clojure workflows can write richer JSON-compatible values.
 
-Because attributes are userland, your own config and spools should define the conventions for your world. Prefer documenting those conventions in source-controlled docs or in your spool docs. Attribute names and cleanup behavior are userland choices, not Skein core.
+Because attributes are userland, your own config and spools should define the conventions for your workspace. Prefer documenting those conventions in source-controlled docs or in your spool docs. Attribute names and cleanup behavior are userland choices, not Skein core.
 
 ## Queries
 
@@ -250,8 +250,8 @@ From the live weaver REPL, `defquery!` registers a query for the current weaver 
 Then from the CLI:
 
 ```sh
-strand --config-dir "$world" list --query agent-docs
-strand --config-dir "$world" ready --query agent-docs
+strand --workspace "$workspace" list --query agent-docs
+strand --workspace "$workspace" ready --query agent-docs
 ```
 
 Named query registries are not durable by themselves. If you want a query after every weaver restart, register it from startup-loaded code.
@@ -266,7 +266,7 @@ For a simple persistent query, put it directly in `init.clj`:
 (api/register-query! 'mine [:= [:attr :owner] "ct"])
 ```
 
-For a world that already activates a local spool with `runtime-alpha/use!`, follow that existing pattern instead: add the `api/register-query!` call to the spool's `install!` function so reload/startup installs everything from one place.
+For a workspace that already activates a local spool with `runtime-alpha/use!`, follow that existing pattern instead: add the `api/register-query!` call to the spool's `install!` function so reload/startup installs everything from one place.
 
 Defining a Clojure var that contains query data is not the same as registering a named query. A local var can be passed to graph helpers from your own code, but `strand list --query mine` only works after `mine` has been registered in the weaver's named-query registry.
 
@@ -279,7 +279,7 @@ The REPL is the trusted, high-power surface. `strand weaver repl` attaches direc
 Open a live weaver REPL:
 
 ```sh
-strand --config-dir "$world" weaver repl
+strand --workspace "$workspace" weaver repl
 ```
 
 Useful forms:
@@ -295,7 +295,7 @@ Useful forms:
 Script the live weaver REPL with stdin:
 
 ```sh
-printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" weaver repl --stdin
+printf '@skein.weaver.runtime/current-runtime\n' | strand --workspace "$workspace" weaver repl --stdin
 ```
 
 The REPL helper namespace includes common strand functions. Privileged runtime loader/config helpers are explicit built-in namespaces, not ordinary user spools; require them when needed:
@@ -307,9 +307,9 @@ The REPL helper namespace includes common strand functions. Privileged runtime l
 
 ## Startup config
 
-`strand init` bootstraps missing workspace files in the selected config-dir without overwriting existing files. It does not initialize database storage; weaver startup prepares storage for the selected world.
+`strand init` bootstraps missing workspace files in the selected workspace without overwriting existing files. It does not initialize database storage; weaver startup prepares storage for the selected workspace.
 
-For the ordinary repo-local `.skein` world, it creates or ensures:
+For the ordinary repo-local `.skein` workspace, it creates or ensures:
 
 - `.skein/config.json` only if absent, with the alpha format marker;
 - `.skein/spools/` directory;
@@ -317,7 +317,7 @@ For the ordinary repo-local `.skein` world, it creates or ensures:
 - `.skein/init.clj` only if absent, with the default below;
 - `.skein/.gitignore` only if absent, ignoring local config overlays such as `config.json`, `init.local.clj`, and `spools.local.edn`.
 
-Explicit `--config-dir` standalone worlds bootstrap the selected config directory directly. Existing `config.json`, `spools.edn`, `init.clj`, and `.gitignore` are preserved.
+Explicit `--workspace` standalone workspaces bootstrap the selected workspace directory directly. Existing `config.json`, `spools.edn`, `init.clj`, and `.gitignore` are preserved.
 
 The generated `init.clj` is intentionally small:
 
@@ -328,7 +328,7 @@ The generated `init.clj` is intentionally small:
 (runtime-alpha/sync!)
 ```
 
-The weaver loads startup files in order: `init.clj`, then `init.local.clj`. Missing files are skipped; present failing files fail loudly with file context. Use startup-loaded code to register queries, weave patterns, load approved spools, register views, and install conventions for your world. Simple worlds can put shared registrations directly in `init.clj` and personal overlays in gitignored `init.local.clj`; reusable or larger worlds should keep `init.clj` minimal and install behavior from a local spool.
+The weaver loads startup files in order: `init.clj`, then `init.local.clj`. Missing files are skipped; present failing files fail loudly with file context. Use startup-loaded code to register queries, weave patterns, load approved spools, register views, and install conventions for your workspace. Simple workspaces can put shared registrations directly in `init.clj` and personal overlays in gitignored `init.local.clj`; reusable or larger workspaces should keep `init.clj` minimal and install behavior from a local spool.
 
 A direct `init.clj` query registration can look like this:
 
@@ -356,7 +356,7 @@ Reload clears weaver-lifetime spool sync state, module-use state, named queries,
 Skein treats runtime extensions as trusted Clojure code. A common layout is:
 
 ```text
-world/
+workspace/
   config.json
   init.clj
   spools.edn
@@ -372,7 +372,7 @@ Approve the local spool root in `spools.edn`:
 {:spools {my/workflow {:local/root "spools/my-workflow"}}}
 ```
 
-Relative `:local/root` values resolve against the selected config-dir. Absolute paths are accepted as explicit user-approved paths, and `~` expands to your home directory.
+Relative `:local/root` values resolve against the selected workspace. Absolute paths are accepted as explicit user-approved paths, and `~` expands to your home directory.
 
 Create a minimal `deps.edn` in the spool root:
 
@@ -417,7 +417,7 @@ Key points:
 
 ## Weave patterns
 
-Weave patterns are trusted owner-defined transformations that turn a JSON-like input payload into an atomic batch of new strands and edges. They are useful when agents should submit intent and your world should decide the graph shape.
+Weave patterns are trusted owner-defined transformations that turn a JSON-like input payload into an atomic batch of new strands and edges. They are useful when agents should submit intent and your workspace should decide the graph shape.
 
 Pattern registration lives in trusted Clojure config or spools, not in the public CLI. A pattern has a simple name, a fully qualified weaver-loadable function symbol, and a `clojure.spec` input contract.
 
@@ -445,8 +445,8 @@ Pattern registration lives in trusted Clojure config or spools, not in the publi
 CLI callers can inspect the input contract and invoke the pattern with exactly one JSON value on stdin:
 
 ```sh
-strand --config-dir "$world" pattern explain task
-printf '{"title":"Implement review flow"}\n' | strand --config-dir "$world" weave --pattern task
+strand --workspace "$workspace" pattern explain task
+printf '{"title":"Implement review flow"}\n' | strand --workspace "$workspace" weave --pattern task
 ```
 
 The pattern function runs inside the weaver and receives `{:input input}`. Its return value must be the same batch vector shape accepted by Skein's batch primitive: strand maps with optional `:ref` and `:edges`. Symbolic refs are transient to the batch and are never durable ids. Input spec failure, malformed batch output, missing refs, invalid durable targets, cycles, and database errors fail loudly and leave no partial batch writes.
@@ -494,7 +494,7 @@ For scripts, use `weaver repl --stdin`:
 
 ```sh
 printf "(do (require '[skein.views.alpha :as views]) (views/view! 'owned-view {}))\n" \
-  | strand --config-dir "$world" weaver repl --stdin
+  | strand --workspace "$workspace" weaver repl --stdin
 ```
 
 There is no public `strand view` CLI command; view registration and invocation are trusted config/REPL workflows. A view returns whatever serializable Clojure data your function returns. The `{:ids ... :strands ...}` shape above is a convention, not a required schema.
@@ -514,7 +514,7 @@ Register handlers from startup-loaded code or weaver-loadable spools:
 (defn cleanup-temporary! [event]
   ;; Handler receives one event map and can call trusted Skein helpers/APIs.
   (when (= :strand/updated (:event/type event))
-    ;; your world-specific cleanup here
+    ;; your workspace-specific cleanup here
     nil))
 
 (defn install! []
@@ -544,7 +544,7 @@ This is by design: the system is flexible because attributes and user code are o
 
 ## Practical bootstrap
 
-Install from a checkout, start mill, and create a repo-local world:
+Install from a checkout, start mill, and create a repo-local workspace:
 
 ```sh
 make install
@@ -553,25 +553,25 @@ strand init
 strand weaver start
 ```
 
-For experiments, use a disposable world:
+For experiments, use a disposable workspace:
 
 ```sh
-world=$(mktemp -d)
-strand --config-dir "$world" init
-strand --config-dir "$world" weaver start
+workspace=$(mktemp -d)
+strand --workspace "$workspace" init
+strand --workspace "$workspace" weaver start
 ```
 
 In another terminal:
 
 ```sh
-strand --config-dir "$world" add "Sketch workflow" --attr owner=agent
-strand --config-dir "$world" ready
+strand --workspace "$workspace" add "Sketch workflow" --attr owner=agent
+strand --workspace "$workspace" ready
 ```
 
 Stop when finished:
 
 ```sh
-strand --config-dir "$world" weaver stop
+strand --workspace "$workspace" weaver stop
 ```
 
 ## Spec index
@@ -601,7 +601,7 @@ Spec: [`devflow/specs/cli.md`](../devflow/specs/cli.md)
 Covers:
 
 - supported `strand` commands and flags;
-- config-dir selection;
+- workspace selection;
 - `config.json` format;
 - JSON-only public output;
 - CLI failure behavior;
@@ -633,7 +633,7 @@ Spec: [`devflow/specs/daemon-runtime.md`](../devflow/specs/daemon-runtime.md)
 Covers:
 
 - weaver process model;
-- config/state/data world selection;
+- config/state/data workspace selection;
 - runtime metadata and socket discovery;
 - JSON socket and nREPL transports;
 - weaver API boundaries;
@@ -643,4 +643,4 @@ Covers:
 - graph/view runtime primitives;
 - trusted event handler runtime and helper contracts.
 
-Read this when debugging weaver startup, metadata, transports, runtime state, spool loading, or multi-world behavior.
+Read this when debugging weaver startup, metadata, transports, runtime state, spool loading, or multi-workspace behavior.

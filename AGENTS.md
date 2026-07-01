@@ -39,31 +39,31 @@ clojure -M:repl
 
 ## Agent operation quick reference
 
-Agents must prefer explicit disposable `--config-dir` worlds. Never use or mutate the user's default config/data/state worlds unless explicitly asked.
+Agents must prefer explicit disposable `--workspace` workspaces. Never use or mutate the user's default config/data/state workspaces unless explicitly asked.
 
 ```sh
 make install
-world=$(mktemp -d)
+workspace=$(mktemp -d)
 xdg=$(mktemp -d)
 export XDG_STATE_HOME="$xdg"
-strand --config-dir "$world" init
+strand --workspace "$workspace" init
 
 mill start &
 mill_pid=$!
 until mill status >/dev/null 2>&1; do sleep 0.1; done
-strand --config-dir "$world" weaver start
-design=$(strand --config-dir "$world" add "Sketch model" --state closed --attr priority=high)
-docs=$(strand --config-dir "$world" add "Write docs" --attr owner=agent)
-strand --config-dir "$world" update "$docs" --edge depends-on:$design
-strand --config-dir "$world" ready
-strand --config-dir "$world" weaver stop
+strand --workspace "$workspace" weaver start
+design=$(strand --workspace "$workspace" add "Sketch model" --state closed --attr priority=high)
+docs=$(strand --workspace "$workspace" add "Write docs" --attr owner=agent)
+strand --workspace "$workspace" update "$docs" --edge depends-on:$design
+strand --workspace "$workspace" ready
+strand --workspace "$workspace" weaver stop
 kill "$mill_pid"
 ```
 
 Use `strand weaver repl` for interactive trusted exploration:
 
 ```sh
-strand --config-dir "$world" weaver repl
+strand --workspace "$workspace" weaver repl
 ```
 
 ```clojure
@@ -78,10 +78,10 @@ strand --config-dir "$world" weaver repl
 For non-interactive trusted forms:
 
 ```sh
-printf '@skein.weaver.runtime/current-runtime\n' | strand --config-dir "$world" weaver repl --stdin
+printf '@skein.weaver.runtime/current-runtime\n' | strand --workspace "$workspace" weaver repl --stdin
 ```
 
-For config-dir spool workspace workflows, use `spools.edn`, privileged `skein.runtime.alpha/sync!`, layered `runtime/use!`, and live weaver REPL/config loading. There are intentionally no plugin/package CLI commands.
+For workspace spool workspace workflows, use `spools.edn`, privileged `skein.runtime.alpha/sync!`, layered `runtime/use!`, and live weaver REPL/config loading. There are intentionally no plugin/package CLI commands.
 
 ## Validation and smoke testing
 
@@ -93,18 +93,18 @@ PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:test
 PATH="/opt/homebrew/opt/openjdk/bin:$PATH" clojure -M:smoke
 ```
 
-The smoke demo builds a temporary `strand` CLI, creates disposable `--config-dir` worlds, starts disposable weaver runtimes, exercises CLI subprocess commands and direct live `weaver repl --stdin`, exercises REPL helpers against a real weaver, then removes generated state, data, config, socket, metadata, and built CLI artifacts.
+The smoke demo builds a temporary `strand` CLI, creates disposable `--workspace` workspaces, starts disposable weaver runtimes, exercises CLI subprocess commands and direct live `weaver repl --stdin`, exercises REPL helpers against a real weaver, then removes generated state, data, config, socket, metadata, and built CLI artifacts.
 
-Tests and smoke workflows must isolate weaver worlds with temporary config dirs. Do not start test weavers through implicit repo discovery or any user-owned world.
+Tests and smoke workflows must isolate weaver workspaces with temporary workspaces. Do not start test weavers through implicit repo discovery or any user-owned workspace.
 
 After validation, `git status --short` should not show generated SQLite or runtime metadata artifacts.
 
 ## Debugging SQLite state
 
 ```sh
-sqlite3 smoke-cli.sqlite.config-dir/data/skein.sqlite '.schema'
-sqlite3 smoke-cli.sqlite.config-dir/data/skein.sqlite 'select id, title, attributes from strands;'
-sqlite3 smoke-cli.sqlite.config-dir/data/skein.sqlite 'select from_strand_id, to_strand_id, edge_type, attributes from strand_edges;'
+sqlite3 smoke-cli.sqlite.workspace/data/skein.sqlite '.schema'
+sqlite3 smoke-cli.sqlite.workspace/data/skein.sqlite 'select id, title, attributes from strands;'
+sqlite3 smoke-cli.sqlite.workspace/data/skein.sqlite 'select from_strand_id, to_strand_id, edge_type, attributes from strand_edges;'
 ```
 
 ## Implementation boundaries

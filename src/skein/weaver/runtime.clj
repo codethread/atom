@@ -114,7 +114,7 @@
   ["init.clj" "init.local.clj"])
 
 (defn startup-files
-  "Return present selected-config-dir startup files in load order."
+  "Return present selected-workspace startup files in load order."
   [world]
   (into []
         (keep (fn [name]
@@ -125,7 +125,7 @@
         startup-file-names))
 
 (defn load-startup-files!
-  "Load present selected-config-dir startup files in startup order.
+  "Load present selected-workspace startup files in startup order.
 
   Missing startup files are skipped. Present files that fail to read or evaluate
   throw with file path context so startup/reload abort loudly. Returns entries
@@ -135,7 +135,7 @@
           (try
             (assoc startup-file :return (with-spool-classloader runtime #(load-file file)))
             (catch Throwable t
-              (throw (ex-info "Selected config-dir startup file failed to load"
+              (throw (ex-info "Selected workspace startup file failed to load"
                               {:config-dir (:config-dir world)
                                :file file}
                               t)))))
@@ -250,13 +250,13 @@
   (loop [remaining args
          opts {}]
     (case (first remaining)
-      nil {:config-dir (require-main-dir! opts :config-dir "--config-dir")
+      nil {:config-dir (require-main-dir! opts :config-dir "--workspace")
            :state-dir (require-main-dir! opts :state-dir "--state-dir")
            :data-dir (require-main-dir! opts :data-dir "--data-dir")
            :name (:name opts)}
-      "--config-dir" (let [[_ dir & more] remaining]
+      "--workspace" (let [[_ dir & more] remaining]
                        (when-not dir
-                         (throw (ex-info "--config-dir requires a directory" {:args args})))
+                         (throw (ex-info "--workspace requires a directory" {:args args})))
                        (recur more (assoc opts :config-dir dir)))
       "--state-dir" (let [[_ dir & more] remaining]
                       (when-not dir
@@ -270,7 +270,7 @@
                   (when (str/blank? name)
                     (throw (ex-info "--name requires a non-blank value" {:args args})))
                   (recur more (assoc opts :name name)))
-      (throw (ex-info "Usage: skein.weaver.runtime --config-dir <dir> --state-dir <dir> --data-dir <dir> [--name <name>]" {:args args})))))
+      (throw (ex-info "Usage: skein.weaver.runtime --workspace <dir> --state-dir <dir> --data-dir <dir> [--name <name>]" {:args args})))))
 
 (defn -main
   "Start a foreground weaver process from command-line arguments."

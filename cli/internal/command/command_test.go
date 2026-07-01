@@ -100,7 +100,7 @@ func TestHelpIncludesCommandTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"start", "--config-dir"} {
+	for _, want := range []string{"start", "--workspace"} {
 		if !strings.Contains(start, want) {
 			t.Fatalf("weaver start help missing %q in:\n%s", want, start)
 		}
@@ -151,13 +151,34 @@ func TestRejectsRemovedAndMalformedInputs(t *testing.T) {
 	}
 }
 
+func TestOpPassThroughAcceptsWorkspaceAfterOpArgs(t *testing.T) {
+	cfg := testConfig(t)
+	orig := newClient
+	fc := &fakeClient{result: map[string]any{"ok": true}}
+	var captured Options
+	newClient = func(o Options) Caller {
+		captured = o
+		return fc
+	}
+	t.Cleanup(func() { newClient = orig })
+	if _, err := run("op", "echo", "--workspace", cfg, "--flag", "value"); err != nil {
+		t.Fatal(err)
+	}
+	if captured.ConfigDir != cfg {
+		t.Fatalf("expected workspace flag after op args to select workspace, got %#v", captured)
+	}
+	if len(fc.calls) != 1 || fc.calls[0].op != "op" || !reflect.DeepEqual(fc.calls[0].args, map[string]any{"name": "echo", "args": []string{"--flag", "value"}}) {
+		t.Fatalf("unexpected op call: %#v", fc.calls)
+	}
+}
+
 func TestPatternListCommandPassesThroughToSocketClientPayloads(t *testing.T) {
 	cfg := testConfig(t)
 	orig := newClient
 	fc := &fakeClient{result: []any{}}
 	newClient = func(o Options) Caller { return fc }
 	t.Cleanup(func() { newClient = orig })
-	out, err := run("--config-dir", cfg, "pattern", "list")
+	out, err := run("--workspace", cfg, "pattern", "list")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +202,7 @@ func TestConfigDirPrecedenceAndValidation(t *testing.T) {
 		return &fakeClient{result: []any{}}
 	}
 	t.Cleanup(func() { newClient = orig })
-	if _, err := run("--config-dir", dir, "list"); err != nil {
+	if _, err := run("--workspace", dir, "list"); err != nil {
 		t.Fatal(err)
 	}
 	if captured.Source != "" || captured.ConfigDir != dir || !captured.ConfigDirExplicit {
@@ -215,14 +236,14 @@ func TestInitBootstrapsWorkspaceWhenMissingWithoutWeaverInit(t *testing.T) {
 		return &fakeClient{}
 	}
 	t.Cleanup(func() { newClient = origClient })
-	if _, err := run("--config-dir", cfg, "init"); err != nil {
+	if _, err := run("--workspace", cfg, "init"); err != nil {
 		t.Fatal(err)
 	}
 	if clientCalled {
 		t.Fatal("init must not call weaver init")
 	}
 	if _, err := os.Stat(filepath.Join(cfg, ".git")); !os.IsNotExist(err) {
-		t.Fatalf("explicit --config-dir init must not run git init, stat err=%v", err)
+		t.Fatalf("explicit --workspace init must not run git init, stat err=%v", err)
 	}
 	cfgFile := filepath.Join(cfg, "config.json")
 	if _, err := os.Stat(cfgFile); err != nil {
@@ -265,7 +286,7 @@ func TestInitRejectsLegacyLibsConfig(t *testing.T) {
 	origClient := newClient
 	newClient = func(o Options) Caller { return &fakeClient{} }
 	t.Cleanup(func() { newClient = origClient })
-	_, err := run("--config-dir", cfg, "init")
+	_, err := run("--workspace", cfg, "init")
 	if err == nil || !strings.Contains(err.Error(), "rename libs.edn/libs.local.edn to spools.edn/spools.local.edn") {
 		t.Fatalf("expected legacy libs rejection, got %v", err)
 	}
@@ -279,7 +300,7 @@ func TestInitRejectsLegacyLibsSymlink(t *testing.T) {
 	origClient := newClient
 	newClient = func(o Options) Caller { return &fakeClient{} }
 	t.Cleanup(func() { newClient = origClient })
-	_, err := run("--config-dir", cfg, "init")
+	_, err := run("--workspace", cfg, "init")
 	if err == nil || !strings.Contains(err.Error(), "rename libs.edn/libs.local.edn to spools.edn/spools.local.edn") {
 		t.Fatalf("expected legacy libs symlink rejection, got %v", err)
 	}
@@ -318,7 +339,7 @@ func TestInitValidatesExistingConfigButDoesNotRewriteMissingKeys(t *testing.T) {
 	origClient := newClient
 	newClient = func(o Options) Caller { return &fakeClient{} }
 	t.Cleanup(func() { newClient = origClient })
-	if _, err := run("--config-dir", cfg, "init"); err != nil {
+	if _, err := run("--workspace", cfg, "init"); err != nil {
 		t.Fatalf("init failed: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(cfg, "config.json"))
@@ -345,7 +366,7 @@ func TestWeaverStartRoutesThroughMill(t *testing.T) {
 		return map[string]any{"state": "starting"}, nil
 	}
 	t.Cleanup(func() { millCall = orig })
-	out, err := run("--config-dir", cfg, "weaver", "start", "--name", "editor")
+	out, err := run("--workspace", cfg, "weaver", "start", "--name", "editor")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +398,7 @@ func TestWeaverReplUsesMillReturnedSource(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
-	if _, err := run("--config-dir", cfg, "weaver", "repl"); err != nil {
+	if _, err := run("--workspace", cfg, "weaver", "repl"); err != nil {
 		t.Fatal(err)
 	}
 	realCfg, err := filepath.EvalSymlinks(cfg)
@@ -469,7 +490,7 @@ func TestWeaverReplRequiresNreplMetadata(t *testing.T) {
 				return nil
 			}
 			t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
-			if _, err := run("--config-dir", cfg, "weaver", "repl", "--stdin"); err == nil || !strings.Contains(err.Error(), tc.want) {
+			if _, err := run("--workspace", cfg, "weaver", "repl", "--stdin"); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected %q error, got %v", tc.want, err)
 			}
 		})
@@ -491,7 +512,7 @@ func TestWeaverReplStoppedStateDoesNotRequireSource(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { millCall = origMill; runReplProcess = origRun })
-	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "start one with: strand weaver start") {
+	if _, err := run("--workspace", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "start one with: strand weaver start") {
 		t.Fatalf("expected weaver start remediation, got %v", err)
 	}
 }
@@ -508,10 +529,10 @@ func TestWeaverStatusAndStopRouteThroughMill(t *testing.T) {
 		return map[string]any{"state": "running"}, nil
 	}
 	t.Cleanup(func() { millCall = orig })
-	if _, err := run("--config-dir", cfg, "weaver", "status"); err != nil {
+	if _, err := run("--workspace", cfg, "weaver", "status"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run("--config-dir", cfg, "weaver", "stop"); err != nil {
+	if _, err := run("--workspace", cfg, "weaver", "stop"); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(operations, []string{"weaver-status", "weaver-stop"}) {
@@ -522,7 +543,7 @@ func TestWeaverStatusAndStopRouteThroughMill(t *testing.T) {
 func TestOrdinaryCommandsRequireMill(t *testing.T) {
 	cfg := testConfig(t)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
-	if _, err := run("--config-dir", cfg, "list"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
+	if _, err := run("--workspace", cfg, "list"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
 		t.Fatalf("expected mill remediation, got %v", err)
 	}
 }
@@ -530,7 +551,7 @@ func TestOrdinaryCommandsRequireMill(t *testing.T) {
 func TestWeaverStartRequiresMill(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
-	if _, err := run("--config-dir", cfg, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
+	if _, err := run("--workspace", cfg, "weaver", "start"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
 		t.Fatalf("expected mill remediation, got %v", err)
 	}
 }
@@ -541,7 +562,7 @@ func TestWeaverReplRequiresMill(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg, "config.json"), []byte(`{"configFormat":"alpha"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run("--config-dir", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
+	if _, err := run("--workspace", cfg, "weaver", "repl"); err == nil || !strings.Contains(err.Error(), "start one with: mill start") {
 		t.Fatalf("expected mill remediation, got %v", err)
 	}
 }
@@ -668,7 +689,7 @@ func TestInitDoesNotPassCallerEnvSourceToMill(t *testing.T) {
 	t.Cleanup(func() { millCall = orig })
 	var out, er bytes.Buffer
 	app := New(&out, &er)
-	if err := app.Run([]string{"--config-dir", cfg, "init"}); err != nil {
+	if err := app.Run([]string{"--workspace", cfg, "init"}); err != nil {
 		t.Fatal(err)
 	}
 	if captured.Source != "" {
@@ -703,7 +724,7 @@ func TestInitWritesMarkerConfigAndDoesNotOverwriteBootstrapFiles(t *testing.T) {
 	origClient := newClient
 	newClient = func(o Options) Caller { return &fakeClient{} }
 	t.Cleanup(func() { newClient = origClient })
-	if _, err := run("--config-dir", cfg, "init"); err != nil {
+	if _, err := run("--workspace", cfg, "init"); err != nil {
 		t.Fatal(err)
 	}
 	var c configFileForTest
@@ -812,18 +833,18 @@ func TestQueryCommandsUseSocketClientPayloads(t *testing.T) {
 	fc := &fakeClient{result: []any{map[string]any{"id": "task-1"}}}
 	newClient = func(o Options) Caller { return fc }
 	t.Cleanup(func() { newClient = orig })
-	out, err := run("--config-dir", cfg, "list")
+	out, err := run("--workspace", cfg, "list")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.TrimSpace(out) != `[{"id":"task-1"}]` {
 		t.Fatalf("unexpected list output: %q", out)
 	}
-	out, err = run("--config-dir", cfg, "list", "--state", "closed")
+	out, err = run("--workspace", cfg, "list", "--state", "closed")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err = run("--config-dir", cfg, "ready", "--query", "by-owner", "--param", "owner=agent")
+	out, err = run("--workspace", cfg, "ready", "--query", "by-owner", "--param", "owner=agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -841,7 +862,7 @@ func TestQueryCommandsUseSocketClientPayloads(t *testing.T) {
 		t.Fatalf("bad ready-query call: %#v", fc.calls[2])
 	}
 	fc.result = []any{}
-	out, err = run("--config-dir", cfg, "list", "--query", "empty")
+	out, err = run("--workspace", cfg, "list", "--query", "empty")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -856,14 +877,14 @@ func TestGraphSubgraphCommandUsesSocketClientPayloads(t *testing.T) {
 	fc := &fakeClient{result: map[string]any{"root_ids": []any{"task-1"}, "strands": []any{}, "edges": []any{}}}
 	newClient = func(o Options) Caller { return fc }
 	t.Cleanup(func() { newClient = orig })
-	out, err := run("--config-dir", cfg, "graph", "subgraph", "task-1")
+	out, err := run("--workspace", cfg, "graph", "subgraph", "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.TrimSpace(out) != `{"edges":[],"root_ids":["task-1"],"strands":[]}` {
 		t.Fatalf("unexpected graph output: %q", out)
 	}
-	_, err = run("--config-dir", cfg, "graph", "subgraph", "task-1", "--relation", "depends-on")
+	_, err = run("--workspace", cfg, "graph", "subgraph", "task-1", "--relation", "depends-on")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -884,7 +905,7 @@ func TestOpCommandPassesThroughUserArgs(t *testing.T) {
 	fc := &fakeClient{result: map[string]any{"ok": true}}
 	newClient = func(o Options) Caller { return fc }
 	t.Cleanup(func() { newClient = orig })
-	out, err := run("--config-dir", cfg, "op", "help", "--topic", "custom invocations")
+	out, err := run("--workspace", cfg, "op", "help", "--topic", "custom invocations")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,7 +924,7 @@ func TestWeaveAndPatternCommandsUseSocketClientPayloads(t *testing.T) {
 	fc := &fakeClient{result: map[string]any{"created": []any{}, "refs": map[string]any{}}}
 	newClient = func(o Options) Caller { return fc }
 	t.Cleanup(func() { newClient = orig })
-	out, err := runWithStdin(`{"title":"Implement"}`, "--config-dir", cfg, "weave", "--pattern", "dev-task")
+	out, err := runWithStdin(`{"title":"Implement"}`, "--workspace", cfg, "weave", "--pattern", "dev-task")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -911,7 +932,7 @@ func TestWeaveAndPatternCommandsUseSocketClientPayloads(t *testing.T) {
 		t.Fatalf("unexpected weave output: %q", out)
 	}
 	fc.result = map[string]any{"name": "dev-task"}
-	if _, err := run("--config-dir", cfg, "pattern", "explain", "dev-task"); err != nil {
+	if _, err := run("--workspace", cfg, "pattern", "explain", "dev-task"); err != nil {
 		t.Fatal(err)
 	}
 	if len(fc.calls) != 2 {
@@ -924,7 +945,7 @@ func TestWeaveAndPatternCommandsUseSocketClientPayloads(t *testing.T) {
 		t.Fatalf("bad pattern explain call: %#v", fc.calls[1])
 	}
 	for _, stdin := range []string{"", `{bad`, `{} {}`} {
-		if _, err := runWithStdin(stdin, "--config-dir", cfg, "weave", "--pattern", "dev-task"); err == nil {
+		if _, err := runWithStdin(stdin, "--workspace", cfg, "weave", "--pattern", "dev-task"); err == nil {
 			t.Fatalf("expected stdin error for %q", stdin)
 		}
 	}
@@ -941,7 +962,7 @@ func TestAddMergesAttributeInputs(t *testing.T) {
 	newClient = func(o Options) Caller { return fc }
 	t.Cleanup(func() { newClient = orig })
 	stdin := `{"kind":"template","owner":"default","body":"placeholder","count":2}`
-	_, err := runWithStdin(stdin, "--config-dir", cfg, "add", "Implement", "--attributes-stdin", "--attr-file", "body="+file, "--attr", "owner=agent")
+	_, err := runWithStdin(stdin, "--workspace", cfg, "add", "Implement", "--attributes-stdin", "--attr-file", "body="+file, "--attr", "owner=agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -957,7 +978,7 @@ func TestAddReadsSingleAttributeFromStdin(t *testing.T) {
 	fc := &fakeClient{}
 	newClient = func(o Options) Caller { return fc }
 	t.Cleanup(func() { newClient = orig })
-	_, err := runWithStdin("# Plan\n", "--config-dir", cfg, "add", "Implement", "--attr-stdin", "body")
+	_, err := runWithStdin("# Plan\n", "--workspace", cfg, "add", "Implement", "--attr-stdin", "body")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -980,16 +1001,16 @@ func TestAddAttributeInputsFailLoudly(t *testing.T) {
 		stdin string
 		args  []string
 	}{
-		{"", []string{"--config-dir", cfg, "add", "x", "--attr", "a=1", "--attr", "a=2"}},
-		{"", []string{"--config-dir", cfg, "add", "x", "--attr-file", "body=" + file, "--attr-file", "body=" + file}},
-		{"", []string{"--config-dir", cfg, "add", "x", "--attr-file", "body=" + file, "--attr-stdin", "body"}},
-		{"", []string{"--config-dir", cfg, "add", "x", "--attr-stdin", ""}},
-		{"", []string{"--config-dir", cfg, "add", "x", "--attr-stdin", "body", "--attr-stdin", "notes"}},
-		{"{}", []string{"--config-dir", cfg, "add", "x", "--attr-stdin", "body", "--attributes-stdin"}},
-		{"", []string{"--config-dir", cfg, "add", "x", "--attributes-stdin"}},
-		{"[]", []string{"--config-dir", cfg, "add", "x", "--attributes-stdin"}},
-		{"{} {}", []string{"--config-dir", cfg, "add", "x", "--attributes-stdin"}},
-		{"", []string{"--config-dir", cfg, "add", "x", "--attr-file", "body=/missing/file"}},
+		{"", []string{"--workspace", cfg, "add", "x", "--attr", "a=1", "--attr", "a=2"}},
+		{"", []string{"--workspace", cfg, "add", "x", "--attr-file", "body=" + file, "--attr-file", "body=" + file}},
+		{"", []string{"--workspace", cfg, "add", "x", "--attr-file", "body=" + file, "--attr-stdin", "body"}},
+		{"", []string{"--workspace", cfg, "add", "x", "--attr-stdin", ""}},
+		{"", []string{"--workspace", cfg, "add", "x", "--attr-stdin", "body", "--attr-stdin", "notes"}},
+		{"{}", []string{"--workspace", cfg, "add", "x", "--attr-stdin", "body", "--attributes-stdin"}},
+		{"", []string{"--workspace", cfg, "add", "x", "--attributes-stdin"}},
+		{"[]", []string{"--workspace", cfg, "add", "x", "--attributes-stdin"}},
+		{"{} {}", []string{"--workspace", cfg, "add", "x", "--attributes-stdin"}},
+		{"", []string{"--workspace", cfg, "add", "x", "--attr-file", "body=/missing/file"}},
 	}
 	for _, c := range cases {
 		if _, err := runWithStdin(c.stdin, c.args...); err == nil {
@@ -1010,7 +1031,7 @@ func TestSupersedeCommandUsesSocketPayloadAndJsonOutput(t *testing.T) {
 	fc := &fakeClient{result: result}
 	newClient = func(o Options) Caller { return fc }
 	t.Cleanup(func() { newClient = orig })
-	out, err := run("--config-dir", cfg, "supersede", "old", "new")
+	out, err := run("--workspace", cfg, "supersede", "old", "new")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1032,20 +1053,20 @@ func TestStrandCommandsUseSocketClientPayloads(t *testing.T) {
 	fc := &fakeClient{}
 	newClient = func(o Options) Caller { return fc }
 	t.Cleanup(func() { newClient = orig })
-	out, err := run("--config-dir", cfg, "add", "Write docs", "--attr", "owner=agent", "--edge", "depends-on:task-0")
+	out, err := run("--workspace", cfg, "add", "Write docs", "--attr", "owner=agent", "--edge", "depends-on:task-0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.TrimSpace(out) != `{"attributes":{},"id":"task-1","state":"active","title":"Write docs"}` {
 		t.Fatalf("expected JSON row, got %q", out)
 	}
-	if out, err = run("--config-dir", cfg, "update", "task-1", "--state=closed", "--edge", "depends-on:task-0"); err != nil || !strings.Contains(out, `"id":"task-1"`) {
+	if out, err = run("--workspace", cfg, "update", "task-1", "--state=closed", "--edge", "depends-on:task-0"); err != nil || !strings.Contains(out, `"id":"task-1"`) {
 		t.Fatalf("update output/error = %q/%v", out, err)
 	}
-	if _, err = run("--config-dir", cfg, "show", "task-1"); err != nil {
+	if _, err = run("--workspace", cfg, "show", "task-1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = run("--config-dir", cfg, "burn", "task-2"); err != nil {
+	if _, err = run("--workspace", cfg, "burn", "task-2"); err != nil {
 		t.Fatal(err)
 	}
 	if len(fc.calls) != 4 {
@@ -1073,7 +1094,7 @@ func TestStrandCommandsUseSocketClientPayloads(t *testing.T) {
 	if fc.calls[3].op != "burn" || fc.calls[3].args["id"] != "task-2" {
 		t.Fatalf("bad burn call: %#v", fc.calls[3])
 	}
-	if _, err = run("--config-dir", cfg, "update", "task-1", "--title", ""); err != nil {
+	if _, err = run("--workspace", cfg, "update", "task-1", "--title", ""); err != nil {
 		t.Fatal(err)
 	}
 	if fc.calls[4].args["title"] != "" {

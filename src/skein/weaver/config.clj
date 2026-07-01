@@ -1,5 +1,5 @@
 (ns skein.weaver.config
-  "Resolve Skein weaver world directories from an explicit selected config dir."
+  "Resolve Skein weaver workspace directories from an explicit selected workspace."
   (:require [clojure.java.io :as io]))
 
 (defn- canonical-path [file]
@@ -14,25 +14,25 @@
 
 (defn- require-dir! [value label]
   (when-not (seq (str value))
-    (throw (ex-info (str "No Skein " label " selected; pass explicit config, state, and data dirs")
+    (throw (ex-info (str "No Skein " label " selected; pass explicit workspace, state, and data dirs")
                     {:code :skein.config/missing-world-dir
                      :dir label})))
   (canonical-path value))
 
 (defn world
-  "Return the config, state, and data paths for an explicit weaver world.
+  "Return the config, state, and data paths for an explicit weaver workspace.
 
-  `config-dir`, `state-dir`, and `data-dir` are independent selected-world
+  `config-dir`, `state-dir`, and `data-dir` are independent selected-workspace
   inputs supplied by mill or by tests/helpers that intentionally construct
-  disposable worlds. Calling without all three dirs fails loudly so Clojure
-  entry points cannot silently derive runtime state from config-dir."
+  disposable workspaces. Calling without all three dirs fails loudly so Clojure
+  entry points cannot silently derive runtime state from the workspace."
   ([]
-   (throw (ex-info "No Skein config dir selected; pass explicit config, state, and data dirs"
+   (throw (ex-info "No Skein workspace selected; pass explicit workspace, state, and data dirs"
                    {:code :skein.config/no-selected-world})))
   ([config-dir]
-   (let [dir (require-dir! config-dir "config-dir")]
+   (let [dir (require-dir! config-dir "workspace")]
      (world-map dir (str dir "/state") (str dir "/data"))))
   ([config-dir state-dir data-dir]
-   (world-map (require-dir! config-dir "config-dir")
+   (world-map (require-dir! config-dir "workspace")
               (require-dir! state-dir "state-dir")
               (require-dir! data-dir "data-dir"))))

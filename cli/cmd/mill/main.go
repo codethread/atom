@@ -63,7 +63,7 @@ func main() {
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}})
 	weaver := &cobra.Command{Use: "weaver", Short: "Inspect supervised weavers"}
-	weaver.AddCommand(&cobra.Command{Use: "list", Short: "List known selected-world weavers", RunE: func(cmd *cobra.Command, args []string) error {
+	weaver.AddCommand(&cobra.Command{Use: "list", Short: "List known selected workspace weavers", RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := client.MillCall("weaver-list", client.MillWorldRequest{})
 		if err != nil {
 			return err

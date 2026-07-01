@@ -79,35 +79,41 @@ func (a *App) Run(args []string) error {
 
 func (a *App) runOpPassThrough(args []string) (bool, error) {
 	o := Options{}
+	opIndex := -1
+	passthrough := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
-		case arg == "--config-dir":
+		case arg == "--workspace":
 			if i+1 >= len(args) {
-				return true, errors.New("flag needs an argument: --config-dir")
+				return true, errors.New("flag needs an argument: --workspace")
 			}
 			o.ConfigDir = args[i+1]
 			o.ConfigDirExplicit = true
 			i++
-		case strings.HasPrefix(arg, "--config-dir="):
-			o.ConfigDir = strings.TrimPrefix(arg, "--config-dir=")
+		case strings.HasPrefix(arg, "--workspace="):
+			o.ConfigDir = strings.TrimPrefix(arg, "--workspace=")
 			o.ConfigDirExplicit = true
-		case arg == "op":
-			opArgs := args[i+1:]
-			if len(opArgs) == 0 || opArgs[0] == "--help" || opArgs[0] == "-h" {
-				return false, nil
-			}
-			if strings.TrimSpace(opArgs[0]) == "" {
-				return true, errors.New("op requires a non-empty name")
-			}
-			return true, a.withConfig(o, func(r Options) error {
-				return a.call(r, "op", map[string]any{"name": opArgs[0], "args": opArgs[1:]})
-			})
+		case arg == "op" && opIndex == -1:
+			opIndex = len(passthrough)
+			passthrough = append(passthrough, arg)
 		default:
-			return false, nil
+			passthrough = append(passthrough, arg)
 		}
 	}
-	return false, nil
+	if opIndex == -1 {
+		return false, nil
+	}
+	opArgs := passthrough[opIndex+1:]
+	if len(opArgs) == 0 || opArgs[0] == "--help" || opArgs[0] == "-h" {
+		return false, nil
+	}
+	if strings.TrimSpace(opArgs[0]) == "" {
+		return true, errors.New("op requires a non-empty name")
+	}
+	return true, a.withConfig(o, func(r Options) error {
+		return a.call(r, "op", map[string]any{"name": opArgs[0], "args": opArgs[1:]})
+	})
 }
 
 func (a *App) rootCommand() *cobra.Command {
@@ -119,9 +125,9 @@ func (a *App) rootCommand() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
-	root.PersistentFlags().StringVar(&o.ConfigDir, "config-dir", "", "weaver world config directory")
+	root.PersistentFlags().StringVar(&o.ConfigDir, "workspace", "", "Skein workspace directory")
 	root.PersistentPreRun = func(cmd *cobra.Command, args []string) {
-		o.ConfigDirExplicit = cmd.Flags().Changed("config-dir")
+		o.ConfigDirExplicit = cmd.Flags().Changed("workspace")
 	}
 	initCmd := &cobra.Command{Use: "init", Short: "Bootstrap missing selected config workspace files through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.initCommand(o)
@@ -263,7 +269,7 @@ func (a *App) rootCommand() *cobra.Command {
 	root.AddCommand(op)
 
 	weaver := &cobra.Command{Use: "weaver", Short: "Manage the local weaver"}
-	start := &cobra.Command{Use: "start", Short: "Start the selected world's weaver through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	start := &cobra.Command{Use: "start", Short: "Start the selected workspace's weaver through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		if cmd.Flags().Changed("name") && strings.TrimSpace(name) == "" {
 			return errors.New("--name requires a non-empty value")
@@ -272,15 +278,15 @@ func (a *App) rootCommand() *cobra.Command {
 		r.Name = name
 		return a.millWeaverCommand(r, "weaver-start")
 	}}
-	start.Flags().String("name", "", "friendly name for this weaver (defaults to config-dir basename)")
+	start.Flags().String("name", "", "friendly name for this weaver (defaults to workspace basename)")
 	weaver.AddCommand(start)
-	weaver.AddCommand(&cobra.Command{Use: "status", Short: "Show selected-world weaver status through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	weaver.AddCommand(&cobra.Command{Use: "status", Short: "Show selected workspace weaver status through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.millWeaverCommand(o, "weaver-status")
 	}})
-	weaver.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the selected world's weaver through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	weaver.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the selected workspace's weaver through the local mill", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		return a.millWeaverCommand(o, "weaver-stop")
 	}})
-	repl := &cobra.Command{Use: "repl", Short: "Attach directly to the selected world's live weaver nREPL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	repl := &cobra.Command{Use: "repl", Short: "Attach directly to the selected workspace's live weaver nREPL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		stdin, _ := cmd.Flags().GetBool("stdin")
 		return a.withResolvedConfig(o, func(r Options) error { return a.launchRepl(r, stdin) })
 	}}
@@ -384,7 +390,7 @@ func (a *App) call(o Options, op string, args map[string]any) error {
 func weaverArgs(o Options) []string {
 	args := []string{"-M:skein", "-m", "skein.weaver.runtime"}
 	if o.ConfigDir != "" {
-		args = append(args, "--config-dir", o.ConfigDir)
+		args = append(args, "--workspace", o.ConfigDir)
 	}
 	if o.StateDir != "" {
 		args = append(args, "--state-dir", o.StateDir)
@@ -455,7 +461,7 @@ func (a *App) millWeaverCommand(o Options, operation string) error {
 }
 
 func incompleteDiscoveredWorldError(o Options) error {
-	return fmt.Errorf("selected config-dir %s is missing local source config; source is resolved by mill from SKEIN_SOURCE, installed build source, or canonical Skein checkout cwd", o.ConfigDir)
+	return fmt.Errorf("selected workspace %s is missing local source config; source is resolved by mill from SKEIN_SOURCE, installed build source, or canonical Skein checkout cwd", o.ConfigDir)
 }
 
 func (a *App) launchWeaver(o Options) error {
@@ -527,7 +533,7 @@ func (a *App) launchRepl(o Options, stdin bool) error {
 		return errors.New("malformed mill weaver-repl-context response: missing state")
 	}
 	if state != "running" {
-		return fmt.Errorf("no running weaver for selected world (state: %s); start one with: strand weaver start", state)
+		return fmt.Errorf("no running weaver for selected workspace (state: %s); start one with: strand weaver start", state)
 	}
 	source, ok := status["source"].(string)
 	if !ok || source == "" {

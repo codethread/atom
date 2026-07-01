@@ -61,7 +61,7 @@ vim.api.nvim_create_autocmd("FileType", {
    mill start
    ```
 
-2. Start a weaver in the target Skein world:
+2. Start a weaver in the target Skein workspace:
 
    ```sh
    strand weaver start

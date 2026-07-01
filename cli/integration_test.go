@@ -45,7 +45,7 @@ func TestInitBootstrapsConfigDirWorkspaceThroughMill(t *testing.T) {
 		t.Fatalf("unexpected init.clj bootstrap contents: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(cfg, ".git")); !os.IsNotExist(err) {
-		t.Fatalf("explicit --config-dir init must not run git init, stat err=%v", err)
+		t.Fatalf("explicit --workspace init must not run git init, stat err=%v", err)
 	}
 }
 
@@ -228,7 +228,7 @@ func TestLinkedGitWorktreesShareDefaultWorldAndExplicitConfigDirIsolated(t *test
 	explicitStatus := weaverStatus(t, bin, explicit, linked)
 	for _, key := range []string{"config_dir", "state_dir", "data_dir", "weaver_id"} {
 		if explicitStatus[key] == "" || explicitStatus[key] == mainStatus[key] {
-			t.Fatalf("explicit --config-dir was not isolated for %s: default=%#v explicit=%#v", key, mainStatus, explicitStatus)
+			t.Fatalf("explicit --workspace was not isolated for %s: default=%#v explicit=%#v", key, mainStatus, explicitStatus)
 		}
 	}
 	out, err = outputStrand(bin, explicit, linked, "list")
@@ -259,7 +259,7 @@ func TestTaskAndQueryCommandsRunOutsideCheckoutWithoutSource(t *testing.T) {
 	}
 	bin := buildStrand(t)
 	runDir := shortTempDir(t)
-	weaver := exec.Command(bin, "--config-dir", dir, "weaver", "start")
+	weaver := exec.Command(bin, "--workspace", dir, "weaver", "start")
 	weaver.Dir = runDir
 	var weaverOut bytes.Buffer
 	weaver.Stdout = &weaverOut
@@ -505,7 +505,7 @@ func outputStrand(bin, configDir, cwd string, args ...string) (string, error) {
 
 func outputStrandWithInput(bin, configDir, cwd, stdin string, args ...string) (string, error) {
 	if configDir != "" {
-		args = append([]string{"--config-dir", configDir}, args...)
+		args = append([]string{"--workspace", configDir}, args...)
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = cwd

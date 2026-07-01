@@ -7,7 +7,7 @@
 
 ## SPEC-003.P1 Purpose
 
-The REPL API gives coding agents and human developers a compact interactive Clojure interface over the stripped strand surface and the selected weaver world.
+The REPL API gives coding agents and human developers a compact interactive Clojure interface over the stripped strand surface and the selected weaver workspace.
 
 ## SPEC-003.P2 Interface
 
@@ -39,10 +39,10 @@ weave!
 
 ## SPEC-003.P3 Contracts
 
-- **SPEC-003.C1:** `connect!` selects one active weaver connection by Skein world for explicit Clojure client/test workflows. It requires an explicit selected config-dir and optional state metadata supplied directly by standalone Clojure/test helpers. It never accepts a database path and no longer silently falls back to an XDG global world. Default `strand weaver repl` does not call `connect!`.
-- **SPEC-003.C2:** `strand weaver repl` requires a running `mill`, asks it to resolve the selected world, verify that world's weaver is running, and return nREPL metadata, then attaches the user's terminal to the selected weaver nREPL endpoint. Mill does not proxy nREPL. Any launched attach client is transport/UI only: user forms are evaluated in the weaver JVM, not in a separate local runtime or through the fixed API bridge.
+- **SPEC-003.C1:** `connect!` selects one active weaver connection by Skein workspace for explicit Clojure client/test workflows. It requires an explicit selected workspace and optional state metadata supplied directly by standalone Clojure/test helpers. It never accepts a database path and no longer silently falls back to an XDG global workspace. Default `strand weaver repl` does not call `connect!`.
+- **SPEC-003.C2:** `strand weaver repl` requires a running `mill`, asks it to resolve the selected workspace, verify that workspace's weaver is running, and return nREPL metadata, then attaches the user's terminal to the selected weaver nREPL endpoint. Mill does not proxy nREPL. Any launched attach client is transport/UI only: user forms are evaluated in the weaver JVM, not in a separate local runtime or through the fixed API bridge.
 - **SPEC-003.C3:** `strand weaver repl --stdin` attaches to the selected running weaver nREPL, reads and evaluates top-level stdin forms in the weaver JVM in order, prints one direct normal Clojure result per form, and exits non-zero on read, eval, or transport failure. Callers that want one machine-readable payload should wrap work in one top-level `do` or `let`.
-- **SPEC-003.C4:** Helpers that need a weaver use `@skein.weaver.runtime/current-runtime` when evaluated inside the active weaver JVM. Outside an active weaver process, they fail before connection with remediation that points to `strand weaver repl` or `connect!`; explicit connected helper/client workflows route through the selected world after `connect!`. Weaver/transport failures surface loudly as Clojure exceptions.
+- **SPEC-003.C4:** Helpers that need a weaver use `@skein.weaver.runtime/current-runtime` when evaluated inside the active weaver JVM. Outside an active weaver process, they fail before connection with remediation that points to `strand weaver repl` or `connect!`; explicit connected helper/client workflows route through the selected workspace after `connect!`. Weaver/transport failures surface loudly as Clojure exceptions.
 - **SPEC-003.C5:** `init!` is a trusted idempotent helper for explicit schema initialization/testing. Normal CLI setup does not require calling it because weaver startup prepares empty stores.
 - **SPEC-003.C6:** `strand!` creates a strand and returns the created row. Supported arities include a title alone, title with attributes, and title with options containing optional `:state` and `:attributes`.
 - **SPEC-003.C7:** `update!` accepts a strand id and patch map with optional `:title`, `:state`, `:attributes`, and `:edges`. Generic update accepts `active|closed`; `replaced` is reserved for supersession. Other lifecycle keys are not core strand fields.
@@ -60,7 +60,7 @@ weave!
 - **SPEC-003.C15a:** `declare-acyclic-relation!` declares a valid relation name acyclic in durable storage and is idempotent. It fails loudly if edges of that relation already exist. `acyclic-relations` lists declared acyclic relation names.
 - **SPEC-003.C16:** Blessed spool-workspace helpers live in explicit `skein.runtime.alpha`, not in the preloaded `skein.repl` helper namespace.
 - **SPEC-003.C17:** `skein.runtime.alpha` exposes approved spool config helpers, approved-local-root sync helpers, resilient module activation with `use!`, and weaver-lifetime sync/use introspection.
-- **SPEC-003.C18:** `skein.runtime.alpha` helpers execute against the active `current-runtime` when called inside the live weaver JVM. In explicit connected client/test workflows, they route to the selected weaver world after `connect!`.
+- **SPEC-003.C18:** `skein.runtime.alpha` helpers execute against the active `current-runtime` when called inside the live weaver JVM. In explicit connected client/test workflows, they route to the selected weaver workspace after `connect!`.
 - **SPEC-003.C19:** `skein.runtime.alpha` is the documented spool-workspace path, but trusted users may require lower-level namespaces or read raw SQLite when they accept compatibility cost.
 - **SPEC-003.C20:** `defpattern!` registers a simple pattern name, optional non-blank doc string, fully qualified function symbol, and input spec name in the active weaver's in-memory pattern registry. Supported arities are `(defpattern! name fn-sym input-spec)` and `(defpattern! name doc fn-sym input-spec)`. Duplicate registration replaces the prior entry. The same operations are available through the blessed `skein.patterns.alpha` namespace for trusted startup config, activated spools, and connected REPL workflows.
 - **SPEC-003.C21:** `patterns`, `pattern`, and `pattern-explain` inspect active weaver pattern state. Missing pattern lookup fails loudly. Explanations return serializable caller guidance based on the registered spec.
@@ -89,20 +89,20 @@ Event handlers receive one event map and may perform trusted side effects, inclu
 
 `skein.runtime.alpha` is the blessed alpha namespace for trusted config, live weaver REPL, and explicit connected client spool workspace workflows. It is explicit and is not preloaded into `skein.repl`. Loader/config helpers do not live under `skein.spools.*`; that namespace family is reserved for authorable spools and examples.
 
-Approved spool config is the effective overlay of `spools.edn` and `spools.local.edn` in the selected config-dir. Both files use the same MVP EDN grammar: exactly one top-level key, `:spools`, whose value is a map from symbol spool coordinates to maps containing exactly one required key, `:local/root`, a non-blank string path. Unknown top-level keys, non-symbol coordinates, missing `:spools` in a present file, non-map entries, unknown per-lib keys, and missing/non-string `:local/root` fail loudly as structural config errors. Missing files contribute no spools. When both files define the same coordinate, the `spools.local.edn` entry replaces the `spools.edn` entry.
+Approved spool config is the effective overlay of `spools.edn` and `spools.local.edn` in the selected workspace. Both files use the same MVP EDN grammar: exactly one top-level key, `:spools`, whose value is a map from symbol spool coordinates to maps containing exactly one required key, `:local/root`, a non-blank string path. Unknown top-level keys, non-symbol coordinates, missing `:spools` in a present file, non-map entries, unknown per-lib keys, and missing/non-string `:local/root` fail loudly as structural config errors. Missing files contribute no spools. When both files define the same coordinate, the `spools.local.edn` entry replaces the `spools.edn` entry.
 
-Relative `:local/root` values resolve against selected config-dir; absolute roots are accepted as explicit user-approved paths; leading `~` and `~/` expand to the user home directory. Normalized approved config returns entries shaped as `{lib-symbol {:local/root original-path :root canonical-path :source {:kind :shared|:local :file path}}}`. Per-spool missing or unreadable local roots are not structural config errors; `(runtime-alpha/sync!)` records them as failed sync outcomes so optional module activation can skip without aborting weaver startup.
+Relative `:local/root` values resolve against selected workspace; absolute roots are accepted as explicit user-approved paths; leading `~` and `~/` expand to the user home directory. Normalized approved config returns entries shaped as `{lib-symbol {:local/root original-path :root canonical-path :source {:kind :shared|:local :file path}}}`. Per-spool missing or unreadable local roots are not structural config errors; `(runtime-alpha/sync!)` records them as failed sync outcomes so optional module activation can skip without aborting weaver startup.
 
 Helpers include:
 
 - `(runtime-alpha/approved)` returns normalized approved config.
 - `(runtime-alpha/sync!)` uses Clojure runtime dependency tooling to add approved local roots and returns structured results for loaded, already-available, and failed spools.
 - `(runtime-alpha/syncs)` returns weaver-lifetime approved-spool sync state.
-- `(runtime-alpha/reload!)` clears weaver-lifetime approved-spool sync state, module-use state, named queries, views, patterns, lifecycle hooks, event handlers, queued events, and recent event failures, then reloads selected config-dir startup files in order (`init.clj`, then `init.local.clj`) inside the active weaver and returns loaded file metadata plus final return values. Missing startup files are skipped; present failing files throw with file context. Event dispatch resumes after the fully layered config loads. Reload does not unload already-loaded Clojure namespaces or vars.
+- `(runtime-alpha/reload!)` clears weaver-lifetime approved-spool sync state, module-use state, named queries, views, patterns, lifecycle hooks, event handlers, queued events, and recent event failures, then reloads selected workspace startup files in order (`init.clj`, then `init.local.clj`) inside the active weaver and returns loaded file metadata plus final return values. Missing startup files are skipped; present failing files throw with file context. Event dispatch resumes after the fully layered config loads. Reload does not unload already-loaded Clojure namespaces or vars.
 - `(runtime-alpha/use! key opts)` records one weaver-lifetime module-use attempt under keyword `key`; duplicate keys replace prior state for reload workflows.
 - `(runtime-alpha/uses)` and `(runtime-alpha/use key)` expose weaver-lifetime module-use state.
 
-`use!` options identify exactly one load target with `:ns` for weaver-side namespace loading or `:file` for selected-config-dir-relative weaver-side `load-file`; `:file` must be relative and must resolve within the selected config-dir. For `:ns`, the weaver first searches synced local-root classpath entries from each root's `deps.edn :paths` (defaulting to `["src"]`) and `load-file`s the namespace source using Clojure's hyphen-to-underscore path mapping; if no synced source exists it falls back to ordinary `require`. Options may include `:spools`, a vector or set of symbol spool coordinate keys that must be approved and available before target loading; `:after`, a vector of prior loaded `use!` keys; `:call`, a fully qualified zero-arity function symbol to resolve and call after successful load; and `:required? true` for strict load/call failure behavior.
+`use!` options identify exactly one load target with `:ns` for weaver-side namespace loading or `:file` for selected workspace-relative weaver-side `load-file`; `:file` must be relative and must resolve within the selected workspace. For `:ns`, the weaver first searches synced local-root classpath entries from each root's `deps.edn :paths` (defaulting to `["src"]`) and `load-file`s the namespace source using Clojure's hyphen-to-underscore path mapping; if no synced source exists it falls back to ordinary `require`. Options may include `:spools`, a vector or set of symbol spool coordinate keys that must be approved and available before target loading; `:after`, a vector of prior loaded `use!` keys; `:call`, a fully qualified zero-arity function symbol to resolve and call after successful load; and `:required? true` for strict load/call failure behavior.
 
 Malformed `use!` options always throw. Unmet `:spools` requirements record and return `{:status :skipped ...}` before target loading, with reasons including `:not-approved`, `:not-synced`, or `:sync-failed` when known. Unmet `:after` requirements record and return `{:status :skipped ...}` with reason `:missing-after`. Load or call exceptions record and return `{:status :failed ...}` by default; `:required? true` rethrows after recording. Raw `require` remains the strict fail-fast path for required config.
 
@@ -110,7 +110,7 @@ Maven/remote dependency coordinates, version-range matching, alternate approved-
 
 ## SPEC-003.P6 Example spool init
 
-Selected config-dir startup files (`init.clj`, then `init.local.clj`) may sync approved local roots and activate optional modules:
+Selected workspace startup files (`init.clj`, then `init.local.clj`) may sync approved local roots and activate optional modules:
 
 ```clojure
 (require '[skein.runtime.alpha :as runtime-alpha])
@@ -122,7 +122,7 @@ Selected config-dir startup files (`init.clj`, then `init.local.clj`) may sync a
    :call 'my.module.alpha/install!})
 ```
 
-A selected config-dir `spools.edn` approves local roots:
+A selected workspace `spools.edn` approves local roots:
 
 ```clojure
 {:spools {my/module {:local/root "spools/my-module"}}}

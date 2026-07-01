@@ -67,12 +67,12 @@ func (c *SocketClient) startCommand() string {
 	if c.Config.ConfigDir == "" {
 		return "strand weaver start"
 	}
-	return fmt.Sprintf("strand --config-dir %s weaver start", c.Config.ConfigDir)
+	return fmt.Sprintf("strand --workspace %s weaver start", c.Config.ConfigDir)
 }
 
 func (c *SocketClient) daemonStateError(format string, args ...any) error {
 	message := fmt.Sprintf(format, args...)
-	return fmt.Errorf("%s for selected config-dir %s; start one with: %s", message, c.Config.ConfigDir, c.startCommand())
+	return fmt.Errorf("%s for selected workspace %s; start one with: %s", message, c.Config.ConfigDir, c.startCommand())
 }
 
 func (e *ResponseError) Error() string {

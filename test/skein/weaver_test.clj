@@ -23,11 +23,11 @@
   (let [root (java.io.File/createTempFile "tdx" "")]
     (.delete root)
     (.mkdirs root)
-    (let [config-dir (io/file root "config")
+    (let [workspace (io/file root "config")
           state-dir (io/file root "state")
           data-dir (io/file root "data")]
-      (.mkdirs config-dir)
-      (weaver-config/world (.getCanonicalPath config-dir)
+      (.mkdirs workspace)
+      (weaver-config/world (.getCanonicalPath workspace)
                            (.getCanonicalPath state-dir)
                            (.getCanonicalPath data-dir)))))
 
@@ -192,8 +192,8 @@
 (s/def ::json-pattern-input #(string? (get % "title")))
 (s/def ::never-valid (constantly false))
 
-(defn write-view-lib! [config-dir lib ns-sym]
-  (let [root (io/file config-dir "spools" (name lib))
+(defn write-view-lib! [workspace lib ns-sym]
+  (let [root (io/file workspace "spools" (name lib))
         ns-path (-> (str ns-sym)
                     (.replace \- \_)
                     (.replace \. java.io.File/separatorChar))
@@ -226,24 +226,24 @@
 
 (deftest weaver-world-resolution
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"No Skein config dir selected"
+                        #"No Skein workspace selected"
                         (weaver-config/world)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"No Skein config-dir selected"
+                        #"No Skein workspace selected"
                         (weaver-config/world nil)))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"state-dir"
                         (weaver-config/world "/tmp/config" nil "/tmp/data")))
   (let [root (.getCanonicalFile (.toFile (java.nio.file.Files/createTempDirectory "tdx" (make-array java.nio.file.attribute.FileAttribute 0))))
-        config-dir (.getPath (io/file root "config"))
+        workspace (.getPath (io/file root "config"))
         state-dir (.getPath (io/file root "state"))
         data-dir (.getPath (io/file root "data"))]
-    (is (= {:config-dir config-dir
+    (is (= {:config-dir workspace
             :state-dir state-dir
             :data-dir data-dir
-            :config-file (str config-dir "/config.json")
+            :config-file (str workspace "/config.json")
             :db-path (str data-dir "/skein.sqlite")}
-           (weaver-config/world config-dir state-dir data-dir)))))
+           (weaver-config/world workspace state-dir data-dir)))))
 
 (deftest startup-uses-independent-xdg-world-dirs-and-initializes-storage
   (let [world (temp-world)
@@ -266,12 +266,12 @@
 
 (deftest startup-fails-clearly-when-required-main-dirs-are-missing
   (let [parse-main-args (ns-resolve 'skein.weaver.runtime 'parse-main-args)]
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--config-dir is required"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--workspace is required"
                           (parse-main-args [])))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--state-dir is required"
-                          (parse-main-args ["--config-dir" "/tmp/c" "--data-dir" "/tmp/d"])))
+                          (parse-main-args ["--workspace" "/tmp/c" "--data-dir" "/tmp/d"])))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"--data-dir is required"
-                          (parse-main-args ["--config-dir" "/tmp/c" "--state-dir" "/tmp/s"])))))
+                          (parse-main-args ["--workspace" "/tmp/c" "--state-dir" "/tmp/s"])))))
 
 (deftest startup-failing-init-aborts-before-ready-metadata
   (let [world (temp-world)]
@@ -330,7 +330,7 @@
         (runtime/start! db-file {:world world})
         (is false "expected startup failure")
         (catch clojure.lang.ExceptionInfo e
-          (is (= "Selected config-dir startup file failed to load" (ex-message e)))
+          (is (= "Selected workspace startup file failed to load" (ex-message e)))
           (is (= (.getCanonicalPath (io/file (:config-dir world) "init.local.clj"))
                  (:file (ex-data e))))
           (is (nil? (metadata/read-metadata world)))))
@@ -341,19 +341,19 @@
 (deftest reload-loads-layered-init-files-in-order
   (with-runtime
     (fn [rt _]
-      (let [config-dir (get-in rt [:metadata :config-dir])
-            order-file (io/file config-dir "reload-order.edn")]
-        (spit (io/file config-dir "init.clj")
+      (let [workspace (get-in rt [:metadata :config-dir])
+            order-file (io/file workspace "reload-order.edn")]
+        (spit (io/file workspace "init.clj")
               (str "(spit " (pr-str (str order-file)) " (pr-str [:shared]))\n:shared\n"))
-        (spit (io/file config-dir "init.local.clj")
+        (spit (io/file workspace "init.local.clj")
               (str "(let [xs (read-string (slurp " (pr-str (str order-file)) "))]\n"
                    "  (spit " (pr-str (str order-file)) " (pr-str (conj xs :local))))\n:local\n"))
         (is (= {:status :loaded
                 :files [{:name "init.clj"
-                         :file (.getCanonicalPath (io/file config-dir "init.clj"))
+                         :file (.getCanonicalPath (io/file workspace "init.clj"))
                          :return :shared}
                         {:name "init.local.clj"
-                         :file (.getCanonicalPath (io/file config-dir "init.local.clj"))
+                         :file (.getCanonicalPath (io/file workspace "init.local.clj"))
                          :return :local}]
                 :returns [:shared :local]}
                (api/reload-config! rt)))
@@ -362,20 +362,20 @@
 (deftest reload-failing-local-init-fails-loudly-without-shared-only-state
   (with-runtime
     (fn [rt _]
-      (let [config-dir (get-in rt [:metadata :config-dir])]
+      (let [workspace (get-in rt [:metadata :config-dir])]
         (api/register-query rt 'prior [:= [:attr :owner] "prior"])
         (reset! delivered-events [])
         (api/register-event-handler! rt :prior #{:strand/added} 'skein.weaver-test/capture-event {})
         (api/register-hook! rt :prior #{:payload/received} 'skein.weaver-test/capture-hook {})
-        (spit (io/file config-dir "init.clj")
+        (spit (io/file workspace "init.clj")
               "(require '[skein.weaver.api :as api] '[skein.weaver.runtime :as runtime] '[skein.events.alpha :as events])\n(api/register-query @runtime/current-runtime 'shared [:= [:attr :owner] \"shared\"])\n(events/register! :shared #{:strand/added} 'skein.weaver-test/capture-event)\n(api/enqueue-event! @runtime/current-runtime {:event/type :strand/added :event/id \"shared-only\" :event/at \"2026-06-29T00:00:00Z\" :event/source :test})\n")
-        (spit (io/file config-dir "init.local.clj")
+        (spit (io/file workspace "init.local.clj")
               "(throw (ex-info \"local boom\" {:source :local}))\n")
         (try
           (api/reload-config! rt)
           (is false "expected reload failure")
           (catch clojure.lang.ExceptionInfo e
-            (is (= (.getCanonicalPath (io/file config-dir "init.local.clj"))
+            (is (= (.getCanonicalPath (io/file workspace "init.local.clj"))
                    (:file (ex-data e))))))
         (is (= {} (api/queries rt)))
         (is (= [] (api/event-handlers rt)))
@@ -387,16 +387,16 @@
 (deftest reload-layering-clears-events-and-hooks-before-local-overlay
   (with-runtime
     (fn [rt _]
-      (let [config-dir (get-in rt [:metadata :config-dir])]
+      (let [workspace (get-in rt [:metadata :config-dir])]
         (api/register-event-handler! rt :stale #{:strand/added} 'skein.weaver-test/capture-event {})
         (api/register-hook! rt :stale #{:payload/received} 'skein.weaver-test/capture-hook {})
         (api/register-event-handler! rt :fails #{:strand/added} 'skein.weaver-test/failing-event {})
         (api/enqueue-event! rt (test-event :strand/added "before-reload"))
         (Thread/sleep 250)
         (is (seq (api/recent-event-failures rt)))
-        (spit (io/file config-dir "init.clj")
+        (spit (io/file workspace "init.clj")
               "(require '[skein.events.alpha :as events] '[skein.hooks.alpha :as hooks])\n(events/register! :shared #{:strand/added} 'skein.weaver-test/capture-event)\n(hooks/register! :shared #{:payload/received} 'skein.weaver-test/capture-hook)\n")
-        (spit (io/file config-dir "init.local.clj")
+        (spit (io/file workspace "init.local.clj")
               "(require '[skein.events.alpha :as events] '[skein.hooks.alpha :as hooks])\n(events/register! :local #{:strand/updated} 'skein.weaver-test/capture-event)\n(hooks/register! :local #{:strand/add-before-commit} 'skein.weaver-test/capture-hook)\n")
         (api/reload-config! rt)
         (is (= #{:shared :local} (set (mapv :key (api/event-handlers rt)))))
@@ -1647,7 +1647,7 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"--name requires a non-blank value"
                             ((ns-resolve 'skein.weaver.runtime 'parse-main-args)
-                             ["--config-dir" (:config-dir world)
+                             ["--workspace" (:config-dir world)
                               "--state-dir" (:state-dir world)
                               "--data-dir" (:data-dir world)
                               "--name" "  "])))

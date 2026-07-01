@@ -41,7 +41,7 @@ func resolveLaunchSource(cwd string) (string, error) {
 }
 
 func weaverArgs(world config.World, name string) []string {
-	args := []string{"-M:skein", "-m", "skein.weaver.runtime", "--config-dir", world.ConfigDir, "--state-dir", world.StateDir, "--data-dir", world.DataDir}
+	args := []string{"-M:skein", "-m", "skein.weaver.runtime", "--workspace", world.ConfigDir, "--state-dir", world.StateDir, "--data-dir", world.DataDir}
 	if name != "" {
 		args = append(args, "--name", name)
 	}
@@ -57,7 +57,7 @@ func friendlyName(world config.World, requested string) (string, error) {
 	}
 	base := filepath.Base(world.ConfigDir)
 	if base == "." || base == string(filepath.Separator) || strings.TrimSpace(base) == "" {
-		return "", fmt.Errorf("unable to derive weaver name from config dir %s", world.ConfigDir)
+		return "", fmt.Errorf("unable to derive weaver name from workspace %s", world.ConfigDir)
 	}
 	return base, nil
 }
@@ -84,7 +84,7 @@ func (s *server) startWeaver(req client.MillWorldRequest) (map[string]any, error
 		if !stale {
 			return status, nil
 		}
-		return nil, fmt.Errorf("stale weaver metadata for selected world: %v", status["stale_reason"])
+		return nil, fmt.Errorf("stale weaver metadata for selected workspace: %v", status["stale_reason"])
 	}
 	source, err := resolveLaunchSource(req.CWD)
 	if err != nil {
@@ -216,7 +216,7 @@ func (s *server) stopWeaver(req client.MillWorldRequest) (map[string]any, error)
 		delete(s.children, world.ConfigDir)
 		if status, stale := readStatus(world); status != nil {
 			if !stale {
-				return nil, fmt.Errorf("selected-world weaver is not supervised by this mill")
+				return nil, fmt.Errorf("selected workspace weaver is not supervised by this mill")
 			}
 			cleanupWorldArtifacts(world)
 		}
